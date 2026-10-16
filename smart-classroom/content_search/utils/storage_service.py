@@ -12,6 +12,7 @@ from fastapi import HTTPException, UploadFile
 from typing import Optional
 
 from utils.file_validator import file_validator
+from utils.path_ingest_policy import default_policy
 
 # Stream in 1 MiB chunks so memory stays bounded even for multi-GB uploads.
 _STREAM_CHUNK_SIZE = 1024 * 1024
@@ -149,6 +150,19 @@ class StorageService:
             raise RuntimeError(f"Storage Service is unavailable: {self._error_msg}")
 
         src = pathlib.Path(src_path).expanduser()
+        # Location check before the existence check, so protected directories
+        # cannot be probed for which files exist.
+        try:
+            denied_reason = default_policy().check(src.resolve())
+        except (OSError, RuntimeError):
+            denied_reason = None
+        if denied_reason:
+            logger.warning(f"Ingest rejected: {src_path} is in a protected location ({denied_reason})")
+            return {
+                "validation_error": "Files in this location cannot be added. Copy the file to a regular folder (e.g. Documents) and try again.",
+                "error_type": "invalid_file",
+            }
+
         try:
             src = src.resolve(strict=True)
         except (OSError, RuntimeError):
