@@ -30,8 +30,9 @@ MEMORY_SHORT = "memory_short"        # less free RAM now than this call needs
 RESERVE_CAPPED = "reserve_capped"    # instructions + answer alone exceed half the budget
 FOLD_INCOMPLETE = "fold_incomplete"  # notes still over budget after the fold rounds
 LINE_OVERSIZE = "line_oversize"      # one transcript line is longer than a chunk may be
+ANSWER_LOWERED = "answer_lowered"    # max_new_tokens too large for the budget; a smaller one was used
 
-CODES = (MEMORY_SHORT, RESERVE_CAPPED, FOLD_INCOMPLETE, LINE_OVERSIZE)
+CODES = (MEMORY_SHORT, RESERVE_CAPPED, FOLD_INCOMPLETE, LINE_OVERSIZE, ANSWER_LOWERED)
 
 
 def warnings_path(session_id: str):
@@ -127,6 +128,15 @@ class OverloadWarnings:
             f"The largest {label} is {largest} tokens against the {ceiling} that "
             f"fit: one transcript line could not be packed any tighter.",
             largest=largest, ceiling=ceiling, label=label,
+        )
+
+    def on_answer_lowered(self, configured: int, used: int, budget: int) -> None:
+        self.record(
+            ANSWER_LOWERED,
+            f"max_new_tokens={configured} with the instructions takes more than half "
+            f"of this device's {budget}-token budget, so the summary answer was "
+            f"limited to {used} tokens. Lower max_new_tokens for this device.",
+            configured=configured, used=used, budget=budget,
         )
 
 

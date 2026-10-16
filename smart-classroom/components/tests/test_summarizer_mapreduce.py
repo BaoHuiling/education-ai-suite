@@ -175,6 +175,148 @@ def test_system_prompt_counts_against_the_budget():
         "the reserve must include the rendered system prompt"
 
 
+# ------------------------------------------------------------- board share
+
+def _board(n_lines, words=20):
+    return "\n".join(
+        " ".join(f"board_{i}_{j}" for j in range(words)) for i in range(n_lines)
+    )
+
+
+def _board_calls(handler):
+    from components.board_ocr.board_ocr_service import board_summary_system_prompt
+    from utils.config_loader import config
+
+    system = board_summary_system_prompt(config.app.language)
+    return [c for c in handler.calls if c["messages"][0]["content"] == system]
+
+
+def test_a_board_within_its_share_is_sent_as_is():
+    board = _board(5)
+    _, handler, items, _ = _run(_transcript(10), budget=30_000, board_text=board)
+
+    assert not _board_calls(handler), "a board that fits must not be condensed"
+    assert board in _text(handler.stream_calls[0])
+    assert not [p for p in _progress(items) if p["stage"] == "board"]
+
+
+def test_a_board_over_its_share_is_condensed_before_the_lesson_call():
+    """Board OCR used to ride whole in the lesson call, however large: 50k tokens
+    of it made a 60k-token prompt against a 24k budget."""
+    board = _board(2_000)  # ~42k tokens
+    component, handler, items, _ = _run(_transcript(10), budget=30_000, board_text=board)
+
+    board_calls = _board_calls(handler)
+    assert board_calls, "an oversized board must be condensed"
+    lesson = _text(handler.stream_calls[0])
+    assert "board_1999_0" not in lesson, "the raw board must not reach the lesson call"
+    assert FakeHandler.NOTE in lesson, "the condensed notes stand in for it"
+
+    # The notes' answer limits add up to the share, so they fit by construction.
+    cap = component._board_cap(30_000)
+    assert sum(c["max_new_tokens"] for c in board_calls) <= cap
+    for call in board_calls:
+        prompt = sum(len(m["content"].split()) for m in call["messages"])
+        assert prompt + call["max_new_tokens"] <= 30_000, "a condensing call is over budget"
+
+
+def test_board_progress_precedes_each_condensing_call():
+    _, handler, _, _ = _run(_transcript(10), budget=30_000, board_text=_board(2_000))
+
+    events = [e for e in handler.timeline
+              if e[0] == "generate" and e[1] in _board_calls(handler)
+              or e[0] == "yield" and isinstance(e[1], dict) and e[1].get("stage") == "board"]
+    kinds = [e[0] for e in events]
+    assert kinds == ["yield", "generate"] * (len(kinds) // 2), kinds
+
+
+def test_the_lesson_call_fits_the_budget_however_large_the_board():
+    from utils.config_loader import config
+
+    answer = int(config.models.text_gen.max_new_tokens)
+    for n_lines in (50, 500, 5_000):
+        _, handler, _, _ = _run(_transcript(300), budget=30_000, board_text=_board(n_lines))
+        lesson = handler.stream_calls[0]
+        prompt = sum(len(m["content"].split()) for m in lesson["messages"])
+        assert prompt + answer <= 30_000, f"{n_lines}-line board: {prompt} + {answer}"
+
+
+def test_the_board_share_keeps_the_lesson_reserve_within_half_the_budget():
+    """Past half, usable_tokens caps the reserve and the plan under-counts the call."""
+    component = _component()
+    for budget in (24_000, 30_000, 100_000):
+        cap = component._board_cap(budget)
+        assert component._call_overhead(" ".join(["w"] * cap)) <= budget // 2, budget
+
+
+def test_condensed_notes_over_the_share_are_trimmed_to_it():
+    """A model that writes past its answer limit must not reopen the gap."""
+    long_note = "\n".join(" ".join(f"n{i}_{j}" for j in range(50)) for i in range(400))
+    component, handler, _, _ = _run(_transcript(10), budget=30_000,
+                                    board_text=_board(2_000), note=long_note)
+
+    assert _board_calls(handler), "the board must have been condensed"
+    lesson = handler.stream_calls[0]["messages"][1]["content"]
+    board_part = lesson.split("[BOARD CONTENT]\n", 1)[1]
+    assert len(board_part.split()) <= component._board_cap(30_000)
+    assert component._call_overhead(board_part) <= 30_000 // 2
+
+
+def test_trimming_keeps_whole_lines_and_cuts_a_single_long_one():
+    trim = SummarizerComponent._trim_to_tokens
+    tok = FakeTokenizer()
+    assert trim("a b\nc d\ne f", 4, tok) == "a b\nc d"
+    one = trim(" ".join(f"w{i}" for i in range(100)), 10, tok)
+    assert 0 < len(one.split()) <= 10
+
+
+# ------------------------------------------------------------- answer limit
+
+def _warnings(items):
+    return [i for i in items if isinstance(i, dict) and i.get("event") == "warning"]
+
+
+def _lesson_fits(handler, budget):
+    lesson = handler.stream_calls[0]
+    prompt = sum(len(m["content"].split()) for m in lesson["messages"])
+    return prompt + lesson["max_new_tokens"] <= budget
+
+
+def test_a_configured_answer_that_fits_is_used_as_is():
+    from utils.config_loader import config
+
+    _, handler, items, _ = _run(_transcript(10), budget=30_000, board_text=_board(5))
+    assert handler.stream_calls[0]["max_new_tokens"] == int(config.models.text_gen.max_new_tokens)
+    assert not [w for w in _warnings(items) if w["code"] == "answer_lowered"]
+
+
+def test_a_configured_answer_too_large_falls_back_to_the_default():
+    from utils.config_loader import config
+
+    with patch.object(config.models.text_gen, "max_new_tokens", 20_000):
+        component, handler, items, _ = _run(_transcript(10), budget=30_000,
+                                            board_text=_board(2_000))
+
+    assert handler.stream_calls[0]["max_new_tokens"] == 5120
+    lowered = [w for w in _warnings(items) if w["code"] == "answer_lowered"]
+    assert [(w["configured"], w["used"]) for w in lowered] == [(20_000, 5120)]
+    assert _lesson_fits(handler, 30_000)
+
+
+def test_an_answer_lowered_below_the_default_when_even_that_does_not_fit():
+    """A small device budget: the default alone takes more than half of it."""
+    component, handler, items, _ = _run(_transcript(10), budget=8_000,
+                                        board_text=_board(400))
+
+    used = handler.stream_calls[0]["max_new_tokens"]
+    assert used < 5120
+    lowered = [w for w in _warnings(items) if w["code"] == "answer_lowered"]
+    assert lowered and lowered[0]["used"] == used
+    assert not [w for w in _warnings(items) if w["code"] == "reserve_capped"], \
+        "the lowered answer must keep the reserve within half the budget"
+    assert _lesson_fits(handler, 8_000)
+
+
 def test_a_transcript_that_fits_is_planned_as_no_chunks_at_all():
     """The caller distinguishes "one call" by an empty chunk list, not by len 1."""
     component = _component()
@@ -281,11 +423,13 @@ def test_reduce_progress_precedes_the_streamed_call():
 
 
 def test_map_calls_are_capped_and_reduce_is_not():
-    _, handler, _, _ = _run(_transcript(400), budget=2_000)
+    component, handler, _, _ = _run(_transcript(400), budget=2_000)
 
     for call in handler.map_calls:
         assert call["max_new_tokens"] == 1536, "map notes must be length-capped"
-    assert handler.stream_calls[0]["max_new_tokens"] is None
+    # The reduce call writes the whole summary: it gets the lesson answer limit,
+    # passed explicitly so the call is the size its reserve was planned at.
+    assert handler.stream_calls[0]["max_new_tokens"] == component._lesson_answer_tokens()
 
 
 def test_reduce_prompt_carries_the_notes_not_the_transcript():

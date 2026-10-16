@@ -1,5 +1,8 @@
 from components.base_component import PipelineComponent
-from components.board_ocr.board_ocr_service import read_board_ocr_with_status
+from components.board_ocr.board_ocr_service import (
+    board_summary_system_prompt,
+    read_board_ocr_lines_with_status,
+)
 from utils.runtime_config_loader import RuntimeConfig
 from utils.config_loader import config
 from utils.prompt_loader import load_prompt
@@ -18,6 +21,19 @@ from dataclasses import dataclass, field
 logger = logging.getLogger(__name__)
 
 _MAX_FOLD_ROUNDS = 2
+
+# Share of the whole-lesson call's content budget (what is left once the
+# instructions and the answer are reserved) the board text may take; the rest
+# is the transcript's. Overridable as models.text_gen.chunking.board_max_share.
+_DEFAULT_BOARD_SHARE = 1 / 3
+# Floor for the board's share on a budget too small to honour the share.
+_MIN_BOARD_TOKENS = 512
+# max_new_tokens when text_gen does not set it (text_gen_vlm's default too), and
+# the answer limit fallen back to when the configured one is too large.
+_DEFAULT_ANSWER_TOKENS = 5120
+# Shortest lesson-summary answer worth asking for on a budget too small to fit
+# even the default.
+_MIN_ANSWER_TOKENS = 1024
 
 
 @dataclass
@@ -91,6 +107,9 @@ class SummarizerComponent(PipelineComponent):
         self.session_id = session_id
         self.mode = mode.lower()
         self.board_ocr_partial = False
+        # The whole-lesson call's answer limit for this run, once process() has
+        # checked the configured one against the budget; see _answer_tokens.
+        self._answer_limit = None
         # Overload conditions found while planning are collected here and
         # streamed to the client, because a log file nobody opens is not a
         # warning. Populated by _plan_chunks, drained by process().
@@ -128,11 +147,17 @@ class SummarizerComponent(PipelineComponent):
         return StorageManager.read_text_file(path)
 
     def _load_board_ocr_text(self):
+        """Board OCR as its distinct lines, one per line of text.
+
+        Each frame repeats most of what is already on the board, so the text is
+        read line-deduplicated rather than frame by frame.
+        """
         try:
-            text, status = read_board_ocr_with_status(self.session_id)
+            lines, status = read_board_ocr_lines_with_status(self.session_id)
         except Exception as e:
             logger.warning(f"Could not load board OCR text: {e}")
             return ""
+        text = "\n".join(lines)
         self.board_ocr_partial = bool(text) and status not in ("done", "not_started")
         if self.board_ocr_partial:
             logger.warning(
@@ -276,9 +301,141 @@ class SummarizerComponent(PipelineComponent):
         )
         if board_text:
             overhead += text_chunker.count_tokens(board_text, tokenizer)
-        return overhead + int(
-            getattr(config.models.text_gen, "max_new_tokens", 5120)
+        return overhead + self._lesson_answer_tokens()
+
+    @staticmethod
+    def _configured_answer_tokens():
+        return int(getattr(config.models.text_gen, "max_new_tokens", _DEFAULT_ANSWER_TOKENS))
+
+    def _lesson_answer_tokens(self):
+        """The whole-lesson call's answer limit: this run's checked one, else as configured."""
+        if self._answer_limit is not None:
+            return self._answer_limit
+        return self._configured_answer_tokens()
+
+    def _answer_tokens(self, budget):
+        """Return the answer limit the whole-lesson call can afford on ``budget``.
+
+        ``max_new_tokens`` as configured, unless the instructions, that answer
+        and the board's minimum share already pass half the budget -- past which
+        ``usable_tokens`` caps the reserve, and the plan sizes the transcript
+        against a smaller call than the one sent. Then the default, and if even
+        that does not fit, what does; either way with a warning.
+        """
+        configured = self._configured_answer_tokens()
+        system = text_chunker.count_tokens(
+            self._get_system_prompt(has_board=True), self._tokenizer()
         )
+        room = budget // 2 - system - _MIN_BOARD_TOKENS
+        if configured <= room:
+            return configured
+        answer = (_DEFAULT_ANSWER_TOKENS if _DEFAULT_ANSWER_TOKENS <= room
+                  else max(_MIN_ANSWER_TOKENS, room))
+        recorded = len(self.warnings.records)
+        self.warnings.on_answer_lowered(configured, answer, budget)
+        if len(self.warnings.records) > recorded:
+            logger.warning(
+                "max_new_tokens=%d does not fit half of the %d-token budget with the "
+                "%d-token instructions; the summary answer is limited to %d tokens.",
+                configured, budget, system, answer,
+            )
+        return answer
+
+    def _board_cap(self, budget):
+        """Return the tokens the board text may take in the whole-lesson call.
+
+        A share of what that call has left after its instructions and answer,
+        and never more than keeps its reserve within half the budget: past that
+        ``usable_tokens`` caps the reserve, and the plan would size the
+        transcript against a smaller call than the one actually sent.
+        """
+        system = text_chunker.count_tokens(
+            self._get_system_prompt(has_board=True), self._tokenizer()
+        )
+        answer = self._answer_tokens(budget)
+        share = float(getattr(self._chunking_config(), "board_max_share",
+                              _DEFAULT_BOARD_SHARE))
+        by_share = int((budget - system - answer) * share)
+        by_reserve = budget // 2 - system - answer
+        return max(_MIN_BOARD_TOKENS, min(by_share, by_reserve))
+
+    def _fit_board_text(self, board_text, budget):
+        """Return board text that fits its share of the lesson call.
+
+        A generator, driven with ``yield from``: condensing is model work, and
+        the client is told about each call as for the map stage.
+
+        Board OCR can outweigh the transcript several times over, and it rides
+        whole in the single-shot and reduce calls, so unchecked it sets the size
+        of the largest call -- and the GPU memory that call takes. Text over the
+        share is condensed segment by segment into notes whose answer lengths
+        add up to the share, so the result fits by construction.
+        """
+        if not board_text:
+            return board_text
+        tokenizer = self._tokenizer()
+        cap = self._board_cap(budget)
+        size = text_chunker.count_tokens(board_text, tokenizer)
+        if size <= cap:
+            return board_text
+
+        system = board_summary_system_prompt(config.app.language)
+        # A condensing call holds its instructions, its segment and, at most,
+        # the whole share as its answer.
+        reserve = text_chunker.count_tokens(system, tokenizer) + cap
+        segments = text_chunker.chunk_lines(
+            board_text.splitlines(),
+            budget_tokens=budget,
+            overlap_lines=0,
+            tokenizer=tokenizer,
+            reserve_tokens=reserve,
+            label="board segment",
+            on_cap=self.warnings.on_cap,
+            on_oversize=self.warnings.on_oversize,
+        )
+        per_segment = max(1, cap // len(segments))
+        notes = []
+        for segment in segments:
+            yield {"event": "progress", "stage": "board",
+                   "chunk": segment.index + 1, "chunks": segment.total}
+            raw = self.summarizer.generate(
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": segment.text},
+                ],
+                stream=False,
+                max_new_tokens=per_segment,
+                enable_thinking=False,
+            )
+            note = str(raw).strip()
+            if note:
+                notes.append(note)
+        condensed = "\n".join(notes)
+        # The answer limits bound each note, not the newlines joining them nor a
+        # re-tokenisation of what came back, so check the sum before relying on it.
+        if text_chunker.count_tokens(condensed, tokenizer) > cap:
+            condensed = self._trim_to_tokens(condensed, cap, tokenizer)
+        logger.info(
+            "Board text for session %s holds %d tokens against its %d-token share; "
+            "condensed in %d call(s) to %d tokens.",
+            self.session_id, size, cap, len(segments),
+            text_chunker.count_tokens(condensed, tokenizer),
+        )
+        return condensed
+
+    @staticmethod
+    def _trim_to_tokens(text, limit, tokenizer):
+        """Cut text to at most ``limit`` tokens: whole lines from the end first,
+        then the last line itself."""
+        lines = text.splitlines()
+        while len(lines) > 1 and text_chunker.count_tokens("\n".join(lines), tokenizer) > limit:
+            lines.pop()
+        text = "\n".join(lines)
+        size = text_chunker.count_tokens(text, tokenizer)
+        while text and size > limit:
+            text = text[: max(0, int(len(text) * limit / size) - 1)]
+            size = text_chunker.count_tokens(text, tokenizer)
+        return text
 
     @staticmethod
     def _segment_header(chunk):
@@ -408,9 +565,14 @@ class SummarizerComponent(PipelineComponent):
             chunks, budget, reserve = [], 0, 0
             cfg = self._chunking_config()
             if cfg is not None and bool(getattr(cfg, "enabled", True)):
+                planned = len(self.warnings.records)
+                lesson_budget = self._prompt_budget()
+                # Settled before anything is sized: the reserve, the board's
+                # share and the call itself must all use the same answer limit.
+                self._answer_limit = self._answer_tokens(lesson_budget)
+                board_text = yield from self._fit_board_text(board_text, lesson_budget)
                 # input_tokens is the transcript as read; summing the chunks
                 # would count the overlap lines twice.
-                planned = len(self.warnings.records)
                 chunks, budget, reserve, run.input_tokens = self._plan_chunks(
                     input_text, board_text
                 )
@@ -452,7 +614,8 @@ class SummarizerComponent(PipelineComponent):
 
             run.reduce_start = time.perf_counter()
             # Reasoning is already filtered out of the stream by generate().
-            for token in self.summarizer.generate(messages=messages, enable_thinking=False):
+            for token in self.summarizer.generate(messages=messages, enable_thinking=False,
+                                                  max_new_tokens=self._lesson_answer_tokens()):
                 if not run.first_token:
                     run.first_token = time.perf_counter()
                 raw_tokens.append(token)
