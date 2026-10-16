@@ -39,6 +39,15 @@ EXIT_EOS = 0
 EXIT_ERROR = 1
 EXIT_SETUP_FAILED = 2
 
+# Resuming a file source: how long to wait for data to reach the probe, and for
+# preroll at the new position.
+RESUME_TIMEOUT_SEC = 30.0
+# Seeking right up to (or past) the end leaves the pipeline waiting for an EOS
+# that never comes, so a resume point closer to the end than this seeks back to
+# the margin instead; the probe still drops the overlap, and the file runs out
+# into a normal EOS.
+RESUME_END_MARGIN_SEC = 0.5
+
 
 def _parse_args(argv):
     parser = argparse.ArgumentParser(description="Run one DL Streamer pipeline.")
@@ -202,6 +211,65 @@ def _teardown(Gst, pipeline):
     logger.info("Teardown: set_state(NULL) -> %s", result.value_nick)
 
 
+def _resume_at(Gst, pipeline, position_ns, probe_element):
+    """Pre-position a file pipeline at position_ns, leaving it PAUSED.
+
+    Preroll starts decoding from the top of the file, so until the seek lands a
+    probe on probe_element's src pad drops every frame before position_ns;
+    otherwise those frames would reach the metadata files a second time. A plain
+    drop without the seek is no substitute: the segment would still start at 0,
+    and synced sinks would hold the first frame until the clock caught up.
+
+    Raises RuntimeError when the pipeline cannot be positioned.
+    """
+    element = pipeline.get_by_name(probe_element)
+    if element is None:
+        raise RuntimeError(f"resume probe element '{probe_element}' not found")
+    pad = element.get_static_pad("src")
+    data_flowing = threading.Event()
+    drop_before = [position_ns]  # mutable: lowered below for a point past the end
+
+    def _drop_early(_pad, info):
+        data_flowing.set()
+        buf = info.get_buffer()
+        if buf is not None and buf.pts != Gst.CLOCK_TIME_NONE and buf.pts < drop_before[0]:
+            return Gst.PadProbeReturn.DROP
+        return Gst.PadProbeReturn.OK
+
+    probe_id = pad.add_probe(Gst.PadProbeType.BUFFER, _drop_early)
+    if pipeline.set_state(Gst.State.PAUSED) == Gst.StateChangeReturn.FAILURE:
+        raise RuntimeError("set_state PAUSED failed")
+    # The seek needs the demuxer and decoder running; the first frame at the
+    # probe says they are.
+    if not data_flowing.wait(RESUME_TIMEOUT_SEC):
+        raise RuntimeError(f"no decoded frame within {RESUME_TIMEOUT_SEC:.0f}s")
+
+    ok, duration = pipeline.query_duration(Gst.Format.TIME)
+    margin = int(RESUME_END_MARGIN_SEC * Gst.SECOND)
+    seek_ns = position_ns
+    if ok and duration > margin and position_ns > duration - margin:
+        seek_ns = duration - margin
+        logger.info("Resume point %.1fs is within %.1fs of the end (%.1fs); seeking to %.1fs",
+                    position_ns / Gst.SECOND, RESUME_END_MARGIN_SEC,
+                    duration / Gst.SECOND, seek_ns / Gst.SECOND)
+        if position_ns >= duration:
+            # Nothing would pass the probe, and an RTSP sink that never sees a
+            # frame never finishes on EOS. Let the tail through: at most the
+            # margin is written twice, which beats a hang.
+            drop_before[0] = seek_ns
+
+    if not pipeline.seek_simple(Gst.Format.TIME,
+                                Gst.SeekFlags.FLUSH | Gst.SeekFlags.ACCURATE, seek_ns):
+        raise RuntimeError(f"seek to {seek_ns / Gst.SECOND:.1f}s failed")
+    ret, _state, _pending = pipeline.get_state(int(RESUME_TIMEOUT_SEC * Gst.SECOND))
+    if ret == Gst.StateChangeReturn.FAILURE:
+        raise RuntimeError("preroll after seek failed")
+    if seek_ns == drop_before[0]:
+        # Every frame from here is past the drop threshold; drop the per-frame callback.
+        pad.remove_probe(probe_id)
+    logger.info("Resumed at %.1fs", position_ns / Gst.SECOND)
+
+
 class _StopState:
     """Stop request plus the deadline for EOS to make it through the pipeline."""
 
@@ -287,6 +355,17 @@ def main(argv=None):
         threading.Thread(
             target=_watch_for_stop, args=(conn, _on_stop), daemon=True, name="ipc-reader"
         ).start()
+
+        resume_ns = request.get("start_position_ns")
+        if resume_ns:
+            try:
+                _resume_at(Gst, pipeline, int(resume_ns), request["resume_probe_element"])
+            except Exception as e:
+                logger.error("Resume at %.1fs failed: %s", int(resume_ns) / Gst.SECOND, e)
+                conn.send({"ev": "error", "element": None,
+                           "message": f"Resume failed: {e}", "debug": "runner resume"})
+                pipeline.set_state(Gst.State.NULL)
+                return EXIT_ERROR
 
         if pipeline.set_state(Gst.State.PLAYING) == Gst.StateChangeReturn.FAILURE:
             error = _drain_error(Gst, pipeline)

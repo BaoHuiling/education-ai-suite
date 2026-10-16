@@ -32,10 +32,22 @@ CONNECT_TIMEOUT_SEC = 90.0
 class PipelineRunnerClient:
     """Spawns and supervises one pipeline_runner child."""
 
-    def __init__(self, pipeline_name: str, description: str, log_handle):
+    def __init__(
+        self,
+        pipeline_name: str,
+        description: str,
+        log_handle,
+        start_position_ns: Optional[int] = None,
+        resume_probe_element: Optional[str] = None,
+    ):
+        """start_position_ns resumes a file source there instead of at the top;
+        resume_probe_element names the element after the decoder that the runner
+        guards so no earlier frame reaches the sinks while it seeks."""
         self.pipeline_name = pipeline_name
         self.description = description
         self._log_handle = log_handle
+        self.start_position_ns = start_position_ns
+        self.resume_probe_element = resume_probe_element
 
         self._listener: Optional[Listener] = None
         self._conn = None
@@ -91,7 +103,11 @@ class PipelineRunnerClient:
 
         try:
             self._accept_with_timeout(CONNECT_TIMEOUT_SEC)
-            self._conn.send({"description": self.description})
+            self._conn.send({
+                "description": self.description,
+                "start_position_ns": self.start_position_ns,
+                "resume_probe_element": self.resume_probe_element,
+            })
             threading.Thread(
                 target=self._read_events,
                 daemon=True,
@@ -101,6 +117,12 @@ class PipelineRunnerClient:
         except Exception:
             self._cleanup_transport()
             self.kill()
+            # Reap the child before raising: callers decide whether every
+            # pipeline has finished from poll(), which reads None until it is.
+            try:
+                self._process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                logger.warning(f"Runner for '{self.pipeline_name}' did not exit within 10s of kill")
             raise
 
     def _accept_with_timeout(self, timeout: float) -> None:

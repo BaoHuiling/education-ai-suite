@@ -40,6 +40,11 @@ RTSP_MIN_GOP_FRAMES = 15
 # Upper bound (width, height) on the RTSP output.
 RTSP_OUTPUT_MAX_RESOLUTION = (1920, 1080) # (1280, 720)
 
+# Name given to the element right after the decoder. A file pipeline resumed
+# after a restart is guarded there so no frame before the resume point reaches
+# the sinks.
+RESUME_PROBE_ELEMENT = "va_decoded"
+
 class PipelineName(Enum):
     """Enumeration of pipeline names"""
 
@@ -106,6 +111,18 @@ class VideoAnalyticsPipelineService:
         # calling the launch failed.
         self.pipeline_ready_timeout = 60.0
 
+        # Stall watchdog. A runner that is alive but has stopped growing any one
+        # of its metadata files for this long is killed, which hands it to the
+        # same restart / give-up path as an unexpected exit.
+        self.pipeline_stall_timeout = 60.0
+        # Allowance for the first metadata write after PLAYING (model compile,
+        # warm-up) before the stall timeout applies.
+        self.pipeline_startup_grace = 120.0
+        # pipeline_name -> {metadata file: (bytes, monotonic time they last changed, allowed idle seconds)}
+        self.pipeline_progress: Dict[str, Dict[Path, tuple]] = {}
+        # pipeline_name -> why the watchdog killed it; reported as the exit's error.
+        self.pipeline_stall_reasons: Dict[str, str] = {}
+
         # "eos" (normal), "failed" (gave up after max retries), or "stopped" (manual stop).
         self.pipeline_final_status: Dict[str, str] = {}
 
@@ -165,6 +182,10 @@ class VideoAnalyticsPipelineService:
         os.environ["GST_DEBUG"] = (
             "GVA_common:2,gvaposturedetect:4,gvareid:4,gvaroifilter:4"
         )
+        # Debugging: prefixing "*:1," surfaces the GST_ERROR_OBJECT lines of
+        # elements that fail without posting a bus error (e.g. mfh264enc
+        # "Failed to process input" under GPU memory pressure).
+        # os.environ["GST_DEBUG"] = "*:1," + os.environ["GST_DEBUG"]
         # Comment out to use d3d12 decoders as d3d11 decoder + gvawatermark + encoder causes crash
         # os.environ["GST_PLUGIN_FEATURE_RANK"] = "d3d11h264dec:max,d3d11h265dec:max"
 
@@ -220,6 +241,7 @@ class VideoAnalyticsPipelineService:
             "video/x-raw(memory:D3D12Memory)",
             "!",
             "d3d12download",
+            f"name={RESUME_PROBE_ELEMENT}",
             "!",
         ]
 
@@ -428,7 +450,8 @@ class VideoAnalyticsPipelineService:
                 else:
                     # Unexpected exit — record error for status reporting
                     error_detail = (
-                        process.error_text()
+                        self.pipeline_stall_reasons.pop(pipeline_name, None)
+                        or process.error_text()
                         or f"Pipeline exited with code {process.returncode}"
                     )
                     if pipeline_name not in self.pipeline_errors:
@@ -473,8 +496,16 @@ class VideoAnalyticsPipelineService:
                         params = self.pipeline_params.get(pipeline_name)
                         if params:
                             try:
+                                # A file replayed from the top would write every
+                                # frame twice; pick it up where it stopped.
+                                start_ns = (
+                                    self._prepare_resume(pipeline_name)
+                                    if params.get("input_type") == "file"
+                                    else None
+                                )
                                 self._launch_pipeline_internal(
-                                    pipeline_name, params["options"], params["description"]
+                                    pipeline_name, params["options"], params["description"],
+                                    start_position_ns=start_ns,
                                 )
                             except Exception as e:
                                 self.logger.error(
@@ -501,10 +532,160 @@ class VideoAnalyticsPipelineService:
                         self._finalize_pipeline(pipeline_name, "failed")
                         break
 
+            elif not stop_flag.is_set():
+                stalled = self._find_stalled_output(pipeline_name)
+                if stalled is not None:
+                    path, idle = stalled
+                    reason = f"Pipeline stalled: {path.name} has not grown for {idle:.0f}s"
+                    self.logger.warning(
+                        f"[VA][monitor] '{pipeline_name}' {reason}; killing runner "
+                        f"(PID {process.pid}) to restart it"
+                    )
+                    self.pipeline_stall_reasons[pipeline_name] = reason
+                    # Killing the venv launcher takes the runner child with it.
+                    process.kill()
+                    try:
+                        process.wait(timeout=10)
+                    except Exception:
+                        pass
+
             # Check every 2 seconds
             time.sleep(2)
 
         self.logger.info(f"Monitor thread for pipeline '{pipeline_name}' stopped")
+
+    @staticmethod
+    def _file_size(path: Path) -> int:
+        """Size of a metadata file; a missing file counts as 0."""
+        try:
+            return path.stat().st_size
+        except OSError:
+            return 0
+
+    def _reset_progress(self, pipeline_name: str) -> None:
+        """Restart the stall clocks for a fresh launch, with the startup grace."""
+        now = time.monotonic()
+        self.pipeline_progress[pipeline_name] = {
+            path: (self._file_size(path), now, self.pipeline_startup_grace)
+            for path in self.pipeline_output_files.get(pipeline_name, [])
+        }
+
+    def _find_stalled_output(self, pipeline_name: str) -> Optional[tuple]:
+        """Return (path, idle seconds) of the longest-idle metadata file past its
+        allowance, else None.
+
+        Each file is watched on its own: a branch can die while another keeps
+        writing. DL Streamer inference elements log a failed downstream push
+        and carry on, so a dead encoder behind a tee leaves the process alive
+        and the files ahead of the tee growing. Any size change counts as
+        progress, so a file truncated at relaunch does not read as a stall.
+        """
+        progress = self.pipeline_progress.get(pipeline_name)
+        if not progress:
+            return None
+        now = time.monotonic()
+        worst = None
+        for path, (last_size, changed_at, allowance) in progress.items():
+            size = self._file_size(path)
+            if size != last_size:
+                progress[path] = (size, now, self.pipeline_stall_timeout)
+                continue
+            idle = now - changed_at
+            if idle > allowance and (worst is None or idle > worst[1]):
+                worst = (path, idle)
+        return worst
+
+    @staticmethod
+    def _lines_from_end(path: Path):
+        """Yield (byte offset, line) for each line of a file, last line first.
+
+        Reads backwards in chunks, so finding the tail of a large metadata file
+        costs only the tail. A final line cut short by a killed writer is
+        yielded like any other.
+        """
+        with open(path, "rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            pos = fh.tell()
+            head = b""  # start of the earliest line seen so far, not yet complete
+            while pos > 0:
+                step = min(1 << 20, pos)
+                pos -= step
+                fh.seek(pos)
+                data = fh.read(step) + head
+                parts = data.split(b"\n")
+                offset = pos + len(data)
+                for part in reversed(parts[1:]):
+                    offset -= len(part)
+                    yield offset, part
+                    offset -= 1  # the newline before it
+                head = parts[0]
+            yield 0, head
+
+    @staticmethod
+    def _metadata_timestamp(line: bytes) -> Optional[int]:
+        """Frame timestamp (ns) of one gvametapublish JSON line, or None if unparsable."""
+        try:
+            return int(json.loads(line)["timestamp"])
+        except (ValueError, KeyError, TypeError):
+            return None
+
+    def _last_metadata_timestamp(self, path: Path) -> Optional[int]:
+        for _offset, line in self._lines_from_end(path):
+            if line.strip():
+                ts = self._metadata_timestamp(line)
+                if ts is not None:
+                    return ts
+        return None
+
+    def _trim_metadata_from(self, path: Path, position_ns: int) -> int:
+        """Cut a metadata file back to the frames before position_ns, plus any
+        line cut short. Returns the number of lines removed."""
+        cut = None
+        removed = 0
+        for offset, line in self._lines_from_end(path):
+            if not line.strip():
+                cut = offset
+                continue
+            ts = self._metadata_timestamp(line)
+            if ts is not None and ts < position_ns:
+                break
+            cut = offset
+            removed += 1
+        if cut is not None:
+            with open(path, "r+b") as fh:
+                fh.truncate(cut)
+        return removed
+
+    def _prepare_resume(self, pipeline_name: str) -> Optional[int]:
+        """Pick a restarted file pipeline up where it stopped instead of replaying it.
+
+        The resume point is the earliest of the metadata files' last timestamps,
+        i.e. how far the slowest branch got. Every file is cut back to it, so the
+        relaunch writes each frame from there on exactly once. A file with no
+        frames yet puts the resume point at the top, and the files are emptied.
+
+        Returns:
+            Resume position in ns, or None to start from the top.
+        """
+        files = self.pipeline_output_files.get(pipeline_name, [])
+        if not files:
+            return None
+        try:
+            lasts = [
+                self._last_metadata_timestamp(p) if p.exists() else None
+                for p in files
+            ]
+            position = min(0 if ts is None else ts for ts in lasts)
+            removed = sum(self._trim_metadata_from(p, position) for p in files if p.exists())
+        except OSError as e:
+            # Better a replay with duplicated frames than no restart at all.
+            self.logger.error(f"[VA][monitor] cannot prepare resume for '{pipeline_name}': {e}")
+            return None
+        self.logger.info(
+            f"[VA][monitor] '{pipeline_name}' resumes at {position / 1e9:.1f}s; "
+            f"cut {removed} metadata lines at or past it"
+        )
+        return position or None
 
     def _finalize_pipeline(self, pipeline_name: str, status: str) -> None:
         """Record a pipeline's terminal status, then fire the all-done callback.
@@ -550,7 +731,11 @@ class VideoAnalyticsPipelineService:
             self.logger.warning("[VA][done] no on_all_pipelines_done callback configured")
 
     def _launch_pipeline_internal(
-        self, pipeline_name: str, options: PipelineOptions, description: str
+        self,
+        pipeline_name: str,
+        options: PipelineOptions,
+        description: str,
+        start_position_ns: Optional[int] = None,
     ) -> bool:
         """
         Internal method to launch pipeline (used for initial launch and restarts)
@@ -559,6 +744,7 @@ class VideoAnalyticsPipelineService:
             pipeline_name: Name of pipeline
             options: Pipeline options
             description: gst-parse pipeline description string
+            start_position_ns: resume a file source here instead of at the top
 
         Returns:
             True if pipeline launched successfully, False otherwise
@@ -575,7 +761,11 @@ class VideoAnalyticsPipelineService:
             log_file = log_dir / f"{pipeline_name}_{int(time.time())}.log"
             log_handle = open(log_file, "w", buffering=1)  # Line buffered
 
-            runner = PipelineRunnerClient(pipeline_name, description, log_handle)
+            runner = PipelineRunnerClient(
+                pipeline_name, description, log_handle,
+                start_position_ns=start_position_ns,
+                resume_probe_element=RESUME_PROBE_ELEMENT,
+            )
 
             # Store handle, log file, and log handle before starting so a
             # failure mid-handshake still leaves the state cleanable.
@@ -585,6 +775,7 @@ class VideoAnalyticsPipelineService:
 
             # Blocks until the pipeline reports PLAYING on its bus
             runner.start(ready_timeout=self.pipeline_ready_timeout)
+            self._reset_progress(pipeline_name)
 
             self.logger.info(
                 f"Pipeline '{pipeline_name}' started with PID: {runner.pid}"
@@ -949,6 +1140,7 @@ class VideoAnalyticsPipelineService:
             self.pipeline_params[pipeline_name] = {
                 "options": options,
                 "description": description,
+                "input_type": input_type,
             }
 
             # Initialize retry count
