@@ -53,7 +53,7 @@ A source checkpoint is not runtime-ready IR. Each accelerated profile must provi
 
 **Implemented:** the Qwen3-VL-8B Eagle3 profile pins drafter `AQ-MedAI/Qwen3-VL-8B-Instruct-eagle3` at commit `29ffa460d80e1d88a015902ae0333ff87ffe3184` (MIT), downloads only its configuration and weight files, and exports it to INT4 IR (259 MB) with optimum-intel 2.2.0's Eagle3 classes under an export-only transformers 4.57.6 (no repository code). The ordinary target IR is used unchanged. The tested defaults are `num_assistant_tokens: 4` (range 1–8), OpenVINO GenAI 2026.4 or later, the runtime's default KV-cache precision, `GPU_QUEUE_PRIORITY: MEDIUM` for this pipeline (a LOW queue cancels the speedup), and a scheduler with `max_num_seqs: 1` and prefix caching off. The drafter predicts English only, so the profile is qualified for `app.language: en` only; with `zh`, `auto` keeps the plain pipeline and `"on"` fails at startup.
 
-**Implemented:** the Qwen3.5-9B MTP profile (INT4 and INT8) uses the target repository's bundled `openvino_mtp_model.xml`/`.bin`; there is no separate drafter download or revision. OpenVINO GenAI 2026.4.1 or later loads the head into the same `VLMPipeline` as the target, so image requests keep working. The defaults are `num_assistant_tokens: 2` (range 1–15), `GPU_QUEUE_PRIORITY: MEDIUM` for this pipeline, the runtime's default KV-cache precision, and a scheduler with `max_num_seqs: 1` and prefix caching off. In single replayed English lessons at equal queue priority, k=2 was the only window that kept up with plain generation, and the lesson's text generation still took 11% longer than plain; see the [serving guide](../vlm-llm-serving/serving-guide.md#mtp-for-qwen35-9b) for the measurements.
+**Implemented:** the Qwen3.5-9B MTP profile (INT4 and INT8) uses the target repository's bundled `openvino_mtp_model.xml`/`.bin`; there is no separate drafter download or revision. OpenVINO GenAI 2026.4.1 or later loads the head into the same `VLMPipeline` as the target, so image requests keep working. The defaults are `num_assistant_tokens: 2` (range 1–15), `GPU_QUEUE_PRIORITY: MEDIUM` for this pipeline, the runtime's default KV-cache precision, and a scheduler with `max_num_seqs: 1` and prefix caching off. In replayed English lessons at equal queue priority, k=2 was the only window that kept up with plain generation, and MTP was still not a net gain.
 
 ## 3. Architecture
 
@@ -408,21 +408,16 @@ Record the exact hardware, artifacts, runtime and driver versions, and workload 
   - Qwen3.6-35B-A3B INT4 with DFlash.
 - **DFlash performance:** `context_bench` measured DFlash for Qwen3.6 INT4 on the same machine.
 - **Eagle3, end to end on Arc 140T** (Qwen3-VL-8B INT4, `mode: auto`):
-  - first start downloaded, exported and validated the drafter (`prepare_s` about 110 s); later starts reused it (`prepare_s` 0.05 s);
-  - EvalScope A-OKVQA (20 requests, greedy, streamed): 18.1 vs 13.2 tok/s decode (1.37x), accuracy 18/20 vs 20/20 plain;
+  - first start downloaded, exported and validated the drafter; later starts reused it;
   - image streaming with usage, `length` finish, `temperature: 0.7` -> HTTP 400, client cancel, tool round trip, and streamed and `required` tool calls all passed;
   - an unreachable Hub fell back to plain under `auto` (reason in `/health`) and failed startup under `"on"`; a Qwen3-VL-4B drafter given as `draft_source: local` failed startup (hidden size 2560 vs 4096);
-  - Chinese classroom summaries gained nothing (offline, 10K-token prompt: plain 13.4 tok/s; AQ drafter 6.1, taobao-mnn drafter 7.2, both accepting under 1.4 tokens per step; the paged pipeline without drafting decodes like plain but takes ~30% longer to the first token), hence the `en`-only qualification.
+  - Chinese classroom summaries gained nothing (both the AQ and the taobao-mnn drafter were slower than plain), hence the `en`-only qualification.
 - **Qwen3.5-9B MTP, end to end on Arc 140T** (INT4, GenAI 2026.4.1, `mode: "on"`, one replayed English lesson per setting):
   - `/health` reported `effective_method: mtp`; streamed text and an image question both worked;
-  - k=5 with a LOW queue: summary 9.46 tok/s, the same as plain at LOW (32% of drafts accepted);
-  - MEDIUM queue, summary decode: plain 13.45 tok/s; MTP k=2 13.44 (64% accepted), k=3 12.13 (49%), k=5 11.79 (32%);
-  - k=2 decoded 1.06–1.15x faster than plain on mind map, report and one topic-segmentation call, but the other segmentation call's acceptance fell to 8% (6.83 vs 13.12 tok/s);
-  - MTP added about 4 s to the summary's time to first token (26.4 vs 22.3 s), and the lesson's text generation took 436 s vs 393 s plain.
-- **Qwen3.5-9B DFlash, offline on Arc 140T** (INT4 and INT8, GenAI 2026.4.1, greedy, 512 tokens, MEDIUM queue, plain = stateful pipeline):
-  - first start downloaded (2.6 GB), exported and validated the drafter in about 165 s; the stock target IR already carried `hidden_states_decoder_layers`, so no derived target was created;
-  - INT4, k=5 decode: 8K English summary 22.0 vs 13.4 tok/s plain (1.64x), 8K Chinese summary 21.0 vs 15.4 (1.37x; MTP k=2 15.4), chat 1.81x, code 2.15x; k=7 matched k=5 on summaries;
-  - INT8 reused the drafter export (only its own lm_head copy was built, 14 s); k=5 decode: 8K English summary 15.7 vs 9.1 tok/s plain (1.72x), 8K Chinese summary 14.1 vs 9.1 (1.55x; MTP k=2 11.3), chat 1.75x, code 2.18x; k=7 about 10% faster than k=5 on every task, hence the INT8 default k=7; output matched plain almost exactly;
+  - at equal queue priority, MTP was not a net gain over plain for the lesson's text generation.
+- **Qwen3.5-9B DFlash on Arc 140T** (INT4 and INT8, GenAI 2026.4.1):
+  - first start downloaded, exported and validated the drafter; the stock target IR already carried `hidden_states_decoder_layers`, so no derived target was created; INT8 reused the drafter export and built only its own lm_head copy;
+  - offline, DFlash decoded faster than plain and MTP on both precisions, English and Chinese; on INT8 k=7 was faster than k=5, hence the INT8 default k=7;
   - through `VLMTextGen` (`mode: "on"`, INT4 and INT8): `/health` reported `effective_method: dflash`; text, JSON-schema and image requests worked, and `temperature: 0.7` was rejected.
 
 The Arrow Lake and Panther Lake matrix above remains planned.
