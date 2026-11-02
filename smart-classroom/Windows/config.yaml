@@ -88,7 +88,8 @@ models:
     # Speculative decoding, opt-in. method: auto selects the profile of vlm_name:
     #   Qwen/Qwen3-VL-8B-Instruct int4 -> eagle3 (drafter AQ-MedAI/Qwen3-VL-8B-Instruct-eagle3),
     #         app.language en only; with zh the plain pipeline is used (auto) or startup fails ("on")
-    #   Qwen/Qwen3.5-9B int4/int8       -> target-bundled MTP (openvino_mtp_model.xml)
+    #   Qwen/Qwen3.5-9B int4/int8       -> dflash (drafter z-lab/Qwen3.5-9B-DFlash);
+    #         draft_source: target selects the bundled MTP head (openvino_mtp_model.xml)
     #   Qwen/Qwen3.6-35B-A3B int4      -> dflash (drafter z-lab/Qwen3.6-35B-A3B-DFlash)
     # mode: "auto" falls back to plain when speculative artifacts cannot be prepared; "on"
     # requires it; "off" is plain generation and ignores the other fields. While active, requests
@@ -100,7 +101,7 @@ models:
       draft_source: null    # null = profile default | huggingface | local | target (bundled MTP)
       draft_model: null     # null = profile default; MTP always uses the target's bundled head
       draft_revision: null  # null = the tested pinned commit; a full 40-char commit overrides it
-      num_assistant_tokens: null  # null = profile default: eagle3 4, dflash 5, mtp 2
+      num_assistant_tokens: null  # null = profile default: eagle3 4, dflash 5 (7 for Qwen3.5-9B int8), mtp 2
 
     chunking:
       enabled: true                  # false = summarize the whole transcript in one pass

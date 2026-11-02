@@ -329,7 +329,7 @@ def _prepare_speculative(plan: TextGenPlan, target_dir: Path) -> PreparedSpecula
         validate_dflash_pair(target_dir, draft_dir, settings.num_assistant_tokens)
         derived = ensure_dflash_target(target_dir, draft_dir)
         if settings.source != "local":  # a local drafter is used exactly as given
-            draft_dir = ensure_draft_head(target_dir, draft_dir)
+            draft_dir = ensure_draft_head(target_dir, draft_dir, plan.weight_format)
         return PreparedSpeculative(settings, derived, draft_dir, revision)
     if settings.method == "eagle3":
         # The runtime taps the target's hidden states itself: the ordinary
@@ -693,7 +693,8 @@ _HEAD_GROUP = 128
 _HEAD_CHUNK_ROWS = 16384  # rows requantized at once; an f32 copy of the whole head is 2 GB
 
 
-def ensure_draft_head(target_dir: Path, draft_dir: Path) -> Path:
+def ensure_draft_head(target_dir: Path, draft_dir: Path,
+                      target_weight: Optional[str] = None) -> Path:
     """Return a drafter that carries its own int4 lm_head, built from the target's.
 
     An exported DFlash drafter ends at ``last_hidden_state``, so the runtime
@@ -703,8 +704,13 @@ def ensure_draft_head(target_dir: Path, draft_dir: Path) -> Path:
     symmetric, half the bytes. In context_bench this made verification passes
     2-7% cheaper with acceptance unchanged. Rebuilt when the target or drafter
     IR changes; if it cannot be built, the stock drafter is used.
+
+    The head belongs to the target: a target of another precision than the
+    drafter export (``target_weight``) gets its own ``<draft>-lmhead-<weight>``,
+    so switching precisions neither rebuilds nor sets aside the other one.
     """
-    derived = draft_dir.with_name(draft_dir.name + "-lmhead")
+    suffix = f"-{target_weight}" if target_weight and target_weight != draft_dir.name else ""
+    derived = draft_dir.with_name(f"{draft_dir.name}-lmhead{suffix}")
     stamp = {
         "target_xml_sha256": sha256_file(target_language_xml(target_dir)),
         "draft_xml_sha256": sha256_file(draft_dir / "openvino_model.xml"),

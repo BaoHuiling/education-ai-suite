@@ -9,7 +9,10 @@ import pytest
 
 from components.vlm.text_gen_profiles import (
     SpeculativeConfigError,
+    SpeculativeProfile,
     SpeculativeUnavailableError,
+    TargetProfile,
+    _auto_method,
     preconverted_repo,
     resolve_plan,
     version_at_least,
@@ -86,9 +89,36 @@ def test_auto_method_selects_catalog_eagle3_for_qwen3_vl_8b():
     assert "KV_CACHE_PRECISION" not in spec.profile.ov_properties
 
 
-@pytest.mark.parametrize("weight", ["int4", "int8"])
-def test_auto_method_selects_target_bundled_mtp_for_qwen35(weight):
+@pytest.mark.parametrize("weight, k", [("int4", 5), ("int8", 7)])
+def test_auto_method_selects_dflash_for_qwen35(weight, k):
     plan = resolve_plan(_text_gen("Qwen/Qwen3.5-9B", weight, {"mode": "auto"}))
+    assert plan.speculative.method == "dflash"
+    assert plan.speculative.draft_model == "z-lab/Qwen3.5-9B-DFlash"
+    # Per-precision default window; an explicit setting still wins.
+    assert plan.speculative.num_assistant_tokens == k
+    plan = resolve_plan(_text_gen("Qwen/Qwen3.5-9B", weight, {
+        "mode": "auto", "num_assistant_tokens": 3}))
+    assert plan.speculative.num_assistant_tokens == 3
+
+
+def test_auto_method_falls_back_to_a_method_covering_the_precision():
+    target = TargetProfile(name="m", ir_repos={}, default_method="dflash", methods={
+        "dflash": SpeculativeProfile(method="dflash", precisions=("int4",)),
+        "mtp": SpeculativeProfile(method="mtp", default_source="target")})
+    assert _auto_method(target, "int4", None) == "dflash"
+    assert _auto_method(target, "int8", None) == "mtp"
+    assert _auto_method(target, "int4", "target") == "mtp"
+    assert _auto_method(target, "fp16", None) == "dflash"  # reported as unqualified
+
+
+@pytest.mark.parametrize("weight, block", [
+    ("int4", {"mode": "auto", "draft_source": "target"}),  # only MTP uses the target's head
+    ("int8", {"mode": "auto", "draft_source": "target"}),
+    ("int4", {"mode": "auto", "method": "mtp"}),
+    ("int8", {"mode": "auto", "method": "mtp"}),
+])
+def test_target_bundled_mtp_for_qwen35(weight, block):
+    plan = resolve_plan(_text_gen("Qwen/Qwen3.5-9B", weight, block))
     spec = plan.speculative
     assert spec.method == "mtp"
     assert spec.source == "target" and spec.draft_model is None
@@ -148,13 +178,25 @@ def test_unsupported_methods_are_plain_in_auto_and_fail_in_on(method):
         resolve_plan(_text_gen("Qwen/Qwen3.8-27B", "int4", {"mode": "on", "method": method}))
 
 
-def test_qwen35_explicit_dflash_remains_unqualified():
+def test_qwen35_explicit_dflash_selects_the_z_lab_drafter():
     plan = resolve_plan(_text_gen(
-        "Qwen/Qwen3.5-9B", "int4", {"mode": "auto", "method": "dflash"}))
-    assert plan.speculative is None and "no qualified dflash" in plan.plain_reason
-    with pytest.raises(SpeculativeUnavailableError, match="no qualified dflash"):
-        resolve_plan(_text_gen(
-            "Qwen/Qwen3.5-9B", "int4", {"mode": "on", "method": "dflash"}))
+        "Qwen/Qwen3.5-9B", "int4", {"mode": "on", "method": "dflash"}))
+    spec = plan.speculative
+    assert spec.method == "dflash" and spec.source == "huggingface"
+    assert spec.draft_model == "z-lab/Qwen3.5-9B-DFlash"
+    assert spec.draft_revision and len(spec.draft_revision) == 40  # pinned commit
+    assert spec.draft_dir() == OPENVINO_MODELS_DIR / "Qwen3.5-9B-DFlash" / "int4"
+    assert spec.profile.min_genai_version == "2026.4.1"
+    assert spec.profile.ov_properties["GPU_QUEUE_PRIORITY"] == "MEDIUM"
+    # Hybrid target: one linear-attention row per sequence and draft position.
+    assert spec.profile.scheduler["num_linear_attention_blocks"] == 17
+    assert spec.profile.scheduler["max_num_seqs"] == 1
+
+
+def test_qwen35_dflash_rejects_the_qwen36_drafter():
+    with pytest.raises(SpeculativeConfigError, match="not the qualified dflash"):
+        resolve_plan(_text_gen("Qwen/Qwen3.5-9B", "int4", {
+            "mode": "auto", "method": "dflash", "draft_model": "z-lab/Qwen3.6-35B-A3B-DFlash"}))
 
 
 def test_unqualified_precision_falls_back_in_auto():

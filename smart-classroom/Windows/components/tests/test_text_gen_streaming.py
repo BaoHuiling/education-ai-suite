@@ -280,7 +280,7 @@ def test_unknown_sampling_keys_are_rejected():
 @pytest.mark.parametrize("model, priority", [
     ("Qwen/Qwen3-VL-8B-Instruct", "MEDIUM"),  # eagle3 pins its queue priority
     ("Qwen/Qwen3.6-35B-A3B", "LOW"),          # dflash follows models.gpu_queue_priority
-    ("Qwen/Qwen3.5-9B", "MEDIUM"),            # MTP pins it too; LOW cancelled the gain
+    ("Qwen/Qwen3.5-9B", "MEDIUM"),            # its dflash and MTP profiles pin it too
 ])
 def test_speculative_pipeline_queue_priority(monkeypatch, model, priority):
     from components.vlm.text_gen_profiles import resolve_plan
@@ -315,7 +315,7 @@ def test_qwen35_mtp_loads_the_bundled_head_on_the_vlm_pipeline(monkeypatch):
     vlm._warm_up = lambda: 0.01
     settings = resolve_plan(SimpleNamespace(
         vlm_name=vlm._model_name, weight_format="int4",
-        speculative={"mode": "on"})).speculative
+        speculative={"mode": "on", "method": "mtp"})).speculative
 
     target = Path("qwen35-target")
     vlm._load_pipeline(target, settings, target, {})

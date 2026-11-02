@@ -26,7 +26,7 @@ Keep one target per serving instance. Generating tool calls and consuming tool r
 | Feature | Current implementation |
 | --- | --- |
 | Model choice | Catalog in [text_gen_profiles.py](../../Windows/components/vlm/text_gen_profiles.py): Qwen3-VL-8B-Instruct (default) and Qwen3.5-9B INT4/INT8, Qwen3.6-35B-A3B INT4, Qwen3.8-27B INT4/INT8, all declared tool-capable. Models outside the catalog keep the existing export path. |
-| Speculative decoding | Eagle3 for Qwen3-VL-8B-Instruct INT4, DFlash for Qwen3.6-35B-A3B INT4, and target-bundled MTP for Qwen3.5-9B INT4/INT8 (OpenVINO GenAI 2026.4.1 or later; smoke-tested, not yet performance- or accuracy-qualified). `dflash2` is an accepted setting without a profile: plain generation under `auto`, a startup failure under `"on"`. |
+| Speculative decoding | Eagle3 for Qwen3-VL-8B-Instruct INT4, DFlash for Qwen3.6-35B-A3B INT4, and for Qwen3.5-9B INT4/INT8 DFlash (the `auto` choice) or target-bundled MTP (with `method: mtp` or `draft_source: target`), both OpenVINO GenAI 2026.4.1 or later and not yet performance- or accuracy-qualified. `dflash2` is an accepted setting without a profile: plain generation under `auto`, a startup failure under `"on"`. |
 | First-run preparation | [text_gen_prepare.py](../../Windows/components/vlm/text_gen_prepare.py), run by the model owner at load (Section 5). |
 | Tool calling | [tool_calls.py](../../Windows/components/vlm/tool_calls.py) and [vlm_chat.py](../../Windows/api/vlm_chat.py) (Section 3). |
 | Controlled activation | Warm-up before readiness; `/health` reports `hub.text_gen.serving` (Section 6). |
@@ -39,11 +39,11 @@ Keep one target per serving instance. Generating tool calls and consuming tool r
 | --- | --- | --- |
 | Previously supported VLM and LLM models | Preserve their supported download and export paths, and precisions | Plain generation; a drafter is not required |
 | `Qwen/Qwen3-VL-8B-Instruct` | [INT4 IR](https://huggingface.co/OpenVINO/Qwen3-VL-8B-Instruct-int4-ov) or [INT8 IR](https://huggingface.co/OpenVINO/Qwen3-VL-8B-Instruct-int8-ov) | [Eagle3](https://huggingface.co/AQ-MedAI/Qwen3-VL-8B-Instruct-eagle3) (INT4 only) |
-| `Qwen/Qwen3.5-9B` | [INT4 intermediate representation (IR)](https://huggingface.co/OpenVINO/Qwen3.5-9B-int4-ov) or [INT8 IR](https://huggingface.co/OpenVINO/Qwen3.5-9B-int8-ov) | Target-bundled MTP (`openvino_mtp_model.xml`); performance/accuracy qualification pending |
+| `Qwen/Qwen3.5-9B` | [INT4 intermediate representation (IR)](https://huggingface.co/OpenVINO/Qwen3.5-9B-int4-ov) or [INT8 IR](https://huggingface.co/OpenVINO/Qwen3.5-9B-int8-ov) | [DFlash](https://huggingface.co/z-lab/Qwen3.5-9B-DFlash), or target-bundled MTP (`openvino_mtp_model.xml`); performance/accuracy qualification pending |
 | `Qwen/Qwen3.6-35B-A3B` | [INT4 IR](https://huggingface.co/OpenVINO/Qwen3.6-35B-A3B-int4-ov) | [DFlash](https://huggingface.co/z-lab/Qwen3.6-35B-A3B-DFlash) |
 | `Qwen/Qwen3.8-27B` | [INT4 IR](https://huggingface.co/OpenVINO/Qwen3.8-27B-int4-ov) or [INT8 IR](https://huggingface.co/OpenVINO/Qwen3.8-27B-int8-ov) | [DFlash2](https://huggingface.co/z-lab/Qwen3.8-27B-DFlash2) (planned: no profile yet, so plain generation) |
 
-A Qwen3.5-9B selection uses `provider: vlm`, `vlm_name: Qwen/Qwen3.5-9B`, and `weight_format: int4` or `int8` under `models.text_gen`. Omit `speculative` for plain generation. With `speculative.mode` `auto` or `"on"`, the catalog selects the target-bundled MTP head; GenAI 2026.4.1 loads it into the same `VLMPipeline`, so image requests keep working. A GPU smoke test passed, but MTP is not yet performance- or accuracy-qualified.
+A Qwen3.5-9B selection uses `provider: vlm`, `vlm_name: Qwen/Qwen3.5-9B`, and `weight_format: int4` or `int8` under `models.text_gen`. Omit `speculative` for plain generation. With `speculative.mode` `auto` or `"on"`, the catalog selects DFlash, or the target-bundled MTP head with `method: mtp` or `draft_source: target`; GenAI 2026.4.1 loads either into the same `VLMPipeline`, so image requests keep working. DFlash passed GPU smoke tests on INT4 and INT8, MTP on INT4 only; neither is yet performance- or accuracy-qualified.
 
 A maintained catalog supplies compatible combinations of targets and methods, default drafter sources, immutable revisions, conversion recipes, dependency versions, and profile tuning values. Explicit speculative settings select or override these defaults only within a validated profile. Drafter precision is independent of target precision. Extend the catalog without restricting the existing plain-model loading path.
 
@@ -173,7 +173,7 @@ models:
 | `draft_source` | `null` (profile default), `huggingface`, `local`, `target` | Distinguish a Hub repository, an explicit local IR directory, and target-bundled MTP artifacts. Other sources require a supported adapter and profile. |
 | `draft_model` | Repository ID or local directory; `null` selects the profile default | Identify the external drafter for DFlash or DFlash2. For MTP, set to null: use the target's prediction head, not a second model. |
 | `draft_revision` | Immutable repository commit (a full 40-character hash); `null` selects the profile's pinned revision | Reproduce a Hub download. Reject non-null values for `local` or `target`; bundled MTP inherits the target revision. |
-| `num_assistant_tokens` | Positive integer; `null` selects the profile default (Eagle3: 4, range 1–8; DFlash: 5, range 1–15, and at most the drafter's block size minus one; Qwen3.5 MTP: 2, range 1–15) | Control the draft block size within the selected runtime's supported range. MTP's default is the best of k=2, 3 and 5 in single-lesson measurements, not a qualified setting. |
+| `num_assistant_tokens` | Positive integer; `null` selects the profile default (Eagle3: 4, range 1–8; DFlash: 5, or 7 for Qwen3.5-9B INT8, range 1–15, and at most the drafter's block size minus one; Qwen3.5 MTP: 2, range 1–15) | Control the draft block size within the selected runtime's supported range. MTP's default is the best of k=2, 3 and 5 in single-lesson measurements, not a qualified setting. |
 
 A profile may also be qualified for some `app.language` values only (Eagle3: `en`). Under another language it counts as unqualified: plain generation under `auto`, a startup failure under `"on"`.
 
@@ -183,6 +183,7 @@ A profile may also be qualified for some `app.language` values only (Eagle3: `en
 | Qwen3.6 INT4 with `dflash` (implemented) | `draft_source: huggingface`, `draft_model: z-lab/Qwen3.6-35B-A3B-DFlash` |
 | Qwen3.8 INT4 or INT8 with `dflash2` (planned) | `draft_source: huggingface`, `draft_model: z-lab/Qwen3.8-27B-DFlash2` |
 | Qwen3.5-9B INT4/INT8 with bundled `mtp` (implemented) | `draft_source: target`, `draft_model: null`; use the MTP files downloaded with the target |
+| Qwen3.5-9B INT4/INT8 with `dflash` (implemented, the `auto` choice) | `method: auto` or `dflash`, `draft_source: huggingface`, `draft_model: z-lab/Qwen3.5-9B-DFlash` |
 
 For example, replace only the speculative block with the following for Qwen3.5-9B:
 
@@ -418,5 +419,10 @@ Record the exact hardware, artifacts, runtime and driver versions, and workload 
   - MEDIUM queue, summary decode: plain 13.45 tok/s; MTP k=2 13.44 (64% accepted), k=3 12.13 (49%), k=5 11.79 (32%);
   - k=2 decoded 1.06–1.15x faster than plain on mind map, report and one topic-segmentation call, but the other segmentation call's acceptance fell to 8% (6.83 vs 13.12 tok/s);
   - MTP added about 4 s to the summary's time to first token (26.4 vs 22.3 s), and the lesson's text generation took 436 s vs 393 s plain.
+- **Qwen3.5-9B DFlash, offline on Arc 140T** (INT4 and INT8, GenAI 2026.4.1, greedy, 512 tokens, MEDIUM queue, plain = stateful pipeline):
+  - first start downloaded (2.6 GB), exported and validated the drafter in about 165 s; the stock target IR already carried `hidden_states_decoder_layers`, so no derived target was created;
+  - INT4, k=5 decode: 8K English summary 22.0 vs 13.4 tok/s plain (1.64x), 8K Chinese summary 21.0 vs 15.4 (1.37x; MTP k=2 15.4), chat 1.81x, code 2.15x; k=7 matched k=5 on summaries;
+  - INT8 reused the drafter export (only its own lm_head copy was built, 14 s); k=5 decode: 8K English summary 15.7 vs 9.1 tok/s plain (1.72x), 8K Chinese summary 14.1 vs 9.1 (1.55x; MTP k=2 11.3), chat 1.75x, code 2.18x; k=7 about 10% faster than k=5 on every task, hence the INT8 default k=7; output matched plain almost exactly;
+  - through `VLMTextGen` (`mode: "on"`, INT4 and INT8): `/health` reported `effective_method: dflash`; text, JSON-schema and image requests worked, and `temperature: 0.7` was rejected.
 
 The Arrow Lake and Panther Lake matrix above remains planned.
