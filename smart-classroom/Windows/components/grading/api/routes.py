@@ -157,6 +157,8 @@ def create_router(language: str) -> APIRouter:
     async def get_task_summary(task_id: str) -> TaskSummaryJsonResponse:
         try:
             return TaskSummaryJsonResponse(**get_task_summary_impl(task_id))
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=f"task not found: {task_id}") from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:

@@ -131,11 +131,31 @@ def _load_config_to_env(config_path: str = "config.yaml") -> None:
     except Exception as e:
         print(f"[launcher] Error loading config: {e}")
 
+_UNIX_RUNTIME_DLLS = ("msys-2.0.dll", "cygwin1.dll")
+
+
+def _without_unix_runtimes(path: str) -> str:
+    """PATH minus folders that hold an MSYS2 or Cygwin runtime DLL.
+
+    Git for Windows' usr\\bin is one. file-ingest imports unstructured, which
+    imports python-magic, which finds msys-magic-1.dll there; loading it into a
+    native process hangs or crashes the service before it logs anything. No
+    content-search service needs Unix tools.
+    """
+    kept = [
+        folder for folder in path.split(os.pathsep)
+        if folder and not any(os.path.isfile(os.path.join(folder, dll)) for dll in _UNIX_RUNTIME_DLLS)
+    ]
+    return os.pathsep.join(kept)
+
+
 def _build_env(extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONUTF8"] = "1"
+    if os.name == "nt" and env.get("PATH"):
+        env["PATH"] = _without_unix_runtimes(env["PATH"])
 
     paths = [str(CONTENT_SEARCH_DIR), str(REPO_ROOT)]
     if env.get("PYTHONPATH"):
@@ -154,6 +174,30 @@ def _build_env(extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
     if extra:
         env.update(extra)
     return env
+
+def _relay(name: str, pipe, log_file) -> None:
+    """Copy a service's output to its log file and to this console, line by line.
+
+    The service blocks once its pipe buffer is full, so nothing may stop this
+    loop early. A line this console cannot encode used to end it: on a GBK
+    console, the first U+2705 that torch.onnx prints while file-ingest exports
+    CLIP left file-ingest stuck on its next write, forever.
+    """
+    try:
+        for raw in pipe:
+            msg = f"[{name}] {raw.rstrip()}"
+            try:
+                log_file.write(msg + "\n")
+                log_file.flush()
+            except Exception:
+                pass
+            try:
+                print(msg, flush=True)
+            except Exception:
+                pass
+    except (OSError, ValueError):
+        pass  # the pipe closed
+
 
 def _spawn(
     name: str, cmd: List[str], cwd: Path, logs_dir: Path, procs: Dict, log_files: Dict,
@@ -174,17 +218,7 @@ def _spawn(
     )
     procs[name] = p
 
-    def _tee(pipe, lf) -> None:
-        try:
-            for raw in pipe:
-                msg = f"[{name}] {raw.rstrip()}"
-                print(msg, flush=True)
-                try:
-                    lf.write(msg + "\n"); lf.flush()
-                except Exception: pass
-        except Exception: pass
-
-    threading.Thread(target=_tee, args=(p.stdout, log_file), daemon=True).start()
+    threading.Thread(target=_relay, args=(name, p.stdout, log_file), daemon=True).start()
     print(f"[launcher] Started {name}: pid={p.pid}  logs: {log_path}")
 
 def _check_health(host: str, port: int, path: str = "") -> bool:
@@ -268,6 +302,12 @@ def _wait_for_main_app() -> bool:
     return False
 
 def main() -> None:
+    # This console may use a legacy code page (GBK, cp1252) and services print
+    # characters it cannot encode; relaying them must not raise.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="backslashreplace")
+
     parser = argparse.ArgumentParser(description="Start services via Environment Variables.")
     parser.add_argument("--services", nargs="+", default=["chromadb", "preprocess", "ingest", "main_app"])
     parser.add_argument("--config", type=str, default="config.yaml",

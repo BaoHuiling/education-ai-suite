@@ -389,6 +389,14 @@ def run_vlm_grading_pipeline(
 
     scores = merge_page_scores(unit_score_dicts)
     _step_done("vlm_grading", _t, f"graded_questions={len(scores)}")
+    if not scores:
+        # A result with nothing in it is not a grade: report it as a failure
+        # instead of a completed paper scoring 0/0.
+        raise RuntimeError(
+            f"no question could be graded in {Path(paper_path).name}; check that the "
+            f"rubric matches the paper and that app.language "
+            f"({cfg.get('_language', 'en')}) is the paper's language"
+        )
 
     update_progress("merge", 95)
     _t = _step_start("merge")

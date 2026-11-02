@@ -242,13 +242,15 @@ def start_video_analytics_pipeline(
                     # every pipeline failing makes the stage a failure.
                     _statuses = list((_svc.pipeline_final_status or {}).values())
                     _finished_ok = any(s in ("eos", "stopped") for s in _statuses)
+                    # Outputs first: settling the stage can complete the session,
+                    # and the stages after va (segmentation, report) start on it.
+                    save_va_outputs(_svc, session_id)
                     _set_va_stage(
                         session_id,
                         "done" if _finished_ok else "failed",
                         None if _finished_ok
                         else f"no pipeline ended normally; final statuses: {_statuses}",
                     )
-                    save_va_outputs(_svc, session_id)
 
                     # Board OCR: stop only if eos/stopped
                     try:

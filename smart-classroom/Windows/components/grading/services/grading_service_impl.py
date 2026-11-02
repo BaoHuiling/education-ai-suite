@@ -480,8 +480,10 @@ def _seed_empty_summary(task_id: str, prompt_path: str | None = None) -> None:
 
 def get_task_summary(task_id: str) -> dict[str, Any]:
     """Return outputs/<task_id>/summary.json, or an empty shell if it does not
-    exist yet. Readable at any time (does not require the task to be COMPLETED)."""
+    exist yet. Readable at any time (does not require the task to be COMPLETED).
+    Raises KeyError for a task that does not exist."""
     name = _validate_task_id(task_id)
+    _JOB_STORE.get_job(name)
     summary_path = _outputs_root() / name / "summary.json"
     if summary_path.exists():
         return json.loads(summary_path.read_text(encoding="utf-8"))
@@ -1187,7 +1189,16 @@ def delete_task(task_id: str) -> None:
 def request_task_cancel(task_id: str) -> dict[str, Any]:
     task = get_task_status(task_id)
     status = task.get("status")
-    if status in {"RUNNING", "PAUSING", "PAUSED", "PENDING"}:
+    if status == "PAUSED":
+        # Pause is exit-based: no worker is left to apply a cancel at its next
+        # checkpoint, so the task would sit in CANCELLING for good. Settle it here.
+        _JOB_STORE.set_control_action(task_id, None)
+        _append_task_log(task_id, str(task.get("task_type", "grading.run")), "cancelled while paused")
+        return _JOB_STORE.update_job(
+            task_id, status="CANCELLED", current_step="cancelled", progress=100,
+            error_message=None, result=None,
+        )
+    if status in {"RUNNING", "PAUSING", "PENDING"}:
         _JOB_STORE.set_control_action(task_id, "cancel")
         return _JOB_STORE.update_job(task_id, status="CANCELLING", current_step="cancel_requested")
     if status in _TERMINAL_TASK_STATUSES or status == "CANCELLING":
