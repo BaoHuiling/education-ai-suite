@@ -62,7 +62,7 @@ function resolveBackendBaseUrl(): string {
 
 const BASE_URL: string = resolveBackendBaseUrl();
 // Default to empty string (same-origin) so the Vite dev proxy routes /api/v1
-// to port 9011 without CORS. Set VITE_CONTENT_SEARCH_API_URL for remote hosts.
+// through the app on port 8000. Set VITE_CONTENT_SEARCH_API_URL for remote hosts.
 const CONTENT_SEARCH_API_URL: string = env.VITE_CONTENT_SEARCH_API_URL || '';
 const GRADING_API_URL: string = env.VITE_GRADING_API_URL || '/grading-api';
 const HEALTH_TIMEOUT_MS = 5000;

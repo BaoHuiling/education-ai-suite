@@ -11,6 +11,10 @@
 #   ./setup.sh
 set -euo pipefail
 
+export HTTP_PROXY="${HTTP_PROXY:-${http_proxy:-}}"
+export HTTPS_PROXY="${HTTPS_PROXY:-${https_proxy:-}}"
+export NO_PROXY="${NO_PROXY:-${no_proxy:-}}"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 log() { printf '\033[1;32m[setup]\033[0m %s\n' "$*"; }
@@ -106,27 +110,18 @@ else
   log "⚠️  python3 not found — skipping COMPOSE_PROFILES derivation; set it manually in .env before 'docker compose up'."
 fi
 
-# --- GPU detection (optional docker-compose.gpu.yml overlay) ----------------
+# --- Require Intel GPU support for Content Search reranking ----------------
 COMPOSE_FILES=(-f docker/docker-compose.yml)
-if [[ -d /dev/dri ]]; then
-  log "Intel GPU render node (/dev/dri) detected — enabling docker/docker-compose.gpu.yml overlay."
-  COMPOSE_FILES+=(-f docker/docker-compose.gpu.yml)
-  if ! grep -qE '^RENDER_GID=.+' "$ENV_FILE" 2>/dev/null; then
-    RENDER_GID="$(getent group render | cut -d: -f3 || true)"
-    if [[ -n "$RENDER_GID" ]]; then
-      if grep -qE '^RENDER_GID=' "$ENV_FILE" 2>/dev/null; then
-        sed -i "s/^RENDER_GID=.*/RENDER_GID=${RENDER_GID}/" "$ENV_FILE"
-      else
-        printf 'RENDER_GID=%s\n' "$RENDER_GID" >> "$ENV_FILE"
-      fi
-      log "Set RENDER_GID=${RENDER_GID} in .env."
-    else
-      log "⚠️  No 'render' group found — set RENDER_GID in .env manually before 'docker compose up'."
-    fi
-  fi
+[[ -d /dev/dri ]] || die "Intel GPU device directory /dev/dri is required for Content Search reranking."
+RENDER_GID="$(getent group render | cut -d: -f3 || true)"
+[[ "$RENDER_GID" =~ ^[0-9]+$ ]] || die "Host 'render' group not found; GPU access requires it."
+if grep -qE '^RENDER_GID=' "$ENV_FILE" 2>/dev/null; then
+  sed -i "s/^RENDER_GID=.*/RENDER_GID=${RENDER_GID}/" "$ENV_FILE"
 else
-  log "No /dev/dri found — running CPU-only (docker/docker-compose.gpu.yml not applied)."
+  printf 'RENDER_GID=%s\n' "$RENDER_GID" >> "$ENV_FILE"
 fi
+log "GPU required: /dev/dri detected; set RENDER_GID=${RENDER_GID} in .env."
+COMPOSE_FILES+=(-f docker/docker-compose.gpu.yml)
 
 # --- Sanity-check the compose config before building anything --------------
 log "Validating docker compose config (docker compose config --services)…"
@@ -169,6 +164,38 @@ else
   log "    Inspect logs with:"
   log "      docker compose -f docker/docker-compose.yml logs -f app"
   log "      docker compose -f docker/docker-compose.yml logs -f model-downloader ovms"
+  die "App startup failed; resolve the errors above before using the UI."
+fi
+
+CONTENT_SEARCH_ENABLED="$(python3 - "$CONFIG_YAML" <<'PY'
+import sys, yaml
+with open(sys.argv[1], encoding="utf-8-sig") as f:
+    features = (yaml.safe_load(f) or {}).get("features")
+print(features is None or any(
+    features.get(name, {}).get("enabled", False)
+    for name in ("topic_segmentation", "content_search", "qa")
+))
+PY
+)"
+if [[ "$CONTENT_SEARCH_ENABLED" == "True" ]]; then
+  log "Waiting for Content Search (embeddings, reranker and database; first run downloads models)…"
+  content_search_ready="false"
+  while (( elapsed < HEALTH_TIMEOUT_S )); do
+    if docker exec smart-classroom-app python -c \
+      "import urllib.request; opener=urllib.request.build_opener(urllib.request.ProxyHandler({})); opener.open('http://127.0.0.1:8000/api/v1/system/health', timeout=15)" \
+      >/dev/null 2>&1; then
+      content_search_ready="true"
+      break
+    fi
+    sleep "$HEALTH_POLL_INTERVAL_S"
+    elapsed=$(( elapsed + HEALTH_POLL_INTERVAL_S ))
+  done
+  if [[ "$content_search_ready" != "true" ]]; then
+    log "Inspect Content Search readiness: http://localhost:8000/api/v1/system/health"
+    log "Inspect service errors: docker logs --tail 200 smart-classroom-app"
+    die "Content Search did not become ready within ${HEALTH_TIMEOUT_S}s."
+  fi
+  log "✅ Content Search is ready: http://localhost:8000/api/v1/system/health"
 fi
 
 # --- Start the local UI (Vite dev server) -----------------------------------

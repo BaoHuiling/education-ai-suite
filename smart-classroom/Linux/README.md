@@ -13,6 +13,7 @@ The main features are as follows:
 - Summarization using powerful LLMs (e.g., Qwen, LLaMA)
 - MindMap generation using Mermaid.js for visual diagram rendering of the summary
 - Content segmentation for automatic topic extraction from transcripts
+- Timestamped topic indexing and semantic search across classroom sessions
 
 ### Video Analytics Pipeline
 
@@ -29,10 +30,30 @@ The main features are as follows:
 - RAG-based Question & Answer over uploaded educational materials
 - Vector-based retrieval using ChromaDB with CLIP and mE5 embeddings
 
+Topic segmentation automatically enables Content Search.
+
+- The reranker requires an Intel GPU.
+- Run `./setup.sh` to configure GPU access and start the app.
+
+For manual startup, see the [Advanced Setup Guide](../docs/user-guide/advanced-setup-guide.md#linux-manual-docker-startup).
+
 ## Architecture
 
 - Plug-and-play architecture for integrating new ASR, LLM, and video analytics models
 - API-first design ready for frontend integration.
+
+### OVMS pipeline configuration
+
+`models.text_gen.ovms.pipeline_type` defaults to `VLM`. Setup copies it into
+`config.pipeline_type` in both startup-models configurations; the model downloader
+passes it to `export_model.py text_generation --pipeline_type`. Generating a
+startup configuration with `python -m utils.ovms_provision --write-startup-config`
+preserves the same setting. Valid values are `LM`, `LM_CB`, `VLM`, `VLM_CB` and
+`AUTO`.
+
+Run `./setup.sh` after changing this setting. It controls model export/serving
+configuration, not individual chat requests; editing it does not change an
+already-running OVMS pipeline.
 
 ## Get Started
 

@@ -1,5 +1,5 @@
 # Keep the Docker build context small and reproducible.
-# The app.Dockerfile only needs ui/ (source) and docker/server.py.
+# Include application source, but never bake runtime search data into the image.
 
 # VCS / editor
 .git/
@@ -24,6 +24,9 @@ models/
 storage/
 monitoring/logs/
 monitoring/executionlogs/
+content_search/data/
+content_search/logs/
+content_search/tests/
 *.log
 
 # metrics-collector builds from this directly (context: performance-tools);

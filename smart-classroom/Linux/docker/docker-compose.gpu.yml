@@ -6,19 +6,10 @@
 # Set RENDER_GID in .env so the container user can access /dev/dri:
 #   echo "RENDER_GID=$(getent group render | cut -d: -f3)" >> .env
 #
-# The UI skeleton does not need a GPU, so the `app` device mapping is left
-# commented. Uncomment it (and the backend services) once the real, GPU-backed
-# workloads are layered into the image. `metrics-collector` DOES need /dev/dri
-# (qmassa) and /dev/accel (NPU tool) to report non-empty gpu_utilization /
-# npu_utilization series, so it is active by default.
+# The app always uses GPU for Content Search reranking. This override enables
+# GPU/NPU passthrough for the other accelerator-enabled services.
 
 services:
-  # app:
-  #   devices:
-  #     - "/dev/dri:/dev/dri"
-  #   group_add:
-  #     - "${RENDER_GID}"
-
   ovms:
     devices:
       - "/dev/dri:/dev/dri"
@@ -62,8 +53,3 @@ services:
       - "/dev/accel:/dev/accel"
     group_add:
       - "${RENDER_GID}"
-
-  # Placeholder so this override file is valid on its own during the skeleton
-  # phase. Remove once a real service above is uncommented.
-  app:
-    profiles: []

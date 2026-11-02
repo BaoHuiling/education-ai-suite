@@ -84,9 +84,55 @@ class PostProcessor:
         # query+document pair is truncated rather than overflowing the fixed
         # position-embedding table ("Eltwise shape infer ... mismatch").
         rerank_config.max_length = resolve_model_max_length(local_path)
-        self.reranker_pipe = ov_genai.TextRerankPipeline(str(local_path), device.upper(), rerank_config)
+
+        self._reranker_model = reranker_model
+        self._model_path = str(local_path)
+        self._rerank_config = rerank_config
+        self._device = (device or "CPU").upper()
+        self._primary_pipe = None
+        self._cpu_pipe = None
         self._rerank_lock = threading.Lock()
-        logger.info(f"Reranker model '{reranker_model}' loaded successfully on device '{device}'.")
+
+        # A primary-device failure must not abort startup; reranking will
+        # retry the primary device on every call and fall back to CPU.
+        try:
+            self._primary_pipe = self._build_pipe(self._device)
+        except Exception as e:
+            if self._device == "CPU":
+                raise
+            logger.warning("[rerank] Failed to load reranker on %s (%s); loading CPU fallback.",
+                           self._device, e)
+            self._cpu_pipe = self._build_pipe("CPU")
+
+    def _build_pipe(self, device: str):
+        pipe = ov_genai.TextRerankPipeline(self._model_path, device, self._rerank_config)
+        logger.info("Reranker model '%s' loaded successfully on device '%s'.", self._reranker_model, device)
+        return pipe
+
+    def _run_rerank(self, query: str, texts: list[str]):
+        """Rerank on the configured device first; fall back to CPU only if that fails.
+
+        The configured device is attempted on every call (re-loading it if a
+        previous load failed), so a transient GPU error does not pin all
+        subsequent requests to CPU. Caller must hold ``_rerank_lock``.
+        """
+        if self._device != "CPU":
+            try:
+                if self._primary_pipe is None:
+                    self._primary_pipe = self._build_pipe(self._device)
+                return self._primary_pipe.rerank(query, texts)
+            except Exception as e:
+                logger.warning("[rerank] Reranking on %s failed (%s); falling back to CPU.", self._device, e)
+                logger.debug("[rerank] %s failure details", self._device, exc_info=True)
+                return self._get_cpu_pipe().rerank(query, texts)
+        return self._get_cpu_pipe().rerank(query, texts)
+
+    def _get_cpu_pipe(self):
+        if self._device == "CPU" and self._primary_pipe is not None:
+            return self._primary_pipe
+        if self._cpu_pipe is None:
+            self._cpu_pipe = self._build_pipe("CPU")
+        return self._cpu_pipe
 
 
     def process_text_query_results(
@@ -349,7 +395,7 @@ class PostProcessor:
             texts = [r["meta"]["chunk_text"] for _, r in with_text]
             logger.debug("[rerank] Scoring %d doc pairs with cross-encoder", len(texts))
             with self._rerank_lock:
-                ranked = self.reranker_pipe.rerank(query, texts)
+                ranked = self._run_rerank(query, texts)
 
             raw_scores = [score for _, score in ranked]
             # bge-style rerankers return a normalized probability in [0, 1];

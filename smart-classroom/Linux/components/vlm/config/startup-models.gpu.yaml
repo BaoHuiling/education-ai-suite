@@ -4,7 +4,7 @@
 # GPU overlay startup model-download config, mounted instead of
 # startup-models.yaml when docker/docker-compose.gpu.yml is applied
 # (Intel GPU render node detected). Kept in sync with config.yaml by
-# utils/sync_startup_models.py (name/precision/device fields).
+# utils/sync_startup_models.py (name/precision/device/pipeline_type fields).
 
 download_path: ovms
 parallel_downloads: false
@@ -16,6 +16,7 @@ models:
   config:
     precision: int4
     device: GPU
+    pipeline_type: VLM
     cache_size: 4
 - name: BAAI/bge-large-en-v1.5
   hub: openvino

@@ -7,6 +7,8 @@ features:
   asr:                { enabled: true }
   summary:            { enabled: true }
   mindmap:            { enabled: true }
+  topic_segmentation: { enabled: true }
+  content_search:     { enabled: true }
   video_analytics:    { enabled: true }    
 
 monitoring:
@@ -85,7 +87,7 @@ models:
       api_path: "/v3/chat/completions"    # OpenAI-compatible chat endpoint
       timeout_s: 120
       auth_token: null                    # optional bearer token if OVMS auth enabled
-      pipeline_type: VLM_CB               # export_model.py text_generation --pipeline_type
+      pipeline_type: VLM                  # export_model.py text_generation --pipeline_type
       # max_num_seqs/cache_size_gb sizing (see utils/ovms_provision.py module docstring
       # for the full per-device table): GPU dGPU default 1 seq / 4GB; iGPU 1 seq / 2-4GB;
       # CPU can afford 1-4 seqs / 4-16GB depending on system RAM; NPU: cache_size_gb n/a.

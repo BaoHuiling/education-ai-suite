@@ -76,9 +76,7 @@ $SparsePaths = @(
     "microservices/text-to-speech"
 )
 
-# Relative path of the submodule from the git superproject root. This matches the
-# entry in the root .gitmodules (submodule.education-ai-suite/ai-teaching-assistant/edge-ai-libraries).
-$SubmoduleRelPath = "education-ai-suite/ai-teaching-assistant/edge-ai-libraries"
+$SubmoduleRelPath = "edge-ai-libraries"
 
 # Upstream URL for the submodule. This is only a fallback used to register the
 # submodule when the superproject's .gitmodules has no entry yet (e.g. a fresh
@@ -96,7 +94,7 @@ $SubmodulePinnedCommit = "9a43d49e097f6f77b7631d7e662899dbee3695ce"
 # Locate the enclosing git repository (the edge-ai-suites fork).
 $RepoRoot = $null
 try {
-    $RepoRoot = (git -C $RootDir rev-parse --show-toplevel 2>$null)
+    $RepoRoot = (git -C $ScriptDir rev-parse --show-toplevel 2>$null)
 }
 catch {}
 
@@ -119,6 +117,8 @@ elseif ([string]::IsNullOrWhiteSpace($RepoRoot)) {
 }
 else {
     $RepoRoot = $RepoRoot.Trim()
+    $RepoPrefix = (git -C $ScriptDir rev-parse --show-prefix 2>$null | Out-String).Trim()
+    $SubmoduleRelPath = "${RepoPrefix}edge-ai-libraries"
 
     # Prefer the URL declared in the superproject's .gitmodules so a fresh clone
     # always pulls the source of truth instead of the hardcoded fallback above.
@@ -135,7 +135,7 @@ else {
     $SavedEAP = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
 
-    $SubmoduleAbs = Join-Path $RepoRoot $SubmoduleRelPath
+    $SubmoduleAbs = $EdgeAIDir
     $SubmoduleGit = Join-Path $SubmoduleAbs ".git"
 
     if (-not (Test-Path $SubmoduleGit)) {
@@ -219,7 +219,7 @@ $VeiSparsePaths = @(
     "smart-kiosk-assistant/main.py",
     "smart-kiosk-assistant/requirements.txt"
 )
-$VeiSubmoduleRelPath = "education-ai-suite/ai-teaching-assistant/voice-enabled-interactions"
+$VeiSubmoduleRelPath = "voice-enabled-interactions"
 # Fallback URL only; when a .gitmodules entry exists its URL takes precedence
 # (see below) so new users always clone the source declared in .gitmodules.
 $VeiSubmoduleUrl = "https://github.com/intel-retail/voice-enabled-interactions.git"
@@ -241,6 +241,8 @@ elseif ([string]::IsNullOrWhiteSpace($VeiRepoRoot)) {
 }
 else {
     $VeiRepoRoot = $VeiRepoRoot.Trim()
+    $VeiRepoPrefix = (git -C $ScriptDir rev-parse --show-prefix 2>$null | Out-String).Trim()
+    $VeiSubmoduleRelPath = "${VeiRepoPrefix}voice-enabled-interactions"
 
     # Prefer the URL declared in the superproject's .gitmodules so a fresh clone
     # always pulls the source of truth instead of the hardcoded fallback above.
@@ -253,7 +255,7 @@ else {
     $SavedEAP = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
 
-    $VeiAbs = Join-Path $VeiRepoRoot $VeiSubmoduleRelPath
+    $VeiAbs = $VeiDir
     $VeiGit = Join-Path $VeiAbs ".git"
 
     if (-not (Test-Path $VeiGit)) {

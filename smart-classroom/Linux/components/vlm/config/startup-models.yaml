@@ -3,7 +3,7 @@
 #
 # CPU-safe startup model-download config, used by plain docker/docker-compose.yml
 # (no /dev/dri). Kept in sync with config.yaml by utils/sync_startup_models.py
-# (name/precision fields only — device is pinned to CPU here on purpose).
+# (name/precision/pipeline_type fields — device is pinned to CPU here on purpose).
 
 download_path: ovms
 parallel_downloads: false
@@ -15,6 +15,7 @@ models:
   config:
     precision: int4
     device: CPU
+    pipeline_type: VLM
     cache_size: 4
 - name: BAAI/bge-large-en-v1.5
   hub: openvino

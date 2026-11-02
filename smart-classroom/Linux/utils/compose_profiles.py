@@ -6,8 +6,8 @@
 Feature modularity (`model_manager/feature_bootstrap.py` + `config.yaml`
 `features:`) only ever gated which routers/capabilities build *inside* the
 `app` container — it had no effect on which sibling containers
-(`audio-analyzer`, `model-downloader`, `ovms-provision`, `ovms`,
-`content-search`) a bare `docker compose up` starts, since none of them
+(`audio-analyzer`, `model-downloader`, `ovms-provision`, `ovms`) a bare
+`docker compose up` starts, since none of them
 declared a Compose `profiles:` key. This module closes that gap: it maps each
 enabled feature to the Compose profile(s) that back it, and writes the
 resulting `COMPOSE_PROFILES` value to `.env` so `docker compose up` only
@@ -16,7 +16,9 @@ starts the containers the enabled features actually need.
 Profile groups (must match the `profiles:` lists in docker/docker-compose.yml):
   - "asr"            -> audio-analyzer (transcription microservice)
   - "text-gen"       -> model-downloader, ovms-provision, ovms (VLM serving)
-  - "content-search" -> content-search (RAG/multimodal backend, once built)
+
+Content Search is launched inside app by ContentSearchFeature, not by a
+separate Compose service. Its models use the same persistent model cache.
 
 A feature maps to a profile if it directly needs that capability, OR
 transitively depends on another feature that does (mirrors
@@ -53,21 +55,14 @@ _FEATURE_PROFILES: Dict[str, FrozenSet[str]] = {
     "summary":             frozenset({"asr", "text-gen"}),
     "mindmap":             frozenset({"asr", "text-gen"}),
     "topic_segmentation":  frozenset({"asr", "text-gen"}),
-    "content_search":      frozenset({"text-gen", "content-search"}),
-    "qa":                  frozenset({"text-gen", "content-search"}),
+    "content_search":      frozenset({"text-gen"}),
+    "qa":                  frozenset({"text-gen"}),
     "grading":             frozenset({"text-gen"}),
     "video_analytics":     frozenset({"va"}),
 }
 
 # Known profile names, for validating/ordering output deterministically.
-_ALL_PROFILES: List[str] = ["asr", "text-gen", "content-search", "va"]
-
-# The `content-search` Compose service has no Dockerfile/build context yet
-# (still commented out in docker/docker-compose.yml) — until it's implemented, never
-# emit the "content-search" profile even if config.yaml's `content_search`
-# feature is enabled, so COMPOSE_PROFILES doesn't reference a profile no
-# active service declares. Remove this guard once content-search ships.
-_UNIMPLEMENTED_PROFILES: FrozenSet[str] = frozenset({"content-search"})
+_ALL_PROFILES: List[str] = ["asr", "text-gen", "va"]
 
 
 def _enabled_features() -> List[str]:
@@ -88,7 +83,6 @@ def resolve_profiles() -> List[str]:
     active: set = set()
     for feature in _enabled_features():
         active |= _FEATURE_PROFILES.get(feature, frozenset())
-    active -= _UNIMPLEMENTED_PROFILES
     return [p for p in _ALL_PROFILES if p in active]
 
 

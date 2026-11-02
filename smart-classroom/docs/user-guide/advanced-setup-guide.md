@@ -397,6 +397,38 @@ that opens automatically):
 The UI is only reachable from the machine running the services. If you changed
 the port, adjust the URL accordingly.
 
+## Linux: Manual Docker Startup
+
+Complete the prerequisites in the [Linux Get Started guide](./get-started/get-started-linux.md)
+first. The reranker requires an Intel GPU at `/dev/dri` and a host `render` group.
+From `smart-classroom/Linux`, configure GPU permissions and start the stack:
+
+```bash
+test -d /dev/dri || { echo "Required GPU device /dev/dri not found"; exit 1; }
+export RENDER_GID="$(getent group render | cut -d: -f3)"
+test -n "$RENDER_GID" || { echo "Required render group not found"; exit 1; }
+cp -n .env.example .env
+python3 -m utils.compose_profiles --write-env
+python3 -m utils.sync_startup_models --write
+docker compose --env-file .env \
+  -f docker/docker-compose.yml \
+  -f docker/docker-compose.gpu.yml \
+  up -d --build
+```
+
+`RENDER_GID` gives the container GPU access. Export it in each new terminal or
+save its numeric value in `.env`. The image includes the Intel GPU runtime;
+first startup may take longer while models download.
+
+Verify Content Search readiness:
+
+```bash
+curl --noproxy '*' http://127.0.0.1:8000/api/v1/system/health
+```
+
+HTTP 200 with `"status":"ok"` means ready. Use the same Compose command with
+`logs -f app` or `down` instead of `up -d --build` to inspect logs or stop services.
+
 ## Troubleshooting
 
 - **Frontend not opening:**

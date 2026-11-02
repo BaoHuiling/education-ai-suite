@@ -6,13 +6,13 @@ from config.yaml, so the two hand-authored files can't silently drift from
 what the app is actually configured to use.
 
 config.yaml is the single source of truth for *which* models are wanted:
-    - models.text_gen.vlm_name / weight_format          -> the `vlm` entry
+  - models.text_gen.vlm_name / weight_format / ovms.pipeline_type -> the `vlm` entry
   - models.embedding.name                             -> the `embeddings` entry
   - content_search.reranker.model                     -> the `rerank` entry
 
 startup-models.yaml / startup-models.gpu.yaml are what model-downloader
 actually reads to export models for OVMS. This script only overwrites the
-`name` field (and the vlm entry's `precision`/`device`) of each matching
+`name` field (and the vlm entry's `precision`/`device`/`pipeline_type`) of each matching
 entry by `type:` — it leaves every other authored field (hub, is_ovms,
 embeddings/rerank device & precision, parallel_downloads, download_path)
 untouched, since those aren't duplicated anywhere in config.yaml and have no
@@ -56,10 +56,12 @@ def _wanted_names() -> Dict[str, Dict[str, Any]]:
 
     wanted: Dict[str, Dict[str, Any]] = {}
     if text_gen is not None and getattr(text_gen, "vlm_name", None):
+        ovms = getattr(text_gen, "ovms", None)
         wanted["vlm"] = {
             "name": text_gen.vlm_name,
             "precision": getattr(text_gen, "weight_format", None),
             "device": getattr(text_gen, "device", None),
+            "pipeline_type": getattr(ovms, "pipeline_type", "VLM"),
         }
     if embedding is not None and getattr(embedding, "name", None):
         wanted["embeddings"] = {"name": embedding.name}
@@ -84,7 +86,7 @@ def _apply(
         for key, value in overrides.items():
             if value is None:
                 continue
-            target = entry if key != "precision" else entry.setdefault("config", {})
+            target = entry if key == "name" else entry.setdefault("config", {})
             if key == "device":
                 target = entry.setdefault("config", {})
                 if keep_vlm_cpu_safe and entry.get("type") == "vlm":

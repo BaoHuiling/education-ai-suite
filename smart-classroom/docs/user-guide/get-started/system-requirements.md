@@ -29,9 +29,9 @@ This page lists the hardware, software, and platform requirements, and the suppo
 - **Recommended processor**: Intel® Core™ Ultra Series 1, 2, and 3 processors (with integrated GPU support)
 - **Memory**: 32 GB RAM (minimum recommended)
 - **Storage**: At least 50 GB free (for models, Docker images, and logs)
-- **GPU/Accelerator**: Intel® iGPU (Intel® Core™ Ultra Series 1, Intel® Arc™ GPU, or higher) for summarization acceleration
+- **GPU/Accelerator**: Intel® iGPU (Intel® Core™ Ultra Series 1, Intel® Arc™ GPU, or higher) required for Content Search reranking and used for summarization acceleration
 - **NPU**: Intel® NPU (Intel® Core™ Ultra Series 1 or higher) for Video pipelines
-- **GPU/NPU Drivers**: Install the latest Intel GPU and NPU drivers from [Intel NPU Driver releases](https://github.com/intel/linux-npu-driver/releases) and the [Intel GPU compute runtime](https://github.com/intel/compute-runtime/releases)
+- **GPU/NPU Drivers**: Install the latest Intel GPU and NPU drivers from [Intel NPU Driver releases](https://github.com/intel/linux-npu-driver/releases) and the [Intel GPU compute runtime](https://github.com/intel/compute-runtime/releases). The Linux app container installs its pinned OpenCL/Level Zero userspace runtime and needs host GPU access through `/dev/dri`.
 - **Docker**: Docker Engine and Docker Compose plugin
 - **Python**: 3.12
 - **Node.js**: v18+ (for frontend)
@@ -103,7 +103,7 @@ For pipeline architecture and processing stages, see [How It Works](../how-it-wo
 | **Qwen3-VL-8B-Instruct** | Vision Language Model for video summarization and Q&A | GPU |
 | **CLIP/clip-xlm-roberta-base-vit-b-32** | Visual embedding for images and video frames | CPU |
 | **intfloat/multilingual-e5-small** | Text embedding for document chunks | CPU |
-| **BAAI/bge-reranker-base** | Cross-encoder reranking for search results | CPU |
+| **BAAI/bge-reranker-base** | Cross-encoder reranking for search results | GPU |
 
 ### Supported File Formats
 

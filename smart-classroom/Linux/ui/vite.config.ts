@@ -38,9 +38,9 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      // Proxy all /api/v1 requests to the content-search backend (avoids CORS)
+      // The app routes sessions locally and proxies Content Search internally.
       '/api/v1': {
-        target: 'http://127.0.0.1:9011',
+        target: 'http://127.0.0.1:8000',
         changeOrigin: true,
       },
       // Proxy /grading-api requests to the grading backend (9012). Distinct

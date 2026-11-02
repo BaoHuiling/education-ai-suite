@@ -96,6 +96,13 @@ def _validate_text_gen(data):
             f"got {timeout_s!r}."
         )
 
+    pipeline_type = ovms.get("pipeline_type", "VLM")
+    if not isinstance(pipeline_type, str) or pipeline_type not in {"LM", "LM_CB", "VLM", "VLM_CB", "AUTO"}:
+        raise ValueError(
+            "models.text_gen.ovms.pipeline_type must be one of "
+            f"LM, LM_CB, VLM, VLM_CB, AUTO; got {pipeline_type!r}."
+        )
+
     for key in ("max_num_seqs", "max_num_batched_tokens", "cache_size_gb"):
         value = ovms.get(key)
         if value is not None and (not isinstance(value, (int, float)) or isinstance(value, bool)):

@@ -157,7 +157,7 @@ def _text_gen_spec() -> Servable:
         source_model=str(source),
         target_device=str(getattr(tg, "device", "GPU")).upper(),
         weight_format=str(getattr(tg, "weight_format", "int4")),
-        pipeline_type=str(getattr(ovms_cfg, "pipeline_type", "VLM_CB")) if ovms_cfg else "VLM_CB",
+        pipeline_type=getattr(ovms_cfg, "pipeline_type", "VLM"),
         cache_size_gb=getattr(ovms_cfg, "cache_size_gb", None) if ovms_cfg else None,
         max_num_seqs=getattr(ovms_cfg, "max_num_seqs", None) if ovms_cfg else None,
         max_num_batched_tokens=getattr(ovms_cfg, "max_num_batched_tokens", None) if ovms_cfg else None,
@@ -300,6 +300,7 @@ def write_startup_config(specs: List[Servable], path: Path = STARTUP_MODELS_PATH
                 "config": {
                     "precision": s.weight_format or "int8",
                     "device": s.target_device,
+                    **({"pipeline_type": s.pipeline_type} if s.pipeline_type is not None else {}),
                 },
             }
             for s in specs
