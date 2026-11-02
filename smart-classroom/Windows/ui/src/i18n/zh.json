@@ -113,6 +113,7 @@
       "topicSegmentation": "主题分段",
       "mindmap": "思维导图",
       "textGen": "文本生成",
+      "speculative": "投机解码",
       "ocr": "文字识别",
       "poseModels": "姿态模型",
       "streaming": "推流",

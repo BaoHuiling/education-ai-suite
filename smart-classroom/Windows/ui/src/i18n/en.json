@@ -117,6 +117,7 @@
         "topicSegmentation": "Topic segmentation",
         "mindmap": "Mind map",
         "textGen": "Text generation",
+        "speculative": "Speculative decoding",
         "ocr": "OCR",
         "poseModels": "Pose models",
         "streaming": "Streaming",

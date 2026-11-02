@@ -37,13 +37,16 @@ def _ir_xml(layers=3, rt_info=None) -> str:
             f'<edges /><rt_info><other value="1" />{extra}</rt_info></net>')
 
 
-def _write_target(path: Path, rt_info=None, vocab=100) -> Path:
+def _write_target(path: Path, rt_info=None, vocab=100, mtp=False) -> Path:
     path.mkdir(parents=True)
     (path / "openvino_language_model.xml").write_text(_ir_xml(rt_info=rt_info), encoding="utf-8")
     (path / "openvino_language_model.bin").write_bytes(b"\0" * 64)
     (path / "openvino_tokenizer.xml").write_text("<net/>", encoding="utf-8")
     (path / "config.json").write_text(json.dumps(
         {"text_config": {"num_hidden_layers": 3, "vocab_size": vocab}}), encoding="utf-8")
+    if mtp:
+        (path / "openvino_mtp_model.xml").write_text(_ir_xml(), encoding="utf-8")
+        (path / "openvino_mtp_model.bin").write_bytes(b"\0" * 16)
     return path
 
 
@@ -92,13 +95,14 @@ def env(tmp_path, monkeypatch):
     return hub
 
 
-def _plan(env, name="Qwen/Qwen3.6-35B-A3B", weight="int4", rt_info=None, **speculative):
+def _plan(env, name="Qwen/Qwen3.6-35B-A3B", weight="int4", rt_info=None, mtp=False,
+          **speculative):
     node = SimpleNamespace(vlm_name=name, weight_format=weight, device="GPU",
                            speculative=speculative or None)
     plan = resolve_plan(node)
     target = env.models / name.split("/")[-1] / weight
     if not target.exists():
-        _write_target(target, rt_info=rt_info)
+        _write_target(target, rt_info=rt_info, mtp=mtp)
     return dataclasses.replace(plan, target_dir=target)
 
 
@@ -113,6 +117,40 @@ def test_plain_plan_prepares_only_the_target(env):
     manifest = json.loads(result.manifest.read_text(encoding="utf-8"))
     assert manifest["speculative"]["status"] == "off"
     assert manifest["target"]["revision"] is None  # legacy provenance is not claimed
+
+
+def test_auto_mtp_uses_the_target_and_its_bundled_head(env):
+    plan = _plan(env, name="Qwen/Qwen3.5-9B", mode="auto", method="mtp", mtp=True)
+    result = prep.prepare(plan, genai_version=GENAI)
+    spec = result.speculative
+    assert spec is not None
+    assert spec.settings.method == "mtp" and spec.settings.source == "target"
+    # No derived target and no download: the ordinary directory holds both.
+    assert spec.target_dir == plan.target_dir and spec.draft_dir == plan.target_dir
+    assert env.downloads == [] and env.exports == []
+    manifest = json.loads(result.manifest.read_text(encoding="utf-8"))
+    assert manifest["speculative"]["method"] == "mtp"
+    assert manifest["speculative"]["draft_model"] == "target-bundled MTP"
+    assert manifest["speculative"]["status"] == "ready"
+
+
+def test_mtp_needs_a_runtime_with_mtp_support(env):
+    plan = _plan(env, name="Qwen/Qwen3.5-9B", mode="auto", method="mtp", mtp=True)
+    result = prep.prepare(plan, genai_version=lambda: "2026.3.0.0")
+    assert result.speculative is None
+    assert "2026.4.1" in result.speculative_error
+
+
+def test_missing_mtp_bundle_falls_back_in_auto_and_fails_in_on(env):
+    plan = _plan(env, name="Qwen/Qwen3.5-9B", mode="auto", method="mtp", mtp=True)
+    (plan.target_dir / "openvino_mtp_model.bin").unlink()
+    result = prep.prepare(plan, genai_version=GENAI)
+    assert result.speculative is None
+    assert "openvino_mtp_model.bin" in result.speculative_error
+
+    strict = dataclasses.replace(plan, mode="on")
+    with pytest.raises(prep.PreparationError, match="openvino_mtp_model.bin"):
+        prep.prepare(strict, genai_version=GENAI)
 
 
 def test_auto_dflash_downloads_pinned_source_exports_and_derives_target(env):
@@ -132,6 +170,20 @@ def test_auto_dflash_downloads_pinned_source_exports_and_derives_target(env):
     manifest = json.loads(result.manifest.read_text(encoding="utf-8"))
     assert manifest["speculative"]["draft_revision"] == COMMIT
     assert manifest["speculative"]["status"] == "ready"
+
+
+def test_qwen35_dflash_uses_its_own_drafter_and_the_annotated_target_as_is(env):
+    pin = text_gen_profiles.target_profile("Qwen/Qwen3.5-9B").methods["dflash"].draft_revision
+    plan = _plan(env, name="Qwen/Qwen3.5-9B", rt_info=prep.DFLASH_TARGET_RT_INFO_KEY,
+                 mode="on", method="dflash")
+    result = prep.prepare(plan, genai_version=GENAI)
+    spec = result.speculative
+    assert spec.settings.method == "dflash" and spec.draft_revision == pin
+    assert env.resolved == []
+    assert env.downloads == [("z-lab/Qwen3.5-9B-DFlash", pin, ["*.json", "*.safetensors"])]
+    # The OpenVINO target IR already names every layer's hidden state: no derived copy.
+    assert spec.target_dir == plan.target_dir
+    assert not (plan.target_dir.parent / "int4-dflash").exists()
 
 
 def test_pinned_revision_needs_no_hub_lookup(env):
@@ -595,6 +647,17 @@ def test_draft_head_reproduces_the_target_head_in_int4(tmp_path, asymmetric):
     assert prep.ensure_draft_head(target, draft) == derived
     assert (derived / ".derived.json").stat().st_mtime_ns == stamp
     assert prep.ensure_draft_head(target, derived) == derived
+
+
+def test_draft_head_is_kept_per_target_precision(tmp_path):
+    pytest.importorskip("openvino")
+    target, draft, _ = _write_head_pair(tmp_path, asymmetric=False)
+    assert prep.ensure_draft_head(target, draft, "int4") == draft.with_name("int4-lmhead")
+    stamp = (draft.with_name("int4-lmhead") / ".derived.json").stat().st_mtime_ns
+    # An INT8 target gets its own copy; the INT4 one is neither rebuilt nor set aside.
+    assert prep.ensure_draft_head(target, draft, "int8") == draft.with_name("int4-lmhead-int8")
+    assert (draft.with_name("int4-lmhead") / ".derived.json").stat().st_mtime_ns == stamp
+    assert not list(draft.parent.glob("*.stale-*"))
 
 
 def test_draft_head_failure_keeps_the_stock_drafter(tmp_path):

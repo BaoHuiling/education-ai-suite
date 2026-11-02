@@ -89,6 +89,12 @@ const SUBGROUPS = [
   { id: 'mindmap', group: 'summarization', label: 'Mind map', node: 'mindmap' },
 
   { id: 'textGen', group: 'devices', label: 'Text generation', node: 'models.text_gen' },
+  {
+    id: 'speculative',
+    group: 'devices',
+    label: 'Speculative decoding',
+    node: 'models.text_gen.speculative',
+  },
   { id: 'ocr', group: 'devices', label: 'OCR', node: 'models.ocr' },
 
   { id: 'poseModels', group: 'videoAnalytics', label: 'Pose models', node: 'models.va' },
@@ -494,6 +500,15 @@ const FIELDS = [
   // Models and devices
   // -------------------------------------------------------------------------
   {
+    path: 'models.gpu_queue_priority',
+    file: CONFIG,
+    group: 'devices',
+    label: 'GPU queue priority',
+    type: 'enum',
+    options: ['LOW', 'MEDIUM', 'HIGH'],
+    help: 'OpenVINO GPU queue priority for GPU services. A speculative profile may pin its own.',
+  },
+  {
     path: 'models.text_gen.vlm_name',
     file: CONFIG,
     group: 'devices',
@@ -532,6 +547,26 @@ const FIELDS = [
     min: 64,
     max: 32768,
     integer: true,
+  },
+  {
+    path: 'models.text_gen.speculative.mode',
+    file: CONFIG,
+    group: 'devices',
+    subgroup: 'speculative',
+    label: 'Speculative decoding mode',
+    type: 'enum',
+    options: ['off', 'auto', 'on'],
+    help: 'auto falls back to plain generation if speculative artifacts cannot be prepared; on requires them. While active, requests are greedy only.',
+  },
+  {
+    path: 'models.text_gen.speculative.method',
+    file: CONFIG,
+    group: 'devices',
+    subgroup: 'speculative',
+    label: 'Speculative decoding method',
+    type: 'enum',
+    options: ['auto', 'eagle3', 'dflash', 'mtp'],
+    help: 'auto picks the method profiled for the VLM model. Ignored when mode is off.',
   },
   {
     path: 'models.ocr.provider',

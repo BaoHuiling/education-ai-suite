@@ -15,9 +15,11 @@ config node into a :class:`TextGenPlan`:
   method without a qualified profile becomes plain generation under
   ``mode: auto`` and an actionable failure under ``mode: "on"``.
 
-Speculative profiles: DFlash for Qwen3.6-35B-A3B INT4 and Eagle3 for
-Qwen3-VL-8B-Instruct INT4. ``dflash2`` and ``mtp`` stay valid settings without a
-profile: plain generation under ``auto``, an actionable failure under ``"on"``.
+Speculative profiles: DFlash for Qwen3.6-35B-A3B INT4, Eagle3 for
+Qwen3-VL-8B-Instruct INT4, and for Qwen3.5-9B INT4/INT8 DFlash (the ``auto``
+choice) or target-bundled MTP.
+``dflash2`` stays a valid setting without a profile: plain generation under
+``auto``, an actionable failure under ``"on"``.
 """
 
 from __future__ import annotations
@@ -70,6 +72,8 @@ class SpeculativeProfile:
     # Recipe turning the downloaded drafter checkpoint into runtime IR.
     draft_export_weight_format: Optional[str] = None
     num_assistant_tokens: int = 3
+    # weight_format -> default window where it differs from num_assistant_tokens.
+    num_assistant_tokens_by_precision: Mapping = field(default_factory=dict)
     num_assistant_tokens_range: tuple = (1, 15)
     min_genai_version: str = "2026.3"
     ov_properties: Mapping = field(default_factory=dict)
@@ -85,7 +89,9 @@ class TargetProfile:
     # weight_format -> pre-converted OpenVINO IR repository
     ir_repos: Mapping
     tool_calls: bool = False
-    # Method ``auto`` resolves to this; it is never chosen by trial loading.
+    # Method ``auto`` resolves to this, or, for a precision or draft source its
+    # profile does not cover, to the first method in ``methods`` that does.
+    # Never chosen by trial loading.
     default_method: Optional[str] = None
     methods: Mapping = field(default_factory=dict)
 
@@ -148,6 +154,45 @@ _QWEN3VL8B_EAGLE3 = SpeculativeProfile(
     languages=("en",),
 )
 
+# Qwen3.5's pre-converted target repositories ship openvino_mtp_model.xml/bin.
+# GenAI 2026.4.1 loads the bundled head through the same VLMPipeline as the
+# target, so image requests keep working. Arc 140T, one replayed English lesson
+# per setting, MEDIUM queue for both: summary decode 13.44 tok/s at k=2 vs 13.45
+# plain (k=3 12.1, k=5 11.8). k=2 was 1.06-1.15x faster on mind map and report,
+# but one topic-segmentation call fell to 8% acceptance and the lesson's text
+# generation took 11% longer overall. Not a qualification.
+_QWEN35_MTP = SpeculativeProfile(
+    method="mtp",
+    precisions=("int4", "int8"),
+    default_source="target",
+    num_assistant_tokens=2,
+    num_assistant_tokens_range=(1, 15),
+    min_genai_version="2026.4.1",
+    ov_properties={"GPU_ENABLE_LARGE_ALLOCATIONS": "YES", "GPU_QUEUE_PRIORITY": "MEDIUM"},
+    scheduler={"max_num_seqs": 1, "enable_prefix_caching": False},
+)
+
+_QWEN35_DFLASH = SpeculativeProfile(
+    method="dflash",
+    precisions=("int4", "int8"),
+    draft_repo="z-lab/Qwen3.5-9B-DFlash",
+    draft_revision="5fc3b3d474760f18c516db87d84c37edbfd3ede6",
+    draft_export_weight_format="int4",
+    num_assistant_tokens=5,
+    # A verification pass costs more on the INT8 target: k=7 was ~10% faster than
+    # k=5 on every task there, while on INT4 the two tied on summaries.
+    num_assistant_tokens_by_precision={"int8": 7},
+    num_assistant_tokens_range=(1, 15),
+    min_genai_version="2026.4.1",
+    ov_properties={"GPU_ENABLE_LARGE_ALLOCATIONS": "YES", "GPU_QUEUE_PRIORITY": "MEDIUM"},
+    scheduler={
+        "max_num_batched_tokens": 65536,
+        "max_num_seqs": 1,
+        "num_linear_attention_blocks": 17,
+        "enable_prefix_caching": False,
+    },
+)
+
 CATALOG: Mapping[str, TargetProfile] = {
     "qwen/qwen3-vl-8b-instruct": TargetProfile(
         name="Qwen/Qwen3-VL-8B-Instruct",
@@ -162,6 +207,8 @@ CATALOG: Mapping[str, TargetProfile] = {
         ir_repos={"int4": "OpenVINO/Qwen3.5-9B-int4-ov",
                   "int8": "OpenVINO/Qwen3.5-9B-int8-ov"},
         tool_calls=True,
+        default_method="dflash",
+        methods={"dflash": _QWEN35_DFLASH, "mtp": _QWEN35_MTP},
     ),
     "qwen/qwen3.6-35b-a3b": TargetProfile(
         name="Qwen/Qwen3.6-35B-A3B",
@@ -214,6 +261,8 @@ class SpeculativeSettings:
         """Identity safe for health/logs: no local paths."""
         if self.source == "local":
             return f"local IR ({Path(str(self.draft_model)).name})"
+        if self.source == "target":
+            return "target-bundled MTP"
         rev = f"@{self.draft_revision[:12]}" if self.draft_revision else ""
         return f"{self.draft_model}{rev}"
 
@@ -358,7 +407,7 @@ def resolve_plan(text_gen, language: Optional[str] = None) -> TextGenPlan:
 
     resolved_method = method
     if method == "auto":
-        resolved_method = target.default_method if target else None
+        resolved_method = _auto_method(target, weight_format, source)
         if resolved_method is None:
             return _unqualified(base, mode, method, (
                 f"{model_name} has no catalog-declared speculative method; "
@@ -384,7 +433,8 @@ def resolve_plan(text_gen, language: Optional[str] = None) -> TextGenPlan:
             )
         revision = revision or profile.draft_revision
 
-    k = tokens if tokens is not None else profile.num_assistant_tokens
+    k = tokens if tokens is not None else profile.num_assistant_tokens_by_precision.get(
+        weight_format, profile.num_assistant_tokens)
     low, high = profile.num_assistant_tokens_range
     if not low <= k <= high:
         raise SpeculativeConfigError(
@@ -413,6 +463,24 @@ def resolve_plan(text_gen, language: Optional[str] = None) -> TextGenPlan:
             "English, and plain generation is faster for this language"
         ))
     return TextGenPlan(mode=mode, requested_method=method, speculative=settings, **base)
+
+
+def _auto_method(target: Optional[TargetProfile], weight_format: str,
+                 source: Optional[str]) -> Optional[str]:
+    """The catalog's choice for ``method: auto`` at this precision and draft source.
+
+    ``draft_source: target`` can only mean a target-bundled head, so it selects
+    the method that uses one.
+    """
+    if target is None or target.default_method is None:
+        return None
+    preferred = target.default_method
+    for name in (preferred, *target.methods):
+        profile = target.methods[name]
+        if weight_format in profile.precisions and (
+                source != "target" or profile.default_source == "target"):
+            return name
+    return preferred  # reported as unqualified below
 
 
 def _check_source_shape(method, source, draft_model, revision) -> None:

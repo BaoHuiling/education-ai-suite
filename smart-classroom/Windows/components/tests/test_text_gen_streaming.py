@@ -280,6 +280,7 @@ def test_unknown_sampling_keys_are_rejected():
 @pytest.mark.parametrize("model, priority", [
     ("Qwen/Qwen3-VL-8B-Instruct", "MEDIUM"),  # eagle3 pins its queue priority
     ("Qwen/Qwen3.6-35B-A3B", "LOW"),          # dflash follows models.gpu_queue_priority
+    ("Qwen/Qwen3.5-9B", "MEDIUM"),            # its dflash and MTP profiles pin it too
 ])
 def test_speculative_pipeline_queue_priority(monkeypatch, model, priority):
     from components.vlm.text_gen_profiles import resolve_plan
@@ -292,6 +293,43 @@ def test_speculative_pipeline_queue_priority(monkeypatch, model, priority):
     kwargs = _vlm(_Pipe())._speculative_kwargs(settings, "draft-dir")
     assert kwargs["GPU_QUEUE_PRIORITY"] == priority
     assert kwargs["draft_model"] == ("draft", "draft-dir")
+
+
+def test_qwen35_mtp_loads_the_bundled_head_on_the_vlm_pipeline(monkeypatch):
+    from pathlib import Path
+    from components.vlm.text_gen_profiles import resolve_plan
+
+    constructed = {}
+
+    def vlm_pipeline(path, device, **kwargs):
+        constructed.update(path=path, device=device, kwargs=kwargs)
+        return _Pipe()
+
+    monkeypatch.setattr(text_gen_vlm.ov_genai, "VLMPipeline", vlm_pipeline)
+    monkeypatch.setattr(text_gen_vlm.ov_genai, "draft_model",
+                        lambda path, device: ("draft", path, device))
+    monkeypatch.setattr(text_gen_vlm.AutoTokenizer, "from_pretrained",
+                        lambda *args, **kwargs: _Tokenizer())
+    vlm = _vlm(_Pipe())
+    vlm._model_name = "Qwen/Qwen3.5-9B"
+    vlm._warm_up = lambda: 0.01
+    settings = resolve_plan(SimpleNamespace(
+        vlm_name=vlm._model_name, weight_format="int4",
+        speculative={"mode": "on", "method": "mtp"})).speculative
+
+    target = Path("qwen35-target")
+    vlm._load_pipeline(target, settings, target, {})
+
+    assert constructed["path"] == str(target)
+    assert constructed["kwargs"]["draft_model"] == ("draft", str(target), "GPU")
+    assert vlm.decoding_method == "mtp"
+
+
+def test_qwen35_mtp_keeps_image_requests():
+    pipe = _Pipe()
+    vlm = _vlm(pipe, speculative=SimpleNamespace(method="mtp", num_assistant_tokens=5))
+    vlm.generate("describe this", images=[object()], stream=False, max_new_tokens=1)
+    assert len(pipe.prompts) == 1
 
 
 def test_speculative_pipeline_rejects_penalties():

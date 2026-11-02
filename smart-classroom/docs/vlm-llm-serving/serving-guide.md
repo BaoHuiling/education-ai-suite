@@ -19,7 +19,7 @@ The target is selected as before, under `models.text_gen` in
 | `vlm_name` | `weight_format` | Optional accelerator |
 | --- | --- | --- |
 | `Qwen/Qwen3-VL-8B-Instruct` (default) | `int4`, `int8` | `eagle3` (`int4` only) |
-| `Qwen/Qwen3.5-9B` | `int4`, `int8` | none (plain) |
+| `Qwen/Qwen3.5-9B` | `int4`, `int8` | `dflash`, `mtp` (target-bundled) |
 | `Qwen/Qwen3.6-35B-A3B` | `int4` | `dflash` |
 | `Qwen/Qwen3.8-27B` | `int4`, `int8` | none (plain) |
 
@@ -43,27 +43,29 @@ models:
     speculative:
       mode: auto          # "off" | auto | "on"
       method: auto        # auto | eagle3 | dflash | dflash2 | mtp
-      draft_source: null  # null | huggingface | local
+      draft_source: null  # null | huggingface | local | target (MTP)
       draft_model: null
       draft_revision: null
       num_assistant_tokens: null
 ```
 
 With `method: auto` the catalog picks the profile of `vlm_name`: `eagle3` for
-Qwen3-VL-8B-Instruct INT4 (only with `app.language: en`), `dflash` for
-Qwen3.6-35B-A3B INT4.
+Qwen3-VL-8B-Instruct INT4 (only with `app.language: en`), `dflash` for Qwen3.5-9B
+INT4/INT8 and Qwen3.6-35B-A3B INT4. Qwen3.5-9B with `draft_source: target` selects
+its target-bundled `mtp` head.
 
 Quote `"off"` and `"on"`: bare `off`/`on` are YAML booleans (they are accepted,
 but quoting avoids surprises).
 
 | Setting | Behavior |
 | --- | --- |
-| `mode: auto` | Accelerate when the profile is qualified and its artifacts prepare and warm up; otherwise plain generation, with the reason in `/health`. |
+| `mode: auto` | Try the selected profile when its runtime and artifacts are available and it warms up; otherwise plain generation, with the reason in `/health`. This does not certify performance or accuracy. |
 | `mode: "on"` | Acceleration is required at startup; any reason it cannot run is a startup failure with guidance. |
-| `method` | `eagle3` (Qwen3-VL-8B INT4) and `dflash` (Qwen3.6 INT4) have profiles; `auto` selects the one for `vlm_name`. `dflash2` and `mtp` are valid settings without a profile yet: plain generation under `auto`, a startup failure under `"on"`. |
+| `method` | `eagle3` (Qwen3-VL-8B INT4), target-bundled `mtp` (Qwen3.5-9B INT4/INT8), and `dflash` (Qwen3.5-9B INT4/INT8, Qwen3.6 INT4) have profiles; `auto` selects the one for `vlm_name`. `dflash2` has no profile yet: plain generation under `auto`, a startup failure under `"on"`. |
+| `draft_source: target` | MTP only: use the target repository's `openvino_mtp_model.xml` and `.bin`; `draft_model` and `draft_revision` must be null. |
 | `draft_source: local` | `draft_model` names an existing OpenVINO IR directory (relative paths resolve from `smart-classroom/Windows/`). It is validated, never downloaded or replaced. |
-| `draft_revision` | A full 40-character commit. `null` uses the catalog pin (`29ffa460d80e…` for the Eagle3 drafter, `f181eece646a…` for the Qwen3.6 drafter). |
-| `num_assistant_tokens` | Draft window `k`; `null` uses the profile default. Eagle3: 4, range 1–8. DFlash: 5 (best for classroom summaries and chat; 7 suits code/math), range 1–15. |
+| `draft_revision` | A full 40-character commit. `null` uses the catalog pin (`29ffa460d80e…` for the Eagle3 drafter, `f181eece646a…` for the Qwen3.6 drafter, `5fc3b3d47476…` for the Qwen3.5-9B drafter). |
+| `num_assistant_tokens` | Draft window `k`; `null` uses the profile default. Eagle3: 4, range 1–8. DFlash: 5 (best for classroom summaries and chat; 7 suits code/math), and 7 for Qwen3.5-9B INT8, range 1–15. Qwen3.5 MTP: 2, range 1–15. |
 
 Invalid settings (unknown method or key, contradictory source, cross-model
 drafter, out-of-range `k`) fail validation at startup under `auto` and `"on"`;
@@ -77,13 +79,96 @@ While a speculative pipeline is active:
   [components/grading/config.yaml](../../Windows/components/grading/config.yaml)), so set
   that to 0 before using grading with speculative decoding. Sampling penalties
   are rejected the same way.
-* Image requests run on the same pipeline; image-encoding speedups are not
-  claimed.
+* Image requests run on the same pipeline (including Qwen3.5 MTP);
+  image-encoding speedups are not claimed.
 * Generation runs on the paged (continuous-batching) backend instead of the
   stateful one. Greedy outputs therefore differ in places from plain
   generation, with no consistent accuracy effect.
 * If activation fails under `auto`, the server warms a plain pipeline once and
   keeps that decision until the process restarts.
+
+### MTP for Qwen3.5-9B
+
+The INT4 and INT8 OpenVINO target repositories include the MTP IR files
+(`openvino_mtp_model.xml`/`.bin`). Enable the target-bundled head without
+configuring a separate drafter:
+
+```yaml
+    vlm_name: Qwen/Qwen3.5-9B
+    weight_format: int4
+    speculative:
+      mode: "on"
+      method: mtp
+      draft_source: target
+      draft_model: null
+      draft_revision: null
+      num_assistant_tokens: null
+```
+
+MTP requires OpenVINO GenAI 2026.4.1 or later. The head is loaded from the
+ordinary target directory into the same `VLMPipeline` used for plain
+generation, so no derived model directory is created and image requests keep
+working.
+
+* **Profile defaults.** `num_assistant_tokens: 2` (range 1–15), a scheduler
+  with `max_num_seqs: 1` and prefix caching off, and `GPU_QUEUE_PRIORITY`
+  `MEDIUM` for the text-generation pipeline. As with Eagle3, the queue priority
+  overrides `models.gpu_queue_priority` for text generation only.
+* **Observed behavior.** In replayed English lessons, k=2 was the only window
+  that kept up with plain generation, and MTP was still not a net gain: draft
+  acceptance varies widely between calls, and the paged pipeline lengthens the
+  time to first token. Larger windows are slower, because most of the extra
+  drafts are rejected. Compare MTP and plain at the same
+  `models.gpu_queue_priority`: the profile's MEDIUM priority alone speeds up
+  decoding.
+* **Not yet qualified.** The profile has not been performance- or
+  accuracy-qualified on the Arrow Lake/Panther Lake matrix or on Chinese
+  lessons, and `context_bench` does not yet benchmark MTP. Keep `mode: "off"`
+  unless your own workload shows a gain over plain at the same queue priority.
+
+Each model call's `decoding`, `draft_tokens`, `accepted_tokens` and
+`acceptance_rate` are recorded in `<session>/logs/model_calls.jsonl`. The draft
+and acceptance counts are reported by the runtime (`extended_perf_metrics`) and
+confirm that MTP is active.
+
+### DFlash for Qwen3.5-9B
+
+The drafter is
+[z-lab/Qwen3.5-9B-DFlash](https://huggingface.co/z-lab/Qwen3.5-9B-DFlash)
+(Apache-2.0, about 1B parameters) at a pinned commit, exported to INT4 with the
+same recipe as the Qwen3.6 drafter. It reads the hidden states of target layers
+1, 5, …, 29; the OpenVINO INT4 and INT8 target IR already name them
+(`hidden_states_decoder_layers`), so the ordinary target directory is used and no
+derived target is created. The one drafter export serves both precisions; each
+target precision gets its own copy with the target's lm_head (`int4-lmhead` for
+INT4, `int4-lmhead-int8` for INT8). Enable it with:
+
+```yaml
+    vlm_name: Qwen/Qwen3.5-9B
+    weight_format: int4
+    speculative:
+      mode: auto
+      method: auto
+```
+
+`method: auto` selects DFlash for Qwen3.5-9B INT4 and INT8. To use the
+target-bundled MTP head instead, set `method: mtp` (or `draft_source: target`).
+
+* **Profile defaults.** `num_assistant_tokens: 5` for INT4 and 7 for INT8 (range 1–15), OpenVINO GenAI
+  2026.4.1 or later, `GPU_QUEUE_PRIORITY` `MEDIUM`, the runtime's default
+  KV-cache precision, and the Qwen3.6 DFlash scheduler (`max_num_seqs: 1`,
+  `num_linear_attention_blocks: 17`, `max_num_batched_tokens: 65536`, prefix
+  caching off).
+* **First start.** The drafter is downloaded and exported once; later starts
+  reuse it. The second precision reuses the export and only builds its lm_head
+  copy.
+* **Window per precision.** On INT8 a verification pass costs more relative to
+  a draft pass, so the longer window k=7 is the INT8 default; INT4 keeps k=5.
+  Unlike Eagle3, the drafter also helps Chinese lessons. Text, JSON-schema and
+  image requests pass through the warm pipeline on both precisions.
+* **Not yet qualified.** The profile has been measured only offline, not
+  through a replayed lesson, and accuracy has not been measured beyond output
+  spot checks.
 
 ### Eagle3 for Qwen3-VL-8B-Instruct
 
@@ -101,36 +186,20 @@ precision and its IR are unchanged. Enable it with:
 ```
 
 * **English deployments only (`app.language: en`).** The drafter was trained
-  on English data. On Chinese classroom summaries it accepts about 1.2 tokens
-  per step and is 28-55% slower than plain on Arc 140T (the
-  `taobao-mnn/Qwen3-VL-8B-Instruct-Eagle3` drafter, at ~1.4 tokens per step,
-  was also ~47% slower): the drafts are rejected too often to pay for
-  themselves. The paged pipeline that speculative decoding requires also adds
-  ~30% to the time to first token of a 10K-token Chinese summary prompt
-  (decode speed without drafting is about the same as plain). With `app.language: zh` the profile is
+  on English data. On Chinese classroom summaries it is slower than plain (as
+  is the `taobao-mnn/Qwen3-VL-8B-Instruct-Eagle3` drafter): the drafts are
+  rejected too often to pay for themselves. The paged pipeline that
+  speculative decoding requires also lengthens the time to first token of long
+  Chinese summary prompts. With `app.language: zh` the profile is
   therefore not used: `mode: auto` loads the ordinary plain pipeline (no
   drafter is downloaded or loaded; `/health` gives the reason) and
   `mode: "on"` fails at startup.
 * **GPU queue priority.** Each draft/verify step submits many small GPU jobs,
-  and on a LOW-priority queue they wait long enough to cancel the gain
-  (Arc 140T: 72 ms/token instead of 55 at the same acceptance, no faster than
-  plain). The profile therefore runs its pipeline at `GPU_QUEUE_PRIORITY`
-  `MEDIUM`, overriding `models.gpu_queue_priority` for text generation only;
-  other services keep the configured priority. The KV cache keeps the
-  runtime's default precision (f16 made long classroom prompts 10-25% slower).
-* **Measured speedup** (greedy, single stream, the 20 EvalScope A-OKVQA
-  requests, English; decode rate over the 19 requests that stop before
-  `max_new_tokens`):
-
-  | GPU | Plain decode | Eagle3 decode (k=4) |
-  | --- | --- | --- |
-  | Arc 140T (Arrow Lake 285H), through the service | 13.2 tok/s (76 ms/token) | 18.1 tok/s (53 ms/token), 1.37x |
-  | Arc B390 (Panther Lake), offline script | 23.7 tok/s | 35.9 tok/s (not yet measured through the service) |
-
-  Accuracy on these 20 requests was 18/20 with Eagle3 and 20/20 plain. The
-  two differing answers are borderline reasoning calls that also flip on the
-  paged backend without a drafter, i.e. a backend effect rather than a
-  drafter error.
+  and on a LOW-priority queue they wait long enough to cancel the gain. The
+  profile therefore runs its pipeline at `GPU_QUEUE_PRIORITY` `MEDIUM`,
+  overriding `models.gpu_queue_priority` for text generation only; other
+  services keep the configured priority. The KV cache keeps the runtime's
+  default precision (an f16 cache made long classroom prompts slower).
 
 To roll back, remove the block (or set `mode: "off"`) and restart. Prepared
 drafter files are kept for later use; superseded ones are moved aside, never
@@ -182,9 +251,8 @@ and [text_gen_vlm.py](../../Windows/components/vlm/text_gen_vlm.py) (load and wa
       (below). Eagle3 keeps its own draft-vocabulary head and uses the
       ordinary target IR.
 
-   The first accelerated start takes a few minutes. For Eagle3 on Arc 140T:
-   a 0.76 GB download, the export dependencies and a 1-2 minute export
-   (`prepare_s` about 110 s).
+   The first accelerated start takes a few minutes: the drafter download,
+   any export dependencies and the export.
 4. **Manifest.** `models/openvino/.manifests/<model>-<weight_format>.json`
    records what was prepared, the drafter commit, the decision and timings.
 5. **Load and warm up.** The pipeline (with the drafter, if any) is compiled on
