@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+services:
+  audio-analyzer:
+    build:
+      context: ../edge-ai-libraries/microservices/audio-analyzer
+      dockerfile: docker/Dockerfile
+      args:
+        INSTALL_CJK: "${INSTALL_CJK:-true}"
+        HTTP_PROXY: "${HTTP_PROXY:-}"
+        HTTPS_PROXY: "${HTTPS_PROXY:-}"
+        NO_PROXY: "${NO_PROXY:-}"
+    image: smart-classroom-audio-analyzer:local
+    pull_policy: build

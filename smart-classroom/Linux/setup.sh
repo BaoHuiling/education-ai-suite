@@ -129,7 +129,7 @@ log "Validating docker compose config (docker compose config --services)…"
   || die "docker compose config failed — check COMPOSE_PROFILES/.env and the compose files above before retrying."
 
 # --- Build + start the stack -------------------------------------------------
-log "Building and starting the stack (docker compose up -d --build)…"
+log "Starting the stack (docker compose up -d --build)…"
 (cd "$SCRIPT_DIR" && docker compose --env-file "$ENV_FILE" "${COMPOSE_FILES[@]}" up -d --build) \
   || die "docker compose up failed — check the build/service logs above."
 

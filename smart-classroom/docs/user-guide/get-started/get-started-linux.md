@@ -93,6 +93,10 @@ HF_TOKEN=hf_your_access_token_here
 > [!NOTE]
 > `setup.sh` creates `.env` from `.env.example` on first run. If you want to set `HF_TOKEN` beforehand, run `cp .env.example .env` first. `setup.sh` warns when diarization is enabled and `HF_TOKEN` is missing.
 
+Setup pulls `intel/audio-analyzer` whenever the audio-analyzer service is started.
+For an optional manual local build, see
+[Linux: Manual Docker Startup](../advanced-setup-guide.md#linux-manual-docker-startup).
+
 ## Step 4: Run the Setup Script
 
 From the `Linux` directory, run:
@@ -111,7 +115,8 @@ The script performs the following:
 5. Syncs `startup-models.yaml` and `startup-models.gpu.yaml` with `config.yaml`.
 6. Derives `COMPOSE_PROFILES` from the enabled features.
 7. Requires an Intel GPU (`/dev/dri`), sets `RENDER_GID` from the host's `render` group, and enables the GPU Compose configuration.
-8. Validates the compose config, then builds and starts the stack (`docker compose up -d --build`).
+8. Validates the compose config, pulls `intel/audio-analyzer`, builds the
+   remaining locally configured images, then starts the stack.
 9. Waits for the `smart-classroom-app` container to become healthy and, when search
    features are enabled, for Content Search aggregate readiness. Setup exits with
    an error rather than reporting success if either readiness check times out.

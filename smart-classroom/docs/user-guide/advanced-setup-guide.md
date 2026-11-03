@@ -416,6 +416,13 @@ docker compose --env-file .env \
   up -d --build
 ```
 
+The default configuration always pulls `intel/audio-analyzer`. For an optional
+manual local audio-analyzer build, add
+`-f docker/docker-compose.audio-analyzer.local.yml` to the Compose command,
+after the base file and before `up`. This override builds
+`smart-classroom-audio-analyzer:local` from the `edge-ai-libraries` submodule
+instead of pulling the registry image.
+
 `RENDER_GID` gives the container GPU access. Export it in each new terminal or
 save its numeric value in `.env`. The image includes the Intel GPU runtime;
 first startup may take longer while models download.

@@ -140,15 +140,8 @@ services:
 
   audio-analyzer:   
     profiles: ["asr"]
-    build:
-      context: ../edge-ai-libraries/microservices/audio-analyzer
-      dockerfile: docker/Dockerfile
-      args:
-        INSTALL_CJK: "${INSTALL_CJK:-true}"
-        HTTP_PROXY: "${HTTP_PROXY:-}"
-        HTTPS_PROXY: "${HTTPS_PROXY:-}"
-        NO_PROXY: "${NO_PROXY:-}"
-    image: smart-classroom-audio-analyzer:local
+    image: intel/audio-analyzer
+    pull_policy: always
     container_name: sc-audio-analyzer
     user: "1000:1000"
     environment:
