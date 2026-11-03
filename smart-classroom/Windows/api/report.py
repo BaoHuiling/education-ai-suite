@@ -13,7 +13,6 @@ Mounted by the report feature module (model_manager/features/report_feature.py)
 through feature bootstrap during app startup.
 """
 
-import asyncio
 import json
 import os
 import logging
@@ -28,6 +27,7 @@ from pipeline import Pipeline
 from dto.report_dto import ReportRequest, ReportReselectRequest
 from utils.runtime_config_loader import RuntimeConfig
 from utils.storage_manager import StorageManager
+from utils.threadpool_stream import iterate_in_thread
 from utils.session_manager import PATH_SAFE_SESSION_ID
 from utils.session_paths import SessionPaths
 from utils.pipeline_catalog import FEATURE_STAGE
@@ -94,10 +94,10 @@ async def generate_report(request: ReportRequest):
     async def event_stream():
         with stage_tracker(pipeline.session_id, FEATURE_STAGE["report"]) as stage:
             try:
-                for event in pipeline.run_report_generator(
+                async for event in iterate_in_thread(pipeline.run_report_generator(
                     selected_fields=request.selected_fields,
                     manual_fields=request.manual_fields,
-                ):
+                )):
                     if isinstance(event, dict):
                         etype = event["type"]
                         if etype in ("partial_report", "report"):
@@ -111,7 +111,6 @@ async def generate_report(request: ReportRequest):
                                 yield json.dumps({"token": "", "error": content}) + "\n"
                                 break
                             yield json.dumps({"token": content, "error": ""}) + "\n"
-                    await asyncio.sleep(0)
             except HTTPException as e:
                 detail = e.detail if isinstance(e.detail, str) else str(e.detail)
                 stage.fail(e)

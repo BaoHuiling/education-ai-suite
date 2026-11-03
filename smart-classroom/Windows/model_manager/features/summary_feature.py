@@ -1,4 +1,3 @@
-import asyncio
 import json
 import logging
 from typing import Dict, List
@@ -11,6 +10,7 @@ from pipeline import Pipeline
 from utils.config_loader import config
 from utils.pipeline_catalog import FEATURE_STAGE
 from utils.stage_tracker import stage_tracker
+from utils.threadpool_stream import iterate_in_thread
 
 logger = logging.getLogger(__name__)
 
@@ -24,11 +24,10 @@ async def summarize_audio(request: SummaryRequest):
     async def event_stream():
         with stage_tracker(pipeline.session_id, FEATURE_STAGE["summary"]) as stage:
             warned_partial_board = False
-            for item in pipeline.run_summarizer():
+            async for item in iterate_in_thread(pipeline.run_summarizer()):
                 # A segmented summary yields progress dicts before any token.
                 if isinstance(item, dict):
                     yield json.dumps({"token": "", "error": "", **item}) + "\n"
-                    await asyncio.sleep(0)
                     continue
                 if not warned_partial_board and pipeline.board_ocr_partial:
                     warned_partial_board = True
@@ -43,7 +42,6 @@ async def summarize_audio(request: SummaryRequest):
                     break
                 else:
                     yield json.dumps({"token": item, "error": ""}) + "\n"
-                await asyncio.sleep(0)
 
     return StreamingResponse(event_stream(), media_type="application/json")
 
