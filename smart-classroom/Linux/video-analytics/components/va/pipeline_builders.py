@@ -14,7 +14,7 @@ def build_pipeline_front(service, source: str, options, input_type: str) -> List
     output_dir.mkdir(parents=True, exist_ok=True)
 
     pipeline = [
-        *service._get_source_elements(source, input_type),
+        *service._get_source_elements(source, input_type, options),
         "gvafpscounter",
         "!",
         *service._get_input_framerate_cap_elements(),
@@ -22,6 +22,7 @@ def build_pipeline_front(service, source: str, options, input_type: str) -> List
         "gvadetect",
         f"model={service._get_model_path('front-pose')}",
         f"device={options.device}",
+        *service._get_preprocess_backend_elements(options),
         "batch-size=1",
         "model-instance-id=yolo-front-0",
         f"threshold={options.threshold}",
@@ -42,6 +43,7 @@ def build_pipeline_front(service, source: str, options, input_type: str) -> List
         "gvaclassify",
         f"model={service._get_model_path('resnet18')}",
         f"device={options.device}",
+        *service._get_preprocess_backend_elements(options),
         "batch-size=1",
         "inference-region=roi-list",
         "model-instance-id=resnet18-front-0",
@@ -66,6 +68,7 @@ def build_pipeline_front(service, source: str, options, input_type: str) -> List
         "gvainference",
         f"model={service._get_model_path('reid')}",
         f"device={options.device}",
+        *service._get_preprocess_backend_elements(options),
         "batch-size=1",
         "inference-region=roi-list",
         "model-instance-id=reid-front-0",
@@ -95,6 +98,7 @@ def build_pipeline_front(service, source: str, options, input_type: str) -> List
         "gvaclassify",
         f"model={service._get_model_path('mobilenetv2')}",
         f"device={options.device}",
+        *service._get_preprocess_backend_elements(options),
         "batch-size=1",
         "inference-region=roi-list",
         "model-instance-id=mobilenetv2-front-0",
@@ -119,7 +123,7 @@ def build_pipeline_back(service, source: str, options, input_type: str) -> List[
     output_dir.mkdir(parents=True, exist_ok=True)
 
     return [
-        *service._get_source_elements(source, input_type),
+        *service._get_source_elements(source, input_type, options),
         "gvafpscounter",
         "!",
         *service._get_input_framerate_cap_elements(),
@@ -127,6 +131,7 @@ def build_pipeline_back(service, source: str, options, input_type: str) -> List[
         "gvadetect",
         f"model={service._get_model_path('back-pose')}",
         f"device={options.device}",
+        *service._get_preprocess_backend_elements(options),
         "batch-size=1",
         "model-instance-id=yolo-back-0",
         f"threshold={options.threshold}",
@@ -167,6 +172,7 @@ def build_pipeline_back(service, source: str, options, input_type: str) -> List[
         "gvaclassify",
         f"model={service._get_model_path('resnet18')}",
         f"device={options.device}",
+        *service._get_preprocess_backend_elements(options),
         "batch-size=1",
         "inference-region=roi-list",
         "model-instance-id=resnet18-back-0",
@@ -195,13 +201,14 @@ def build_pipeline_content(service, source: str, options, input_type: str) -> Li
     output_dir.mkdir(parents=True, exist_ok=True)
 
     return [
-        *service._get_source_elements(source, input_type),
+        *service._get_source_elements(source, input_type, options),
         # Unlike front/back this rate applies to the whole pipeline, video
         # output included, so the sink below is told the same framerate.
         *service._get_classify_decimation_elements(),
         "gvaclassify",
         f"model={service._get_model_path('resnet18')}",
         f"device={options.device}",
+        *service._get_preprocess_backend_elements(options),
         "batch-size=1",
         "inference-region=full-frame",
         "model-instance-id=resnet18-content-0",

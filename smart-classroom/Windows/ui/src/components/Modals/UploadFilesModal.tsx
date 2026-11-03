@@ -26,6 +26,7 @@ import {
   setFrontCameraStream,
   setBackCameraStream,
   setBoardCameraStream,
+  setVideoAnalyticsDevice,
   setVideoAnalyticsLoading,
   setVideoAnalyticsActive,
   setProcessingMode,
@@ -200,6 +201,10 @@ const UploadFilesModal: React.FC<UploadFilesModalProps> = ({ isOpen, onClose, fe
         console.log('Processing result:', result);
         if (result.status === "success" && result.stream_url) {
           hasSuccessfulStreams = true;
+          // One device for all three pipelines (config.yaml's
+          // models.va.device) -- every successful result carries the same
+          // value, so just take it from whichever arrives.
+          dispatch(setVideoAnalyticsDevice(result.device ?? null));
           switch (result.pipeline_name) {
             case 'front':
               dispatch(setFrontCameraStream(result.stream_url));

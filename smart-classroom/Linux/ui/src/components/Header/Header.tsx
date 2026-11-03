@@ -17,6 +17,7 @@ import {
   setFrontCameraStream,
   setBackCameraStream,
   setBoardCameraStream,
+  setVideoAnalyticsDevice,
   setActiveStream,
   startStream,
   setProcessingMode,
@@ -450,7 +451,11 @@ const HeaderBar: React.FC<HeaderBarProps> = ({ projectName, featureGuard }) => {
             hasSuccessfulStreams = true;
             successfulPipelines.push(result.pipeline_name);
             console.log(`✅ ${result.pipeline_name} stream URL:`, result.stream_url);
-            
+            // One device for all three pipelines (config.yaml's
+            // models.va.device) -- every successful result carries the same
+            // value, so just take it from whichever arrives.
+            dispatch(setVideoAnalyticsDevice(result.device ?? null));
+
             switch (result.pipeline_name) {
               case 'front':
                 dispatch(setFrontCameraStream(result.stream_url));
@@ -761,6 +766,7 @@ const HeaderBar: React.FC<HeaderBarProps> = ({ projectName, featureGuard }) => {
           dispatch(setFrontCameraStream(''));
           dispatch(setBackCameraStream(''));
           dispatch(setBoardCameraStream(''));
+          dispatch(setVideoAnalyticsDevice(null));
           // Only reset activeStream if NOT in playback mode (so VideoStream's useEffect can set it properly)
           if (!hasRecordedVideo) {
             dispatch(setActiveStream(null));
@@ -790,6 +796,7 @@ const HeaderBar: React.FC<HeaderBarProps> = ({ projectName, featureGuard }) => {
         dispatch(setFrontCameraStream(''));
         dispatch(setBackCameraStream(''));
         dispatch(setBoardCameraStream(''));
+        dispatch(setVideoAnalyticsDevice(null));
         dispatch(setActiveStream(null));
         dispatch(setVideoAnalyticsActive(false));
         dispatch(setVideoPlaybackMode(false));

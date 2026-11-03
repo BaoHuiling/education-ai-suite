@@ -20,9 +20,14 @@ ARG NO_PROXY=""
 
 # libgl1 + libglib2.0-0 are required by opencv (pulled in by ultralytics);
 # ca-certificates so model downloads validate TLS.
-RUN HTTP_PROXY="$HTTP_PROXY" HTTPS_PROXY="$HTTPS_PROXY" NO_PROXY="$NO_PROXY" \
+RUN --mount=type=secret,id=corporate_ca,required=false \
+    HTTP_PROXY="$HTTP_PROXY" HTTPS_PROXY="$HTTPS_PROXY" NO_PROXY="$NO_PROXY" \
     apt-get update && apt-get install -y --no-install-recommends \
         libgl1 libglib2.0-0 ca-certificates \
+    && if [ -s /run/secrets/corporate_ca ]; then \
+        cp /run/secrets/corporate_ca /usr/local/share/ca-certificates/corporate-ca.crt \
+        && update-ca-certificates; \
+    fi \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

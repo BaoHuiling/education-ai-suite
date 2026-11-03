@@ -180,6 +180,7 @@ class VideoAnalyticsService:
                     "pipeline_name": req.pipeline_name,
                     "session_id": session_id,
                     "output_stream": req.output_stream,
+                    "device": device,
                 }
                 if req.pipeline_name in sv.launched:
                     results.append({

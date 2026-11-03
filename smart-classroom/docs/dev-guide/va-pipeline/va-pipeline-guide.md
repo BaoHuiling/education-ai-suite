@@ -26,7 +26,7 @@ contract (the app-facing routes), see [§7 Application API](#7-application-api).
 | Config switch | `features.video_analytics.enabled` |
 | Service (side-car) | `video-analytics` (DL Streamer image) |
 | Stream relay (side-car) | `mediamtx` |
-| Default device | `NPU` (overridable to `GPU`) |
+| Default device | `NPU` (overridable to `GPU` or `CPU`) |
 | Compose profile | `va` |
 
 When `features.video_analytics.enabled` is `false`, the VA routes are not mounted
@@ -147,6 +147,37 @@ backends:
 
 Streams are published to `rtsp://mediamtx:8554/{front,back,content}_stream`.
 When `output_stream=false`, the video branch terminates in `fakesink`.
+
+### 4.6 Device selection
+
+Each `gvadetect`/`gvaclassify`/`gvainference` element takes `device=` (`CPU`,
+`GPU`, or `NPU`) plus a `pre-process-backend` that must match the kind of
+memory the frame arrives in:
+
+- **GPU/NPU** (default): `pre-process-backend` is left unset. DL Streamer
+  auto-selects `va`, which maps the VA-memory frames (`VASurface`/`VAMemory`)
+  that `vah264dec`/`vah265dec` hand it zero-copy — no CPU-side copy needed.
+- **CPU**: the `va` backend has no meaning for a CPU inference target, and
+  the CPU plugin can't map VA-memory anyway, so `_get_source_elements`
+  appends an explicit `video/x-raw` caps filter after the hardware decoder
+  (forcing it to download frames to plain system memory) and
+  `_get_preprocess_backend_elements` sets `pre-process-backend=opencv` on
+  every inference element, which does color-conversion/resize on that
+  system memory with OpenCV instead.
+
+This only changes the *inference* path — RTSP hardware decode/encode
+(`vah264dec`/`vah265dec`, `vapostproc`+`vah264enc`) still run on the GPU
+regardless of `device`, independently controlled by `VA_RTSP_ENCODER_BACKEND`
+(§10). A box with no `/dev/dri` at all needs `VA_RTSP_ENCODER_BACKEND=cpu`
+too.
+
+The Windows build (`Windows/components/va/va_pipeline_service.py`) mirrors
+this exactly, just swapping VA-API's vocabulary for Media Foundation's:
+`pre-process-backend` is explicitly `d3d11` for GPU/NPU and `opencv` for CPU,
+and `d3d12download` (after `d3d12h264dec`/`d3d12h265dec`/`decodebin3`) is
+asked for plain `video/x-raw` instead of `video/x-raw(memory:D3D11Memory)`
+when `device` is CPU. RTSP encode (`d3d11convert`+`mfh264enc`) is likewise
+unconditional on the GPU.
 
 ---
 
@@ -352,6 +383,17 @@ VA is accelerator-bound. For the default `NPU` device (and VA-API encode/decode)
 
 Without NPU hardware, set the device to `GPU`. Model-export NPU
 verification is skipped (not failed) when no NPU is enumerated.
+
+Setting the device to `CPU` (see §4.6) needs no `/dev/dri`/`/dev/accel`
+passthrough or `render` group membership for *inference* itself, only an
+OpenVINO CPU plugin (bundled with DL Streamer) — useful for offloading model
+inference to the CPU while still using an available iGPU for video
+decode/encode. RTSP sources still decode on the GPU (`vah264dec`/`vah265dec`,
+§4.4) regardless of `device`, so `/dev/dri` is still required whenever the
+source is RTSP; a file source decodes in software via `decodebin3` either way.
+For a box with no GPU at all, use a file source and set
+`VA_RTSP_ENCODER_BACKEND=cpu` so the RTSP *output* encode also runs in
+software (§10).
 
 Validate the environment with `scripts/va-dev-env-check.sh` (checks DL Streamer
 elements, OpenVINO GPU/NPU compile+inference, `gstgva` import, `/dev/dri`, and the

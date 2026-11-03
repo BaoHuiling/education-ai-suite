@@ -7,6 +7,7 @@ import {
   setFrontCameraStream,
   setBackCameraStream,
   setBoardCameraStream,
+  setVideoAnalyticsDevice,
   setActiveStream,
   setHasUploadedVideoFiles,
   setVideoPlaybackMode
@@ -89,6 +90,7 @@ export function useVideoPipelineMonitor() {
       dispatch(setFrontCameraStream(""));
       dispatch(setBackCameraStream(""));
       dispatch(setBoardCameraStream(""));
+      dispatch(setVideoAnalyticsDevice(null));
       dispatch(setActiveStream(null));
     };
 

@@ -47,6 +47,13 @@ services:
       # points at a real PEM file.
       secrets:
         - corporate_ca
+      # On some TLS-inspecting corporate proxies (observed: Fortinet), large
+      # downloads through docker's NAT'd bridge build network intermittently
+      # get a 504 from the proxy (the same request succeeds from the host's
+      # own network) -- this affects the GPU-runtime .deb downloads in
+      # app.Dockerfile. `host` routes build RUN steps through the host's
+      # network stack instead, same as `docker build --network host`.
+      network: host
     image: smart-classroom-app:local
     container_name: smart-classroom-app
     ports:
@@ -98,14 +105,7 @@ services:
     # SQLite, ChromaDB and uploaded files persist under /app/storage/content-search.
 
   metrics-collector:   # telemetry sidecar: CPU/GPU/NPU/memory/power -> /metrics, /platform-info
-    build:
-      context: ../performance-tools
-      dockerfile: docker/Dockerfile
-      args:
-        HTTP_PROXY: "${HTTP_PROXY:-}"
-        HTTPS_PROXY: "${HTTPS_PROXY:-}"
-        NO_PROXY: "${NO_PROXY:-}"
-    image: sc-metrics-collector:local
+    image: ${METRICS_COLLECTOR_IMAGE:-intel/retail-benchmark:latest}
     container_name: sc-metrics-collector
     # privileged + host /proc,/sys are required by sar/free/qmassa/PCM inside
     # the performance-tools image; this does not require network_mode: host,
@@ -295,6 +295,8 @@ services:
         HTTP_PROXY: "${HTTP_PROXY:-}"
         HTTPS_PROXY: "${HTTPS_PROXY:-}"
         NO_PROXY: "${NO_PROXY:-}"
+      secrets:
+        - corporate_ca
     image: sc-va-model-provision:local
     container_name: sc-va-model-provision
     environment:
@@ -359,6 +361,11 @@ services:
       - VA_POSE_STALE_UNIDENTIFIED_THRESHOLD=${VA_POSE_STALE_UNIDENTIFIED_THRESHOLD:-30}
       - VA_POSE_STUDENT_COUNT_WINDOW_FRAMES=${VA_POSE_STUDENT_COUNT_WINDOW_FRAMES:-150}
       # Per-pipeline default device; a launch call may still override it.
+      # NPU/GPU (default) need docker-compose.gpu.yml for device passthrough.
+      # CPU needs no passthrough for inference itself -- see the VA pipeline
+      # guide (dev-guide/va-pipeline) section "Device selection" -- but RTSP
+      # sources still decode on the GPU regardless of device, so /dev/dri is
+      # still required unless every source is a file.
       - VA_FRONT_DEVICE=${VA_FRONT_DEVICE:-NPU}
       - VA_BACK_DEVICE=${VA_BACK_DEVICE:-NPU}
       - VA_CONTENT_DEVICE=${VA_CONTENT_DEVICE:-NPU}
@@ -396,9 +403,11 @@ volumes:
   audio-analyzer-cache:
 
 secrets:
-  # Optional corporate TLS-inspection root CA (PEM) used only by the `app`
-  # build's GPU/NPU-runtime step, see docker/app.Dockerfile. Defaults to a
-  # tracked empty placeholder (0 bytes), which keeps this a verified no-op
-  # for everyone who doesn't need it.
+  # Optional corporate TLS-inspection root CA (PEM), shared by the `app`
+  # build's GPU/NPU-runtime step (docker/app.Dockerfile) and the
+  # `va-model-provision` build's model-download step
+  # (video-analytics/docker/Dockerfile.va-provision). Defaults to a tracked
+  # empty placeholder (0 bytes), which keeps this a verified no-op for
+  # everyone who doesn't need it.
   corporate_ca:
     file: "${CORPORATE_CA_FILE:-./corporate-ca.placeholder.pem}"

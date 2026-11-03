@@ -30,6 +30,12 @@ git sparse-checkout set smart-classroom/Windows
 cd smart-classroom/Windows
 ```
 
+> [!TIP]
+> Also want the Flutter + RAG companion app? It's a separate, lighter-weight
+> demo under `utils/flutter` at the repository root rather than under
+> `smart-classroom/Windows`, so the sparse checkout above does not include
+> it. See [Optional: Flutter + RAG Companion App](#optional-flutter--rag-companion-app) below.
+
 ---
 
 ## Desktop App
@@ -220,6 +226,53 @@ The Advanced Setup Guide covers:
 > [!NOTE]
 > Layout Detection and Grading services only start when `grading.enabled: true` in `config.yaml`.
 > The desktop app is its own frontend and does not use port 5173.
+
+---
+
+## Optional: Flutter + RAG Companion App
+
+Separately from the Smart Classroom app above, the repository also ships a
+standalone **Flutter + RAG** demo app — a lightweight Content Search Q&A UI,
+independent of Smart Classroom's own frontend. It lives under `utils/flutter`
+at the repository root (not under `smart-classroom/Windows`), is Windows-only
+(PowerShell `setup.ps1`/`start.ps1`, no Linux equivalents), and the sparse
+checkout in [Clone the Repository](#clone-the-repository) does not pull it in
+by default.
+
+Its **Agentic/Coding Companion mode** (`/sc-setup`, `/sc-up`, `/sc-doctor`,
+`/sc-upload`, `/sc-qa`, `/sc-files`) is driven by skill `.md` files under
+`.github/skills`, plus the agent-instructions files every coding assistant
+starts from: `.github/copilot-instructions.md` (Copilot), `.cursor/rules/sc.mdc`
+(Cursor — itself just a router back to `.github/skills`), and the root-level
+`AGENTS.md`/`CLAUDE.md`. All of these are also outside `smart-classroom/Windows`,
+so bring `.github` and `.cursor` along too if you want that mode, not just
+`utils/flutter` on its own. `AGENTS.md`/`CLAUDE.md` need no extra step — cone-mode
+sparse checkout always keeps root-level files regardless of which directories
+you set.
+
+To get them too, add their paths to an existing sparse checkout (run from the
+`education-ai-suite` repository root):
+
+```bash
+git sparse-checkout add utils/flutter .github .cursor
+```
+
+Or, if cloning fresh, set all four paths at once:
+
+```bash
+git clone --filter=blob:none --sparse --branch main https://github.com/open-edge-platform/education-ai-suite.git
+cd education-ai-suite
+git sparse-checkout set smart-classroom/Windows utils/flutter .github .cursor
+```
+
+For setup, usage, and architecture, see:
+
+- [`utils/flutter/README.md`](../../../../utils/flutter/README.md) — main guide:
+  quick start, traditional UI mode, agentic/coding-companion mode,
+  architecture, and troubleshooting.
+- [`.github/skills/README.md`](../../../../.github/skills/README.md) — the skills
+  catalog (`/sc-setup`, `/sc-up`, `/sc-doctor`, `/sc-upload`, `/sc-qa`, `/sc-files`)
+  used by the app's Agentic/Coding Companion mode.
 
 ## Learn More
 

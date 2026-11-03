@@ -332,6 +332,7 @@ def start_video_analytics_pipeline(
                             "pipeline_name": req.pipeline_name,
                             "session_id": x_session_id,
                             "output_stream": req.output_stream,
+                            "device": pipe_options.device,
                         }
                         if req.output_stream:
                             if config.va_pipeline.stream_protocol == "webrtc":

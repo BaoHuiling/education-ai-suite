@@ -8,7 +8,7 @@ import openvino as ov
 import torch
 from ultralytics import YOLO
 from ultralytics.data.utils import DATASETS_DIR
-from ultralytics.utils import DEFAULT_CFG
+from ultralytics.utils import DEFAULT_CFG, ROOT as ULTRALYTICS_ROOT
 from ultralytics.cfg import get_cfg
 from ultralytics.data.utils import check_det_dataset
 from ultralytics.models.yolo.pose import PoseValidator
@@ -18,7 +18,13 @@ import nncf
 from utils.model_verification import verify_openvino_ir
 
 DATA_URL = "https://ultralytics.com/assets/coco8-pose.zip"
-CFG_URL = "https://raw.githubusercontent.com/ultralytics/ultralytics/v8.4.0/ultralytics/cfg/datasets/coco8-pose.yaml"
+# coco8-pose.yaml is bundled with the pinned ultralytics package itself (see
+# requirements-models.txt), so it is copied from there instead of being
+# fetched from raw.githubusercontent.com: some networks (e.g. behind a
+# TLS-inspecting corporate proxy) block/timeout on that host specifically
+# even though github.com and other hosts are reachable, and the bundled copy
+# is already the exact version matching the pinned ultralytics release.
+BUNDLED_CFG_PATH = ULTRALYTICS_ROOT / "cfg" / "datasets" / "coco8-pose.yaml"
 
 OUT_DIR = DATASETS_DIR
 DATA_PATH = OUT_DIR / "val2017.zip"
@@ -91,7 +97,9 @@ def download_file(
 
 if not (OUT_DIR / "coco8-pose/labels").exists():
     download_file(DATA_URL, DATA_PATH.name, DATA_PATH.parent)
-    download_file(CFG_URL, CFG_PATH.name, CFG_PATH.parent)
+    if not CFG_PATH.exists():
+        CFG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(BUNDLED_CFG_PATH, CFG_PATH)
     with ZipFile(DATA_PATH, "r") as zip_ref:
         zip_ref.extractall(OUT_DIR)
 

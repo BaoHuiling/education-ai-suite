@@ -29,6 +29,7 @@ const VideoStream: React.FC<VideoStreamProps> = ({
     frontCameraStream,
     backCameraStream,
     boardCameraStream,
+    videoAnalyticsDevice,
     activeStream,
     videoAnalyticsActive,
     videoAnalyticsLoading,
@@ -239,6 +240,18 @@ const VideoStream: React.FC<VideoStreamProps> = ({
 
         {isRoomView && (
           <div className="stream-controls">
+            {/* One device for all three pipelines (config.yaml's
+                models.va.device, applied uniformly -- see Header.tsx's
+                startVideoAnalytics handling), so one badge here rather than
+                repeating it on every camera tile. Only meaningful while VA is
+                actually running inference, not during playback of
+                recordings/uploaded files. */}
+            {videoAnalyticsDevice && !isPlaybackMode && (
+              <span className="video-analytics-device-badge">
+                {videoAnalyticsDevice}
+              </span>
+            )}
+
             {(isPlaybackMode && recordedVideoType
               ? [{ 
                   pipeline: recordedVideoType === 'board' ? 'content' : recordedVideoType, 

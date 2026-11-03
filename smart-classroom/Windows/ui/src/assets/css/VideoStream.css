@@ -108,6 +108,17 @@
   gap: 8px;
   align-items: center;
 }
+
+.video-analytics-device-badge {
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: #fff;
+  background: #28a745;
+  border-radius: 999px;
+  text-transform: uppercase;
+}
  
 .stream-control-label {
   font-size: 14px;

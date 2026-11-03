@@ -260,8 +260,39 @@ class VideoAnalyticsPipelineService:
             "!",
         ]
 
-    def _get_source_elements(self, source: str, input_type: str) -> List[str]:
+    @staticmethod
+    def _get_d3d12_to_system_memory_elements() -> List[str]:
+        """CPU counterpart of _get_d3d12_to_d3d11_elements.
+
+        d3d12download's whole job is copying a decoded frame out of GPU
+        memory; asked for plain video/x-raw (no D3D11Memory feature) instead
+        of the D3D11 interop share, it hands back a CPU-mappable system
+        memory buffer -- the only kind the 'opencv' pre-process-backend (see
+        _get_preprocess_backend_elements) and the CPU inference plugin can
+        read.
+        """
+        return [
+            "video/x-raw(memory:D3D12Memory)",
+            "!",
+            "d3d12download",
+            f"name={RESUME_PROBE_ELEMENT}",
+            "!",
+            "video/x-raw",
+            "!",
+        ]
+
+    def _get_source_elements(
+        self,
+        source: str,
+        input_type: str,
+        options: Optional["PipelineOptions"] = None,
+    ) -> List[str]:
         """Get source elements based on input type"""
+        memory_elements = (
+            self._get_d3d12_to_system_memory_elements()
+            if options is not None and options.device == "CPU"
+            else self._get_d3d12_to_d3d11_elements()
+        )
         if input_type == "rtsp" and config.va_pipeline.rtsp_codec == "h264":
             return [
                 "rtspsrc",
@@ -275,7 +306,7 @@ class VideoAnalyticsPipelineService:
                 "!",
                 "d3d12h264dec",
                 "!",
-                *self._get_d3d12_to_d3d11_elements(),
+                *memory_elements,
             ]
         elif input_type == "rtsp" and config.va_pipeline.rtsp_codec == "h265":
             return [
@@ -290,7 +321,7 @@ class VideoAnalyticsPipelineService:
                 "!",
                 "d3d12h265dec",
                 "!",
-                *self._get_d3d12_to_d3d11_elements(),
+                *memory_elements,
             ]
         elif input_type == "file":
             # decodebin3 since the file codec is not fixed; 
@@ -300,7 +331,7 @@ class VideoAnalyticsPipelineService:
                 "!",
                 "decodebin3",
                 "!",
-                *self._get_d3d12_to_d3d11_elements(),
+                *memory_elements,
             ]
         else:
             raise ValueError(f"Unknown input type: {input_type}")
@@ -374,7 +405,9 @@ class VideoAnalyticsPipelineService:
             options.output_rtsp, stream_name, sink_framerate
         )
 
-    def _get_input_framerate_cap_elements(self) -> List[str]:
+    def _get_input_framerate_cap_elements(
+        self, options: Optional["PipelineOptions"] = None
+    ) -> List[str]:
         """Get elements capping the framerate at max_input_framerate.
         Used ahead of gvadetect so a high-framerate camera cannot push the pose
         model past the rate the NPU can serve, and ahead of the content video
@@ -382,7 +415,7 @@ class VideoAnalyticsPipelineService:
         """
         if not self.max_input_framerate:
             return []
-        caps = "video/x-raw(memory:D3D11Memory)"
+        caps = self._memory_caps(options)
         return [
             "videorate",
             "drop-only=true",
@@ -396,17 +429,48 @@ class VideoAnalyticsPipelineService:
             "!",
         ]
 
-    def _get_classify_decimation_elements(self) -> List[str]:
+    @staticmethod
+    def _memory_caps(options: Optional["PipelineOptions"] = None) -> str:
+        """Memory feature for caps placed on the inference-side branches.
+
+        CPU inference runs on plain system memory (see
+        _get_d3d12_to_system_memory_elements); GPU/NPU stay on the D3D11
+        interop share so pre-process-backend=d3d11 keeps everything zero-copy
+        on the GPU.
+        """
+        if options is not None and options.device == "CPU":
+            return "video/x-raw"
+        return "video/x-raw(memory:D3D11Memory)"
+
+    def _get_classify_decimation_elements(
+        self, options: Optional["PipelineOptions"] = None
+    ) -> List[str]:
         """Get elements dropping a classification branch to classify_framerate."""
         if not self.classify_framerate:
             return []
+        caps = self._memory_caps(options)
         return [
             "videorate",
             "drop-only=true",
             "!",
-            f"video/x-raw(memory:D3D11Memory),framerate={self.classify_framerate}",
+            f"{caps},framerate={self.classify_framerate}",
             "!",
         ]
+
+    @staticmethod
+    def _get_preprocess_backend_elements(options: "PipelineOptions") -> List[str]:
+        """Get the gva* 'pre-process-backend' for options.device.
+
+        GPU/NPU keep the explicit 'd3d11' backend, mapping the D3D11Memory
+        frames _get_source_elements hands them zero-copy. CPU has no D3D11
+        inference path, so pre-processing (color conversion/resize) needs the
+        'opencv' backend instead, which only accepts system memory -- hence
+        the plain video/x-raw _get_source_elements/_memory_caps switch to for
+        this same device.
+        """
+        if options.device == "CPU":
+            return ["pre-process-backend=opencv"]
+        return ["pre-process-backend=d3d11"]
 
     @staticmethod
     def _join_pipeline_description(elements: List[str]) -> str:
@@ -883,15 +947,15 @@ class VideoAnalyticsPipelineService:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         pipeline = [
-            *self._get_source_elements(source, input_type),
+            *self._get_source_elements(source, input_type, options),
             "gvafpscounter",
             "!",
-            *self._get_input_framerate_cap_elements(),
+            *self._get_input_framerate_cap_elements(options),
             # YOLO detection
             "gvadetect",
             f"model={self._get_model_path('front-pose')}",
             f"device={options.device}",
-            "pre-process-backend=d3d11",
+            *self._get_preprocess_backend_elements(options),
             "batch-size=1",
             "model-instance-id=yolo-0",
             f"threshold={options.threshold}",
@@ -906,14 +970,14 @@ class VideoAnalyticsPipelineService:
             "!",
             "queue",
             "!",
-            *self._get_classify_decimation_elements(),
+            *self._get_classify_decimation_elements(options),
             "gvaroifilter",
             "max-rois-num=10",
             "!",
             "gvaclassify",
             f"model={self._get_model_path('resnet18')}",
             f"device={options.device}",
-            "pre-process-backend=d3d11",
+            *self._get_preprocess_backend_elements(options),
             "batch-size=1",
             "inference-region=1",
             "model-instance-id=resnet18-0",
@@ -939,7 +1003,7 @@ class VideoAnalyticsPipelineService:
             "gvaclassify",
             f"model={self._get_model_path('reid')}",
             f"device={options.device}",
-            "pre-process-backend=d3d11",
+            *self._get_preprocess_backend_elements(options),
             "batch-size=1",
             "inference-region=1",
             "model-instance-id=resnest50-0",
@@ -968,14 +1032,14 @@ class VideoAnalyticsPipelineService:
             "!",
             "queue",
             "!",
-            *self._get_classify_decimation_elements(),
+            *self._get_classify_decimation_elements(options),
             "gvaroifilter",
             "max-rois-num=50",
             "!",
             "gvaclassify",
             f"model={self._get_model_path('mobilenetv2')}",
             f"device={options.device}",
-            "pre-process-backend=d3d11",
+            *self._get_preprocess_backend_elements(options),
             "batch-size=1",
             "inference-region=1",
             "model-instance-id=mobilenetv2-0",
@@ -1000,15 +1064,15 @@ class VideoAnalyticsPipelineService:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         pipeline = [
-            *self._get_source_elements(source, input_type),
+            *self._get_source_elements(source, input_type, options),
             "gvafpscounter",
             "!",
-            *self._get_input_framerate_cap_elements(),
+            *self._get_input_framerate_cap_elements(options),
             # YOLO detection
             "gvadetect",
             f"model={self._get_model_path('back-pose')}",
             f"device={options.device}",
-            "pre-process-backend=d3d11",
+            *self._get_preprocess_backend_elements(options),
             "batch-size=1",
             "model-instance-id=yolo-0",
             f"threshold={options.threshold}",
@@ -1041,11 +1105,11 @@ class VideoAnalyticsPipelineService:
             "!",
             "queue",
             "!",
-            *self._get_classify_decimation_elements(),
+            *self._get_classify_decimation_elements(options),
             "gvaclassify",
             f"model={self._get_model_path('resnet18')}",
             f"device={options.device}",
-            "pre-process-backend=d3d11",
+            *self._get_preprocess_backend_elements(options),
             "batch-size=1",
             "inference-region=1",
             "model-instance-id=resnet18-0",
@@ -1070,7 +1134,7 @@ class VideoAnalyticsPipelineService:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         pipeline = [
-            *self._get_source_elements(source, input_type),
+            *self._get_source_elements(source, input_type, options),
             "tee",
             "name=t",
             # Branch 1: ResNet18 classification at classify_framerate
@@ -1078,11 +1142,11 @@ class VideoAnalyticsPipelineService:
             "!",
             "queue",
             "!",
-            *self._get_classify_decimation_elements(),
+            *self._get_classify_decimation_elements(options),
             "gvaclassify",
             f"model={self._get_model_path('resnet18')}",
             f"device={options.device}",
-            "pre-process-backend=d3d11",
+            *self._get_preprocess_backend_elements(options),
             "batch-size=1",
             "inference-region=0",
             "model-instance-id=resnet18-0",
@@ -1105,7 +1169,7 @@ class VideoAnalyticsPipelineService:
             "!",
             "queue",
             "!",
-            *self._get_input_framerate_cap_elements(),
+            *self._get_input_framerate_cap_elements(options),
             *self._get_video_sink_elements(
                 options, "content_stream", self.max_input_framerate
             ),

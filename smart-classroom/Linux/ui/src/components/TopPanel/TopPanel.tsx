@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import '../../assets/css/TopPanel.css';
 import BrandSlot from '../../assets/images/BrandSlot.svg';
 import menu from '../../assets/images/settings.svg';
@@ -29,7 +29,38 @@ const TopPanel: React.FC<TopPanelProps> = ({
   hasMainFeatures
 }) => {
   const menuIconRef = useRef<HTMLImageElement>(null);
+  const navMenuRef = useRef<HTMLDivElement>(null);
   const { t } = useTranslation();
+  const [isNavMenuOpen, setIsNavMenuOpen] = useState(false);
+
+  // Show Content Search UI if either content_search OR qa feature is enabled
+  const hasContentSearchFeatures = featureGuard.hasFeature('content_search') || featureGuard.hasFeature('qa');
+
+  // Close nav menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (navMenuRef.current && !navMenuRef.current.contains(event.target as Node)) {
+        setIsNavMenuOpen(false);
+      }
+    };
+
+    if (isNavMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isNavMenuOpen]);
+
+  const toggleNavMenu = () => {
+    setIsNavMenuOpen(!isNavMenuOpen);
+  };
+
+  const handleNavItemClick = (action: () => void) => {
+    action();
+    setIsNavMenuOpen(false);
+  };
 
   const openSettings = () => {
     setIsSettingsOpen(true);
@@ -39,24 +70,55 @@ const TopPanel: React.FC<TopPanelProps> = ({
     setIsSettingsOpen(false);
   };
 
-  if (activeScreen === 'grading') {
-    return (
-      <header className="top-panel">
-        <div className="brand-slot">
-          <img src={BrandSlot} alt="Intel Logo" className="logo" />
-          <span className="app-title">{t('grading.title', 'Grading')}</span>
+  // Reusable navigation menu component, letting the user switch between the
+  // main workflow and content search screens without relying on the
+  // feature-driven auto-switch in App.tsx (which only kicks in when the main
+  // features are entirely disabled). 
+  const renderNavMenu = () => (
+    <div className="nav-menu-container" ref={navMenuRef}>
+      <button
+        className="nav-menu-toggle"
+        onClick={toggleNavMenu}
+        aria-label={t('menu.toggle', 'Toggle menu')}
+        title={t('menu.toggle', 'Toggle menu')}
+      >
+        <span className="hamburger-icon">
+          <span></span>
+          <span></span>
+          <span></span>
+        </span>
+      </button>
+      {isNavMenuOpen && (
+        <div className="nav-menu-dropdown">
+          <div className="nav-menu-header">
+            <span>{t('menu.navigation', 'Navigation')}</span>
+          </div>
+          <ul className="nav-menu-list">
+            <li
+              className={`${activeScreen === 'main' ? 'active' : ''} ${!hasMainFeatures ? 'no-click' : ''}`}
+              onClick={() => hasMainFeatures && handleNavItemClick(() => setActiveScreen('main'))}
+            >
+              <span className="menu-icon">🏠</span>
+              <span className={!hasMainFeatures ? 'disabled' : ''}>{t('menu.home', 'Home')}</span>
+            </li>
+            <li
+              className={`${activeScreen === 'content-search' ? 'active' : ''} ${!hasContentSearchFeatures ? 'no-click' : ''}`}
+              onClick={() => hasContentSearchFeatures && handleNavItemClick(() => setActiveScreen('content-search'))}
+            >
+              <span className="menu-icon">🔍</span>
+              <span className={!hasContentSearchFeatures ? 'disabled' : ''}>{t('contentSearch.title', 'Content Search')}</span>
+            </li>
+          </ul>
         </div>
-        <div className="action-slot">
-          <LanguageSwitcher />
-        </div>
-      </header>
-    );
-  }
+      )}
+    </div>
+  );
 
   if (activeScreen === 'content-search') {
     return (
       <header className="top-panel">
         <div className="brand-slot">
+          {renderNavMenu()}
           <img src={BrandSlot} alt="Intel Logo" className="logo" />
           <span className="app-title">{t('contentSearch.title', 'Content Search')}</span>
         </div>
@@ -70,6 +132,7 @@ const TopPanel: React.FC<TopPanelProps> = ({
   return (
     <header className="top-panel">
       <div className="brand-slot">
+        {renderNavMenu()}
         <img src={BrandSlot} alt="Intel Logo" className="logo" />
         <span className="app-title">{t('header.title')}</span>
       </div>

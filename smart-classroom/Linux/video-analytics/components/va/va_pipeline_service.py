@@ -216,8 +216,27 @@ class VideoAnalyticsPipelineService:
             self.logger.error(f"File validation error: {e}")
             return f"File validation error: {e}"
 
-    def _get_source_elements(self, source: str, input_type: str) -> List[str]:
-        """Get source elements based on input type"""
+    def _get_source_elements(
+        self,
+        source: str,
+        input_type: str,
+        options: Optional["PipelineOptions"] = None,
+    ) -> List[str]:
+        """Get source elements based on input type
+
+        Args:
+            options: resolved launch options. `vah264dec`/`vah265dec` decode
+                on the GPU and hand frames downstream as VA-memory
+                (VASurface/VAMemory), which only GPU/NPU inference can map
+                zero-copy. When options.device is CPU, append explicit
+                `video/x-raw` caps so the decoder downloads frames to plain
+                system memory instead -- the only kind the 'opencv'
+                pre-process-backend (see _get_preprocess_backend_elements)
+                can read.
+        """
+        system_memory_caps = (
+            ["video/x-raw", "!"] if options is not None and options.device == "CPU" else []
+        )
         if input_type == "rtsp" and self.rtsp_codec == "h264":
             return [
                 "rtspsrc",
@@ -231,6 +250,7 @@ class VideoAnalyticsPipelineService:
                 "!",
                 "vah264dec",
                 "!",
+                *system_memory_caps,
             ]
         elif input_type == "rtsp" and self.rtsp_codec == "h265":
             return [
@@ -245,6 +265,7 @@ class VideoAnalyticsPipelineService:
                 "!",
                 "vah265dec",
                 "!",
+                *system_memory_caps,
             ]
         elif input_type == "file":
             return [
@@ -256,6 +277,20 @@ class VideoAnalyticsPipelineService:
             ]
         else:
             raise ValueError(f"Unknown input type: {input_type}")
+
+    def _get_preprocess_backend_elements(self, options: "PipelineOptions") -> List[str]:
+        """Get the gva* 'pre-process-backend' override for options.device.
+
+        Left on auto-selection for GPU/NPU: DL Streamer picks 'va' on its own
+        from the VA-memory frames _get_source_elements hands it. CPU has no
+        VA-API inference path, so pre-processing (color conversion/resize)
+        needs the explicit 'opencv' backend, which only accepts system
+        memory -- hence the video/x-raw caps _get_source_elements adds for
+        this same device.
+        """
+        if options.device == "CPU":
+            return ["pre-process-backend=opencv"]
+        return []
 
     @staticmethod
     def _framerate_to_fps(framerate: Optional[str]) -> float:

@@ -10,6 +10,7 @@ features:
   topic_segmentation: { enabled: true }
   content_search:     { enabled: true }
   video_analytics:    { enabled: true }    
+  qa:                 { enabled: true }
 
 monitoring:
   logs_dir: ./monitoring/logs
@@ -50,7 +51,7 @@ models:
 
   va:                        # Video Analytics models (served by the video-analytics side-car)
     models_base_path: "models"
-    device: NPU              # NPU, GPU — per-pipeline default; a launch call may override it
+    device: NPU              # NPU, GPU, or CPU — per-pipeline default; a launch call may override it
     front_pose_model: yolov8m-pose   # yolov8m-pose / yolo11m-pose / yolo26m-pose
     back_pose_model: yolov8s-pose    # yolov8s-pose / yolo11s-pose / yolo26s-pose
     threshold: 0.5           # YOLO detection confidence threshold

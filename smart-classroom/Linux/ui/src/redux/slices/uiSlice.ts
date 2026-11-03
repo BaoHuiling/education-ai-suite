@@ -50,6 +50,10 @@ export interface UIState {
   frontCameraStream: string;
   backCameraStream: string;
   boardCameraStream: string;
+  // All three pipelines share one device (config.yaml's models.va.device,
+  // applied uniformly by start_pipelines/_launch_single) -- one value, not
+  // one per camera.
+  videoAnalyticsDevice: string | null;
   activeStream: 'front' | 'back' | 'content' | 'all' | null;
   videoAnalyticsLoading: boolean;
   videoAnalyticsActive: boolean;
@@ -121,6 +125,7 @@ const initialState: UIState = {
   frontCameraStream: '',
   backCameraStream: '',
   boardCameraStream: '',
+  videoAnalyticsDevice: null,
   videoAnalyticsLoading: false,
   videoAnalyticsActive: false,
   processingMode: null,
@@ -378,6 +383,10 @@ const uiSlice = createSlice({
     
     setBoardCameraStream(state, action: PayloadAction<string>) {
       state.boardCameraStream = action.payload;
+    },
+
+    setVideoAnalyticsDevice(state, action: PayloadAction<string | null>) {
+      state.videoAnalyticsDevice = action.payload;
     },
     
     resetStream(state) {
@@ -671,6 +680,7 @@ export const {
   setFrontCameraStream,
   setBackCameraStream,
   setBoardCameraStream,
+  setVideoAnalyticsDevice,
   setVideoAnalyticsLoading,
   setVideoAnalyticsActive,
   setProcessingMode,
