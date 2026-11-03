@@ -63,7 +63,7 @@ Options:
     -Restart             Kill existing services and restart (no prompt)
     -Silent              Unattended mode - auto-restart, skip all prompts
     -NoElevate           Skip auto-elevation to Administrator (Windows)
-    -NoWindowsTerminal   Use Invoke-WmiMethod instead of Windows Terminal (for remote sessions)
+    -NoWindowsTerminal   Launch through WMI instead of Windows Terminal (for remote sessions)
     -Electron            Shortcut for ./start-desktop-app.ps1 - launches the desktop app, which
                          manages the Python services itself. Never elevates.
     -Help                Show this help message
@@ -1049,6 +1049,46 @@ function Show-ServiceLogTail {
     }
 }
 
+function Start-DetachedBackend {
+    param(
+        [string]$BackendScript,
+        [string]$LogPath,
+        [string]$ErrorPath
+    )
+
+    $logLiteral = $LogPath.Replace("'", "''")
+    $errorLiteral = $ErrorPath.Replace("'", "''")
+    $loggedScript = "& {`r`n$BackendScript`r`n} 6>&1 1> '$logLiteral' 2> '$errorLiteral'"
+    $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($loggedScript))
+    $powershellPath = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+
+    # WMI creates the launcher outside the SSH session's process tree. Hidden
+    # Start-Process children can still be terminated when that session closes.
+    $startup = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ ShowWindow = [uint16]0 } -ErrorAction Stop
+    $launch = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{
+        CommandLine = "`"$powershellPath`" -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand $encoded"
+        ProcessStartupInformation = $startup
+    } -ErrorAction Stop
+    if ($launch.ReturnValue -ne 0 -or -not $launch.ProcessId) {
+        throw "Failed to start Backend through WMI (code $($launch.ReturnValue))."
+    }
+    return [uint32]$launch.ProcessId
+}
+
+function Test-ServiceLauncherRunning {
+    param(
+        [System.Diagnostics.Process]$Process = $null,
+        [uint32]$LauncherProcessId = 0
+    )
+
+    if ($LauncherProcessId) {
+        # WMI launchers have no reliable .NET exit-code handle. Query their PID,
+        # and let query failures surface rather than misreporting a crash.
+        return $null -ne (Get-CimInstance Win32_Process -Filter "ProcessId=$LauncherProcessId" -ErrorAction Stop)
+    }
+    return $Process -and -not $Process.HasExited
+}
+
 # Health check function (no timeout - relies on crash detection)
 function Wait-ForService {
     param(
@@ -1058,6 +1098,7 @@ function Wait-ForService {
         [int[]]$DependentPorts = @(),
         [string]$CommandLinePattern = "",  # Pattern to match in process command line (e.g., "main.py", "start_services.py")
         [System.Diagnostics.Process]$Process = $null,  # Launched process to watch for early exit
+        [uint32]$LauncherProcessId = 0,  # WMI-launched wrapper to watch by PID
         [string[]]$LogPaths = @(),  # Log files to tail when the service fails to start
         [int]$IntervalSeconds = 5,
         # Ceiling for aggregate endpoints, where the port stays open (so the
@@ -1073,9 +1114,10 @@ function Wait-ForService {
     Write-Host "  Health check: $Url" -ForegroundColor DarkGray
     
     while ($true) {
-        # If we have a handle to the launched process, detect an early exit
+        # If we know the launched process, detect an early exit
         # immediately (e.g. a config error) instead of waiting out the grace period.
-        if ($Process -and $Process.HasExited) {
+        $launcherRunning = Test-ServiceLauncherRunning -Process $Process -LauncherProcessId $LauncherProcessId
+        if (($Process -or $LauncherProcessId) -and -not $launcherRunning) {
             $listening = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
             if (-not $listening) {
                 Write-Host ""
@@ -1083,7 +1125,9 @@ function Wait-ForService {
                 Write-Host "  ERROR: $ServiceName EXITED" -ForegroundColor Red
                 Write-Host "========================================" -ForegroundColor Red
                 Write-Host ""
-                $codeText = if ($null -ne $Process.ExitCode) { $Process.ExitCode } else { "unknown" }
+                $codeText = if ($Process) {
+                    if ($null -ne $Process.ExitCode) { $Process.ExitCode } else { "unknown" }
+                } else { "unavailable for WMI launcher" }
                 Write-Host "  The $ServiceName process exited (code $codeText) before becoming healthy." -ForegroundColor Red
                 if ($LogPaths | Where-Object { $_ -and (Test-Path $_) }) {
                     Write-Host "  See the $ServiceName log below:" -ForegroundColor Yellow
@@ -1174,7 +1218,7 @@ function Wait-ForService {
 
                 # The launched wrapper stays alive through first-run model prep before main.py
                 # opens the port.
-                if (-not $serviceRunning -and $Process -and -not $Process.HasExited) {
+                if (-not $serviceRunning -and $launcherRunning) {
                     $serviceRunning = $true
                 }
                 
@@ -1403,6 +1447,8 @@ python main.py
     # can tail on failure; windowed mode shares this console instead.
     $script:backendLogPath = $null
     $script:backendErrPath = $null
+    $script:backendProcess = $null
+    $script:backendProcessId = 0
 
     if ($NoWindowsTerminal) {
         $backendLogDir = Join-Path $ScriptDir "logs"
@@ -1411,23 +1457,14 @@ python main.py
         $script:backendLogPath = Join-Path $backendLogDir "backend_$backendTs.log"
         $script:backendErrPath = Join-Path $backendLogDir "backend_$backendTs.err"
 
-        # Start-Process yields a real Process object with a valid HasExited/ExitCode,
-        # unlike the WMI + Get-Process wrapper whose ExitCode is unavailable (so the
-        # early-exit check fired at 0s reporting "code ").
-        $script:backendProcess = Start-Process powershell -WindowStyle Hidden -PassThru `
-            -RedirectStandardOutput $script:backendLogPath `
-            -RedirectStandardError $script:backendErrPath `
-            -ArgumentList "-ExecutionPolicy Bypass -EncodedCommand $backendEncoded"
-        if (-not $script:backendProcess) {
-            Write-Host "Failed to start Backend (Start-Process returned no process)." -ForegroundColor Red
-            exit 1
-        }
+        $script:backendProcessId = Start-DetachedBackend -BackendScript $backendScript `
+            -LogPath $script:backendLogPath -ErrorPath $script:backendErrPath
     } else {
         $script:backendProcess = Start-Process powershell -NoNewWindow -PassThru -ArgumentList "-ExecutionPolicy Bypass -EncodedCommand $backendEncoded"
     }
 
     if ($NoWindowsTerminal) {
-        Write-Host "  Backend started as a detached hidden process (PID $($script:backendProcess.Id))" -ForegroundColor Green
+        Write-Host "  Backend started through WMI (PID $script:backendProcessId), independent of this session" -ForegroundColor Green
         Write-Host "  Backend output -> $script:backendLogPath" -ForegroundColor DarkGray
     } else {
         Write-Host "  Backend started in this terminal" -ForegroundColor Green
@@ -1435,7 +1472,7 @@ python main.py
     Write-Host ""
     } 
     
-    $backendHealthy = Wait-ForService -ServiceName "Backend" -Url "http://localhost:8000/health" -Port 8000 -CommandLinePattern "main.py" -Process $script:backendProcess -LogPaths @($script:backendLogPath, $script:backendErrPath)
+    $backendHealthy = Wait-ForService -ServiceName "Backend" -Url "http://localhost:8000/health" -Port 8000 -CommandLinePattern "main.py" -Process $script:backendProcess -LauncherProcessId $script:backendProcessId -LogPaths @($script:backendLogPath, $script:backendErrPath)
     if (-not $backendHealthy) {
         Write-Host "Exiting script due to Backend startup failure." -ForegroundColor Red
         exit 1
@@ -1567,9 +1604,10 @@ if ($Silent) {
 
     try {
         while ($true) {
-            if ($script:backendProcess -and $script:backendProcess.HasExited) {
+            if (($script:backendProcess -or $script:backendProcessId) -and
+                -not (Test-ServiceLauncherRunning -Process $script:backendProcess -LauncherProcessId $script:backendProcessId)) {
                 Write-Host ""
-                Write-Host "Backend process exited (code $($script:backendProcess.ExitCode)). Stopping remaining services..." -ForegroundColor Yellow
+                Write-Host "Backend launcher exited. Stopping remaining services..." -ForegroundColor Yellow
                 break
             }
             Start-Sleep -Seconds 1

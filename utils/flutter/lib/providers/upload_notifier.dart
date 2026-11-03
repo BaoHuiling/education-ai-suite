@@ -71,6 +71,16 @@ class UploadNotifier extends StateNotifier<List<UploadEntry>> {
     _updateEntry(entryId, tags: tags);
   }
 
+  /// Toggle whether a staged video should be VLM-summarized at ingest time.
+  /// Only effective while status == staged (ignored otherwise).
+  void updateEntrySummarize(String entryId, bool summarize) {
+    final idx = state.indexWhere((e) => e.id == entryId);
+    if (idx == -1) return;
+    final entry = state[idx];
+    if (entry.status != TaskStatus.staged) return;
+    _updateEntry(entryId, summarizeVideo: summarize);
+  }
+
   // ── Upload one file ────────────────────────────────────────────────────────
 
   Future<void> uploadEntry(String entryId, PlatformFile file) async {
@@ -80,21 +90,23 @@ class UploadNotifier extends StateNotifier<List<UploadEntry>> {
     final ext = file.name.contains('.')
         ? file.name.split('.').last.toLowerCase()
         : '';
-    // Read tags from the current entry state before transitioning
-    final tags = state
-        .firstWhere((e) => e.id == entryId,
-            orElse: () => UploadEntry(
-                  id: entryId,
-                  filename: file.name,
-                  extension: ext,
-                  fileSize: file.size,
-                  status: TaskStatus.uploading,
-                ))
-        .tags;
+    // Read tags/summarize flag from the current entry state before transitioning
+    final entry = state.firstWhere((e) => e.id == entryId,
+        orElse: () => UploadEntry(
+              id: entryId,
+              filename: file.name,
+              extension: ext,
+              fileSize: file.size,
+              status: TaskStatus.uploading,
+            ));
+    final isVideo = _inferType(ext) == 'video';
     final meta = <String, dynamic>{
       'file_name': file.name,
       'type': _inferType(ext),
-      if (tags.isNotEmpty) 'tags': tags,
+      if (entry.tags.isNotEmpty) 'tags': entry.tags,
+      // Backend defaults vs_enabled to false when absent, so videos must opt in
+      // explicitly or no VLM summary is generated for later Q&A.
+      if (isVideo) 'vs_enabled': entry.summarizeVideo,
     };
 
     try {
@@ -230,6 +242,7 @@ class UploadNotifier extends StateNotifier<List<UploadEntry>> {
     double? uploadProgress,
     String? error,
     List<String>? tags,
+    bool? summarizeVideo,
   }) {
     state = [
       for (final e in state)
@@ -242,6 +255,7 @@ class UploadNotifier extends StateNotifier<List<UploadEntry>> {
             uploadProgress: uploadProgress,
             error: error,
             tags: tags,
+            summarizeVideo: summarizeVideo,
           )
         else
           e,

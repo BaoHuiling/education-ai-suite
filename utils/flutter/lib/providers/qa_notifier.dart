@@ -105,8 +105,11 @@ class QaNotifier extends StateNotifier<QaState> {
       final assistantEntry = ChatEntry(
         id: _genId(),
         role: ChatRole.assistant,
-        content: result.answer,
+        // Retrieval can succeed with sources while VLM generation still fails
+        // (backend code != 20000) — show that reason instead of a blank bubble.
+        content: result.error ?? result.answer,
         sources: result.sources,
+        isError: result.error != null,
       );
 
       state = state.copyWith(

@@ -28,7 +28,7 @@ try   { (Invoke-WebRequest -Uri "$BASE/api/v1/system/health" -UseBasicParsing).C
 catch { $_.ErrorDetails.Message }
 ```
 
-If unreachable or degraded, use [`sc-doctor`](../sc-doctor/SKILL.md) / [`sc-up`](../sc-up/SKILL.md).
+If unreachable or degraded, use the `sc-doctor` / `sc-up` skills.
 
 ---
 

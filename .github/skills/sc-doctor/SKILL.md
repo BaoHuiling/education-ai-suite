@@ -11,7 +11,7 @@ description: >
 
 Find out whether the Smart Classroom RAG system is healthy and what's broken.
 **Agent: execute every command below directly using your terminal tool and relay
-the result.** If the backend is not up, hand off to [`sc-up`](../sc-up/SKILL.md).
+the result.** If the backend is not up, hand off to the `sc-up` skill.
 
 
 Set `$BASE = "http://127.0.0.1:9011"` (or the value in `utils/flutter/assets/.env`).
@@ -40,8 +40,8 @@ try {
 
 - **200 / `{"status":"ok"}`** → every Content Search service is ready, continue
   to step 2.
-- **Connection refused / timeout** → nothing is running on port 9011. Use
-  [`sc-up`](../sc-up/SKILL.md) to start the backend. `GET /api/v1/system/ping`
+- **Connection refused / timeout** → nothing is running on port 9011. Use the
+  `sc-up` skill to start the backend. `GET /api/v1/system/ping`
   distinguishes the two: it answers 200 whenever the API process itself is up.
 - **503 / `{"status":"degraded"}`** → the API is up but a service behind it is
   not (still loading models, or dead). Read the `services` map, then step 3.
@@ -81,7 +81,7 @@ Test-Path "smartclassroom\Scripts\python.exe"
     Select-String "fastapi|llama-index|uvicorn|chromadb|faiss"
 ```
 
-If packages are missing, run [`sc-setup`](../sc-setup/SKILL.md) to reinstall.
+If packages are missing, run the `sc-setup` skill to reinstall.
 
 ---
 

@@ -44,7 +44,7 @@ The Flutter app uses its **own dedicated config.yaml** file located at `utils/fl
 - Configure Content Search backend settings (VLM, vector DB, storage) specific to its use case
 - Point to the main backend for VLM services while managing its own Content Search instance
 
-The main backend (`smart-classroom/config.yaml`) and Flutter config are separate, allowing flexible deployment scenarios.
+The main backend (`smart-classroom/Windows/config.yaml`) and Flutter config are separate, allowing flexible deployment scenarios.
 
 ---
 
@@ -228,7 +228,7 @@ Agent: [Reads sc-files skill, calls files endpoint, displays table]
 
 ### Python Dependencies
 
-The setup script installs from [`smart-classroom/requirements.txt`](../../smart-classroom/requirements.txt)
+The setup script installs from [`smart-classroom/Windows/requirements.txt`](../../smart-classroom/Windows/requirements.txt)
 
 ### Network
 - **Internet access** for first-time model downloads
@@ -271,7 +271,7 @@ content_search:
 - Tune RAG parameters (retrieval threshold, context size)
 - Configure custom storage paths
 
-**Note**: The Flutter config is **independent** from `smart-classroom/config.yaml`. The main backend uses its own config for the full Smart Classroom application, while Flutter uses this simplified config focused on Content Search and VLM integration only.
+**Note**: The Flutter config is **independent** from `smart-classroom/Windows/config.yaml`. The main backend uses its own config for the full Smart Classroom application, while Flutter uses this simplified config focused on Content Search and VLM integration only.
 
 ---
 
@@ -487,7 +487,7 @@ For detailed request/response schemas, see `.github/skills/*/references/`.
 | Security warning: *"Runs \<script\> — pulls untrusted third-party code"* | VS Code/agent safety prompt when executing any `.ps1` script | This is expected — click **Allow** to proceed |
 | `flutter: command not found` | Flutter not in PATH | Install Flutter SDK and add to PATH |
 | `Connection refused on port 9011` | Backend not running | Run `.\utils\flutter\start.ps1` or `sc-up` skill |
-| `Task status: FAILED` | Model download failed / Disk space | Check `smart-classroom/content_search/logs/` for errors |
+| `Task status: FAILED` | Model download failed / Disk space | Check `smart-classroom/Windows/content_search/logs/` for errors |
 | `401 Unauthorized` | (Future) Auth not configured | This app doesn't use auth yet |
 | `Duplicate file (code 40901)` | File already indexed | Use sc-upload skill (auto-handles cleanup-retry) |
 | Agent doesn't respond | Skill file not found | Ensure `.github/skills/` exists and skill frontmatter is valid |
@@ -500,7 +500,7 @@ For detailed request/response schemas, see `.github/skills/*/references/`.
 Get-Process | Where-Object {$_.Name -like "*python*"}
 
 # View backend logs
-Get-Content smart-classroom\content_search\logs\app.log -Tail 50
+Get-Content smart-classroom\Windows\content_search\logs\app.log -Tail 50
 
 # Test health endpoint manually
 Invoke-WebRequest -Uri "http://127.0.0.1:9011/api/v1/system/health" -UseBasicParsing
@@ -590,8 +590,8 @@ To create a new skill:
 ## Related Documentation
 
 - [Main Education AI Suite README](../../README.md)
-- [Smart Classroom Backend Documentation](../../smart-classroom/README.md)
-- [Content Search API Documentation](../../smart-classroom/content_search/README.md)
+- [Smart Classroom Backend Documentation](../../smart-classroom/Windows/README.md)
+- [Content Search API Documentation](../../smart-classroom/Windows/content_search/README.md)
 - [Skills Catalog](../../.github/skills/README.md)
 - [Copilot Instructions](../../.github/copilot-instructions.md)
 

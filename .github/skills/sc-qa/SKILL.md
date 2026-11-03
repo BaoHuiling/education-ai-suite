@@ -48,7 +48,7 @@ Set `$BASE = "http://127.0.0.1:9011"` for all snippets.
 ### Set corporate proxy (required for any outbound download; localhost API calls bypass it)
 
 1. **Backend healthy** — probe first; if unreachable, use
-   [`sc-doctor`](../sc-doctor/SKILL.md) / [`sc-up`](../sc-up/SKILL.md):
+   the `sc-doctor` / `sc-up` skills:
    ```powershell
    $BASE = "http://127.0.0.1:9011"
    # 200 = all services ready; 503 = degraded, body names the failing one
@@ -61,7 +61,7 @@ Set `$BASE = "http://127.0.0.1:9011"` for all snippets.
    $r = Invoke-WebRequest -Uri "$BASE/api/v1/object/files/list" -UseBasicParsing
    ($r.Content | ConvertFrom-Json).data.files | Select-Object file_name, status
    ```
-   If no files are indexed, run [`sc-upload`](../sc-upload/SKILL.md) first.
+   If no files are indexed, run the `sc-upload` skill first.
 
 ---
 
@@ -147,7 +147,7 @@ $r = Invoke-WebRequest -Uri "$BASE/api/v1/object/qa" `
 ## 3. Scope retrieval with tag filters
 
 Use the `filter` field to restrict which indexed files are searched.
-Tags must have been set at upload time (see [`sc-upload`](../sc-upload/SKILL.md)).
+Tags must have been set at upload time (see the `sc-upload` skill).
 
 ```powershell
 # First, see available tags

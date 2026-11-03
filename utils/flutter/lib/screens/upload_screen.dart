@@ -149,6 +149,10 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
                                   ? (tags) => notifier.updateEntryTags(
                                       e.id, tags)
                                   : null,
+                              onSummarizeChanged: e.status == TaskStatus.staged
+                                  ? (value) => notifier.updateEntrySummarize(
+                                      e.id, value)
+                                  : null,
                               onRemove: (e.status == TaskStatus.staged ||
                                       e.status.isTerminal)
                                   ? () {

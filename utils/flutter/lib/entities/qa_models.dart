@@ -108,8 +108,9 @@ class QaRequest {
 class QaResult {
   final String answer;
   final List<QaSource> sources;
+  final String? error; // set when the backend reports a non-success `code`
 
-  const QaResult({required this.answer, this.sources = const []});
+  const QaResult({required this.answer, this.sources = const [], this.error});
 
   factory QaResult.fromJson(Map<String, dynamic> json) {
     final data = json.containsKey('data') && json['data'] is Map<String, dynamic>
@@ -117,12 +118,28 @@ class QaResult {
         : json;
 
     final rawSources = data['sources'] as List<dynamic>? ?? [];
+    final sources = rawSources
+        .whereType<Map<String, dynamic>>()
+        .map(QaSource.fromJson)
+        .toList()
+      // Highest relevance first; sources without a score sort last.
+      ..sort((a, b) => (b.score ?? -1).compareTo(a.score ?? -1));
+
+    // The backend always answers with HTTP 200 (see resp_200()); failures are
+    // only signalled via a non-20000 `code`, e.g. 50003 when retrieval found
+    // sources but VLM answer generation failed. Without this check `answer`
+    // silently comes back empty instead of surfacing why.
+    final code = json['code'] as int?;
+    final isSuccess = code == null || code == 20000;
+
     return QaResult(
       answer: (data['answer'] as String?) ?? '',
-      sources: rawSources
-          .whereType<Map<String, dynamic>>()
-          .map(QaSource.fromJson)
-          .toList(),
+      sources: sources,
+      error: isSuccess
+          ? null
+          : ((json['message'] as String?)?.trim().isNotEmpty == true
+              ? (json['message'] as String).trim()
+              : 'Answer generation failed'),
     );
   }
 }

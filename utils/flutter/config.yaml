@@ -1,5 +1,5 @@
 ﻿# Flutter Smart Classroom Configuration
-# This is a complete copy of smart-classroom/config.yaml with ONLY content_search and qa enabled.
+# This is a complete copy of smart-classroom/Windows/config.yaml with ONLY content_search and qa enabled.
 # All other features are disabled to prevent loading ASR, OCR, summarizer, and VA models.
 # The backend uses this config when started by Flutter scripts via SC_CONFIG_PATH environment variable.
 

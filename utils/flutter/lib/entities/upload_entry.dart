@@ -76,6 +76,7 @@ class UploadEntry {
   final int progress;          // 0–100 from task polling
   final String? error;
   final List<String> tags;     // user-defined labels sent in meta at ingest time
+  final bool summarizeVideo;   // video only: whether to request VLM summarization at ingest time
 
   const UploadEntry({
     required this.id,
@@ -89,6 +90,7 @@ class UploadEntry {
     this.progress = 0,
     this.error,
     this.tags = const [],
+    this.summarizeVideo = true,
   });
 
   /// Human-readable file type label derived from [extension].
@@ -144,6 +146,7 @@ class UploadEntry {
     double? uploadProgress,
     String? error,
     List<String>? tags,
+    bool? summarizeVideo,
   }) {
     return UploadEntry(
       id: id,
@@ -157,6 +160,7 @@ class UploadEntry {
       progress: progress ?? this.progress,
       error: error ?? this.error,
       tags: tags ?? this.tags,
+      summarizeVideo: summarizeVideo ?? this.summarizeVideo,
     );
   }
 }

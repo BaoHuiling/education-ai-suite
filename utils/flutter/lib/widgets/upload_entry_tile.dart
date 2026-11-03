@@ -6,12 +6,14 @@ class UploadEntryTile extends StatefulWidget {
   final UploadEntry entry;
   final VoidCallback? onRemove;
   final void Function(List<String> tags)? onTagsChanged;
+  final void Function(bool summarize)? onSummarizeChanged;
 
   const UploadEntryTile({
     super.key,
     required this.entry,
     this.onRemove,
     this.onTagsChanged,
+    this.onSummarizeChanged,
   });
 
   @override
@@ -51,6 +53,8 @@ class _UploadEntryTileState extends State<UploadEntryTile> {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final isStaged = entry.status == TaskStatus.staged;
+    final isVideo =
+        ['mp4', 'avi', 'mov', 'mkv'].contains(entry.extension.toLowerCase());
 
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
@@ -145,6 +149,29 @@ class _UploadEntryTileState extends State<UploadEntryTile> {
                               if (v.endsWith(',')) _commitTag();
                             },
                           ),
+                        ),
+                      ],
+                    ),
+                  ],
+                  // ── Summarize-video toggle (staged videos only) ───────────
+                  if (isStaged && isVideo) ...[
+                    const SizedBox(height: 4),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(
+                          height: 24,
+                          child: Switch(
+                            value: entry.summarizeVideo,
+                            onChanged: widget.onSummarizeChanged,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Summarize video (needed for Q&A)',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                              color: cs.onSurface.withValues(alpha: 0.6),
+                              fontSize: 11),
                         ),
                       ],
                     ),

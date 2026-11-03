@@ -15,7 +15,8 @@ Write-Host "`n=== Starting Smart Classroom RAG ===" -ForegroundColor Cyan
 
 # Check prerequisites
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-$smartClassroomPath = Join-Path $repoRoot "smart-classroom"
+# Windows app code lives under smart-classroom\Windows (Linux variant lives under smart-classroom\Linux)
+$smartClassroomPath = Join-Path $repoRoot "smart-classroom\Windows"
 $mainVenvPath = Join-Path $repoRoot "smartclassroom"
 $mainPythonPath = Join-Path $mainVenvPath "Scripts\python.exe"
 $mainScript = Join-Path $smartClassroomPath "main.py"
@@ -52,8 +53,8 @@ Write-Host "  Port 9011: Content Search (auto-started)" -ForegroundColor Gray
 Write-Host "  Using venv: smartclassroom/" -ForegroundColor Gray
 Write-Host "  Backend will run in a separate window" -ForegroundColor Gray
 
-# Convert to relative path from smart-classroom directory
-$relativeConfigPath = "..\\utils\\flutter\\config.yaml"
+# Convert to relative path from smart-classroom\Windows directory
+$relativeConfigPath = "..\\..\\utils\\flutter\\config.yaml"
 
 $mainCmd = "Set-Location '$smartClassroomPath'; `$env:SC_CONFIG_PATH='$relativeConfigPath'; & '$mainPythonPath' '$mainScript'"
 

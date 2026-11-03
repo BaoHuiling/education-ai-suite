@@ -39,7 +39,7 @@ if (Test-Path $configPath) {
 } else {
     Write-Host "[X] Flutter config.yaml not found at $configPath" -ForegroundColor Red
     Write-Host "    A config.yaml should exist in utils/flutter/" -ForegroundColor Yellow
-    Write-Host "    Copy it from smart-classroom/config.yaml and enable only content_search & qa" -ForegroundColor Yellow
+    Write-Host "    Copy it from smart-classroom/Windows/config.yaml and enable only content_search & qa" -ForegroundColor Yellow
     exit 1
 }
 # Check prerequisites
@@ -85,7 +85,8 @@ $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 # Create Python venv for main backend
 Write-Host "`nCreating Python virtual environment for main backend..." -ForegroundColor Yellow
 $mainVenvPath = Join-Path $repoRoot "smartclassroom"
-$smartClassroomPath = Join-Path $repoRoot "smart-classroom"
+# Windows app code lives under smart-classroom\Windows (Linux variant lives under smart-classroom\Linux)
+$smartClassroomPath = Join-Path $repoRoot "smart-classroom\Windows"
 
 if (-not (Test-Path $mainVenvPath)) {
     python -m venv $mainVenvPath
