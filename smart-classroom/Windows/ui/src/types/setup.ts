@@ -27,7 +27,11 @@ export interface SetupStep {
   requires: string[];
   actions: SetupAction[];
   status: SetupStatus;
+  /** English; the fallback when there is no `detailKey` or no translation for it. */
   detail: string;
+  /** setup.details.<key> in src/i18n. Null for raw error text. */
+  detailKey: string | null;
+  detailParams: Record<string, string | number>;
   /** The action that clears this status. */
   repair: string | null;
   /** A command or link the user can use when the app cannot fix it. */

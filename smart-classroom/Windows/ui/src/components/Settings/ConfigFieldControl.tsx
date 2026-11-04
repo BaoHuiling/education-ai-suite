@@ -9,6 +9,7 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import type { ConfigField, ConfigProblem, ConfigValue } from '../../types/config';
 import { fieldKey } from '../../services/configManager';
+import { fieldHelp, fieldLabel } from '../../i18n/settingsText';
 
 interface SuggestionInputProps {
   value: string;
@@ -209,15 +210,16 @@ const ConfigFieldControl: React.FC<ConfigFieldControlProps> = ({ field, draft, o
   };
 
   const problemClass = problem ? (problem.blocking ? ' invalid' : ' questionable') : '';
+  const help = fieldHelp(t, field);
 
   return (
     <div id={id} className={`config-field${edited ? ' dirty' : ''}${flashed ? ' flashed' : ''}${problemClass}`}>
       <div className="config-field-label">
-        <span className="config-field-name">{field.label}</span>
+        <span className="config-field-name">{fieldLabel(t, field)}</span>
         <code className="config-field-path" title={field.path}>
           {field.path}
         </code>
-        {field.help && <span className="config-field-help">{field.help}</span>}
+        {help && <span className="config-field-help">{help}</span>}
         {/* Short form only: the banner above already states the problem in full,
             and a rule can name several fields, so the sentence would otherwise
             appear two or three times within one screenful. */}

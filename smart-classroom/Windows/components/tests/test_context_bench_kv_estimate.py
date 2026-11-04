@@ -415,7 +415,7 @@ class TestShippedConfigs(unittest.TestCase):
                                         for line in documented), kind)
 
     def test_the_guide_shows_each_default_plan(self):
-        guide = (settings.SC_ROOT.parent / "docs" / "context-bench" /
+        guide = (settings.SC_ROOT.parent / "docs" / "dev-guide" / "context-bench" /
                  "context-bench-guide.md").read_text(encoding="utf-8").splitlines()
         for name in self.CONFIGS:
             with self.subTest(config=name):

@@ -70,6 +70,70 @@
       "missing": "缺失",
       "running": "执行中",
       "failed": "失败"
+    },
+    "steps": {
+      "os": "操作系统",
+      "cpu": "处理器",
+      "memory": "系统内存",
+      "disk": "可用磁盘空间",
+      "gpu": "Intel GPU",
+      "npu": "Intel NPU",
+      "longPaths": "Windows 长路径",
+      "venv": "Python 环境",
+      "gradingVenv": "评分转换环境",
+      "layoutModel": "版面检测模型"
+    },
+    "actions": {
+      "create": "创建",
+      "upgrade": "升级",
+      "recreate": "重新创建",
+      "install": "安装",
+      "enable": "启用",
+      "prepare": "准备"
+    },
+    "details": {
+      "running": "{{action}}…",
+      "driverUnknown": "{{device}}（无法获取驱动版本）",
+      "driverOk": "{{device}}，驱动 {{installed}}",
+      "driverOld": "{{device}}，驱动 {{installed}}；已有更新版本 {{latest}}",
+      "osUnsupported": "不支持 {{platform}}",
+      "osOk": "Windows 11（版本号 {{build}}）",
+      "osOld": "Windows 版本号 {{build}}；建议使用 Windows 11",
+      "cpuOther": "{{model}}；建议使用 Intel Core Ultra",
+      "cpuUnknown": "未知；建议使用 Intel Core Ultra",
+      "memoryLow": "{{total}} GB；建议 {{min}} GB",
+      "diskUnknown": "无法确定可用空间",
+      "diskOk": "可用 {{free}} GB",
+      "diskLow": "可用 {{free}} GB；建议 {{min}} GB",
+      "gpuNone": "未检测到 Intel GPU",
+      "npuNone": "未检测到 Intel NPU",
+      "longPathsOn": "已启用",
+      "longPathsOff": "未启用；路径较长的模型下载可能失败",
+      "pythonNone": "未找到解释器；创建 Python 环境需要它",
+      "pythonOk": "{{version}}（{{exe}}）",
+      "pythonOther": "{{version}}（{{exe}}）；经过验证的版本为 {{verified}}.x，其他版本可能无法构建环境",
+      "nodeOk": "{{version}}（随应用附带）",
+      "ffmpegNone": "未在 PATH 中找到；音频提取和视频管道必需工具",
+      "dlStreamerNone": "未安装；视频分析管道将无法运行",
+      "dlStreamerFilesGone": "{{version}} 已登记但文件缺失；请重新安装以运行视频管道",
+      "dlStreamerFilesGoneUnversioned": "已登记但文件缺失；请重新安装以运行视频管道",
+      "dlStreamerNoVersion": "版本未知（{{dir}}）",
+      "dlStreamerOk": "{{version}}（{{dir}}）",
+      "dlStreamerOld": "{{version}}（{{dir}}）；视频管道需要 {{required}}",
+      "venvNone": "未创建；创建之前后端无法启动（{{dir}}）",
+      "venvBroken": "解释器无法运行；请选择“重新创建”（{{dir}}）",
+      "venvModuleMissing": "Python {{version}}；未安装 {{module}} — 请选择“创建”安装依赖",
+      "venvNoImport": "Python {{version}}；核心软件包无法导入 — 请选择“创建”安装依赖",
+      "venvImportError": "Python {{version}}；{{error}} — 请选择“创建”安装依赖",
+      "venvWrongPython": "使用 Python {{version}} 构建；经过验证的版本为 {{verified}}.x — 请选择“重新创建”重建（{{dir}}）",
+      "venvOk": "Python {{version}}，核心软件包已就绪（{{dir}}）",
+      "venvMatching": "Python {{version}}，{{count}} 个软件包与 requirements.txt 一致（{{dir}}）",
+      "venvDrift": "Python {{version}}；{{drift}} — 请选择“升级”以与 requirements.txt 保持一致",
+      "gradingVenvNone": "未创建；转换版面检测模型时需要（仅需一次）",
+      "gradingVenvOk": "paddle2onnx 已就绪（{{dir}}）",
+      "gradingVenvNoTool": "已创建，但缺少 paddle2onnx；请选择“创建”进行安装",
+      "layoutModelOk": "OpenVINO IR 已就绪（{{dir}}）",
+      "layoutModelNone": "尚未准备；评分功能需要它。“准备”会下载并转换模型。"
     }
   },
   "config": {
@@ -130,7 +194,484 @@
     "search": "搜索设置…",
     "searchClear": "清除搜索",
     "matchCount": "匹配到 {{count}} 项设置",
-    "noResults": "没有与“{{query}}”匹配的设置。"
+    "noResults": "没有与“{{query}}”匹配的设置。",
+    "rules": {
+      "asrProviderModel": {
+        "summary": "推理框架与模型不匹配",
+        "message": "{{provider}} 推理框架只能运行 {{family}} 模型，但当前 ASR 模型为“{{model}}”。请选择 {{family}} 模型或更换推理框架。"
+      },
+      "diarizationToken": {
+        "summary": "需要 Hugging Face 令牌",
+        "message": "说话人分离模型尚未下载，下载需要 Hugging Face 令牌。请填写令牌或关闭说话人分离。"
+      },
+      "campplusBackend": {
+        "summary": "需要 funasr / paraformer-zh",
+        "message": "campplus 说话人分离后端要求 ASR 推理框架为“funasr”且模型为“paraformer-zh”，但当前 ASR 为 {{asr}}。"
+      },
+      "wholeFileChunking": {
+        "summary": "需要 funasr / paraformer-zh",
+        "message": "不分块直接转录要求 ASR 推理框架为“funasr”且模型为“paraformer-zh”，但当前 ASR 为 {{asr}}。"
+      },
+      "featuresNoneEnabled": {
+        "summary": "未启用任何功能",
+        "message": "未启用任何功能，后端将拒绝启动。请至少开启一项。"
+      },
+      "featureDependencies": {
+        "message": "{{missing}}已关闭，但{{drivers}}需要用到，后端会在启动时自动开启。请在此开启以与实际运行保持一致，或关闭{{drivers}}。",
+        "summaries": {
+          "overridden": "仍会被开启",
+          "drivers": "依赖已关闭的功能"
+        }
+      }
+    },
+    "errors": {
+      "boolean": "{{field}} 必须为开或关。",
+      "enum": "{{field}} 必须是以下之一：{{options}}。",
+      "number": "{{field}} 必须是数字。",
+      "integer": "{{field}} 必须是整数。",
+      "autoNumber": "{{field}} 必须为“auto”或整数。",
+      "min": "{{field}} 不能小于 {{min}}。",
+      "max": "{{field}} 不能大于 {{max}}。",
+      "text": "{{field}} 必须是文本。",
+      "url": "{{field}} 必须是 http(s) 地址。",
+      "tooLong": "{{field}} 过长。",
+      "characters": "{{field}} 包含无效字符。",
+      "pattern": "{{field}} 格式不正确。"
+    }
+  },
+  "configFields": {
+    "features": {
+      "asr": {
+        "enabled": {
+          "label": "语音识别"
+        }
+      },
+      "summary": {
+        "enabled": {
+          "label": "摘要"
+        }
+      },
+      "mindmap": {
+        "enabled": {
+          "label": "思维导图"
+        }
+      },
+      "topic_segmentation": {
+        "enabled": {
+          "label": "主题分段"
+        }
+      },
+      "video_analytics": {
+        "enabled": {
+          "label": "视频分析"
+        }
+      },
+      "board_ocr": {
+        "enabled": {
+          "label": "板书识别"
+        }
+      },
+      "content_search": {
+        "enabled": {
+          "label": "内容搜索"
+        }
+      },
+      "qa": {
+        "enabled": {
+          "label": "问答"
+        }
+      },
+      "grading": {
+        "enabled": {
+          "label": "评分"
+        }
+      },
+      "report": {
+        "enabled": {
+          "label": "报告"
+        }
+      }
+    },
+    "app": {
+      "language": {
+        "label": "语言"
+      },
+      "cleanup_on_exit": {
+        "label": "退出时清理临时文件"
+      }
+    },
+    "models": {
+      "model_hub": {
+        "label": "模型下载源",
+        "help": "从哪里下载模型。"
+      },
+      "asr": {
+        "provider": {
+          "label": "ASR 推理框架",
+          "help": "openai 适合英文；funasr 适合中文。"
+        },
+        "name": {
+          "label": "ASR 模型",
+          "help": "whisper-small 是兼顾速度与质量的默认选项；paraformer-zh 针对中文优化。"
+        },
+        "device": {
+          "label": "ASR 设备"
+        },
+        "diarization": {
+          "label": "说话人分离",
+          "help": "开启说话人分离；具体参数在下方“说话人分离”中调整。"
+        },
+        "hf_token": {
+          "label": "Hugging Face 令牌",
+          "help": "仅在开启说话人分离且分离模型尚未下载时需要。"
+        },
+        "temperature": {
+          "label": "解码温度",
+          "help": "0 表示确定性输出；值越高，转录越宽松。"
+        },
+        "no_speech_threshold": {
+          "label": "无语音阈值",
+          "help": "调高可丢弃更多静音或嘈杂片段。"
+        },
+        "logprob_threshold": {
+          "label": "对数概率阈值",
+          "help": "模型置信度低于此值的片段将被丢弃。"
+        },
+        "min_duration_sec": {
+          "label": "最短片段时长（秒）",
+          "help": "更短的片段视为噪声并丢弃。"
+        },
+        "min_words": {
+          "label": "每段最少词数"
+        },
+        "max_chars_per_segment": {
+          "label": "每段最多字符数",
+          "help": "0 表示不合并转录片段。"
+        }
+      },
+      "diarization": {
+        "backend": {
+          "label": "说话人分离后端",
+          "help": "campplus 需搭配 funasr / paraformer-zh 使用。"
+        },
+        "global_speaker_similarity_threshold": {
+          "label": "说话人相似度阈值",
+          "help": "调低会把更多声音合并为同一说话人。"
+        }
+      },
+      "summarizer": {
+        "mode": {
+          "label": "摘要模式"
+        }
+      },
+      "text_gen": {
+        "chunking": {
+          "enabled": {
+            "label": "长转录分块",
+            "help": "关闭后整份转录一次性摘要。"
+          },
+          "max_prompt_tokens": {
+            "label": "提示词 Token 上限",
+            "help": "auto 取质量上限与内存上限中的较小值；填写数字则同时覆盖两者。"
+          },
+          "max_content_tokens": {
+            "label": "质量上限（Token）",
+            "help": "无论空闲内存多少，单次提示词的最大长度。0 表示不设上限。"
+          },
+          "gpu_memory_safety_margin": {
+            "label": "GPU 内存安全系数",
+            "help": "提示词可占用的设备空闲内存比例。摘要时内存不足请调低。"
+          },
+          "map_max_new_tokens": {
+            "label": "每段笔记长度（Token）"
+          }
+        },
+        "segmentation": {
+          "window_max_new_tokens": {
+            "label": "每个窗口的主题长度（Token）",
+            "help": "每个窗口生成的主题列表的长度上限。"
+          },
+          "topics_target": {
+            "label": "目标主题数"
+          },
+          "topics_min": {
+            "label": "最少主题数",
+            "help": "列表缩短到此数量时停止合并。"
+          },
+          "topics_max": {
+            "label": "最多主题数"
+          }
+        },
+        "vlm_name": {
+          "label": "VLM 模型",
+          "help": "列表中的选项以预转换的 OpenVINO IR 形式下载；其他模型会在首次运行时转换。"
+        },
+        "device": {
+          "label": "文本生成（VLM）设备"
+        },
+        "weight_format": {
+          "label": "VLM 权重格式"
+        },
+        "max_new_tokens": {
+          "label": "VLM 最大生成 Token 数"
+        },
+        "speculative": {
+          "mode": {
+            "label": "投机解码模式",
+            "help": "auto 在无法准备投机解码组件时回退为普通生成；on 则必须具备这些组件。启用期间仅支持贪心解码。"
+          },
+          "method": {
+            "label": "投机解码方法",
+            "help": "auto 选用针对该 VLM 模型调优的方法。模式为 off 时忽略。"
+          }
+        }
+      },
+      "gpu_queue_priority": {
+        "label": "GPU 队列优先级",
+        "help": "GPU 服务的 OpenVINO GPU 队列优先级。投机解码配置可能会指定自己的优先级。"
+      },
+      "ocr": {
+        "provider": {
+          "label": "OCR 推理框架"
+        },
+        "device": {
+          "label": "OCR 设备"
+        }
+      },
+      "va": {
+        "device": {
+          "label": "视频分析设备"
+        },
+        "front_pose_model": {
+          "label": "前置姿态模型"
+        },
+        "back_pose_model": {
+          "label": "后置姿态模型"
+        },
+        "threshold": {
+          "label": "检测阈值",
+          "help": "YOLO 检测结果被计入所需的置信度。"
+        }
+      }
+    },
+    "audio_preprocessing": {
+      "chunking": {
+        "label": "转录前对音频分块",
+        "help": "关闭后整段录音一次性转录（仅限 funasr / paraformer-zh）。"
+      },
+      "chunk_duration_sec": {
+        "label": "分块时长（秒）"
+      },
+      "silence_threshold": {
+        "label": "静音阈值（dB）"
+      },
+      "silence_duration": {
+        "label": "最短静音时长（秒）",
+        "help": "安静片段需持续多久才算作切分点。"
+      },
+      "search_window_sec": {
+        "label": "静音搜索窗口（秒）",
+        "help": "在分块边界之后多远范围内寻找可切分的静音。"
+      }
+    },
+    "audio_util": {
+      "max_size_mb": {
+        "label": "音频上传大小上限（MB）"
+      }
+    },
+    "pipeline": {
+      "delete_chunks_after_use": {
+        "label": "使用后删除分块"
+      }
+    },
+    "mindmap": {
+      "min_token": {
+        "label": "思维导图最少 Token 数",
+        "help": "转录短于此值时不生成思维导图。"
+      }
+    },
+    "va_pipeline": {
+      "stream_protocol": {
+        "label": "推流协议"
+      },
+      "rtsp_codec": {
+        "label": "推流编码"
+      },
+      "completion_timeout_sec": {
+        "label": "管道超时（秒）",
+        "help": "等待视频管道完成的最长时间，超时即放弃。"
+      },
+      "pose_statistics": {
+        "min_frames_for_transition": {
+          "label": "确认举手所需帧数",
+          "help": "针对已识别的学生。"
+        },
+        "min_frames_for_transition_unid": {
+          "label": "确认举手所需帧数（未识别学生）"
+        },
+        "min_stand_frames": {
+          "label": "计为起立所需帧数"
+        },
+        "absence_threshold": {
+          "label": "学生消失判定（帧）",
+          "help": "连续这么多帧未出现即移除该学生（90 帧约 3 秒）。"
+        },
+        "center_dist_threshold": {
+          "label": "同一人距离阈值",
+          "help": "两个检测框相距多近才视为同一人。"
+        },
+        "unidentified_max": {
+          "label": "未识别学生跟踪上限"
+        },
+        "stale_unidentified_threshold": {
+          "label": "未识别学生消失判定（帧）"
+        }
+      }
+    },
+    "board_ocr": {
+      "frame_rate": {
+        "label": "板书识别帧率",
+        "help": "每秒帧数，可填整数或分数。"
+      },
+      "debug": {
+        "label": "板书识别调试输出"
+      }
+    },
+    "content_search": {
+      "ocr_enabled": {
+        "label": "文档 OCR",
+        "help": "从上传文档内的图片中提取文字。"
+      },
+      "video_summarization_enabled": {
+        "label": "视频摘要"
+      },
+      "storage": {
+        "document_max_mb": {
+          "label": "文档大小上限（MB）"
+        },
+        "video_max_mb": {
+          "label": "视频大小上限（MB）"
+        }
+      },
+      "file_ingest": {
+        "doc_embedding_device": {
+          "label": "文档嵌入设备"
+        },
+        "frame_extract_interval": {
+          "label": "抽帧间隔",
+          "help": "上传视频每 N 帧索引一帧。"
+        },
+        "frame_extract_interval_sparse": {
+          "label": "抽帧间隔（长视频）",
+          "help": "超过 20 分钟的视频改用此值。"
+        },
+        "do_detect_and_crop": {
+          "label": "嵌入前检测并裁剪",
+          "help": "速度较慢，但嵌入会聚焦于检测到的物体。"
+        },
+        "document_parser": {
+          "chunk_method": {
+            "label": "文档分块方式",
+            "help": "semantic 按语义切分；fixed 按字符数切分。"
+          },
+          "chunk_size": {
+            "label": "分块大小（字符）",
+            "help": "仅 fixed 模式。"
+          },
+          "chunk_overlap": {
+            "label": "分块重叠（字符）",
+            "help": "仅 fixed 模式。"
+          },
+          "semantic_min_chunk_size": {
+            "label": "最小分块大小（字符）",
+            "help": "仅 semantic 模式：更短的分块会并入下一块。"
+          },
+          "semantic_breakpoint_percentile": {
+            "label": "断点百分位",
+            "help": "仅 semantic 模式：值越高，分块越少越大。"
+          },
+          "semantic_buffer_size": {
+            "label": "句子缓冲大小",
+            "help": "仅 semantic 模式：比较相似度时合并考虑的相邻句子数。"
+          }
+        },
+        "reranker": {
+          "device": {
+            "label": "重排序设备"
+          },
+          "dedup_time_threshold": {
+            "label": "帧去重窗口（秒）",
+            "help": "同一视频中间隔小于此值的帧会被合并。"
+          },
+          "overfetch_multiplier": {
+            "label": "超额检索倍数",
+            "help": "重排序前先检索 top_k 的这么多倍候选。"
+          }
+        }
+      },
+      "video_preprocess": {
+        "chunk_duration_s": {
+          "label": "视频分块时长（秒）"
+        },
+        "chunk_overlap_s": {
+          "label": "视频分块重叠（秒）"
+        },
+        "max_num_frames": {
+          "label": "每块帧数",
+          "help": "每个分块发送给 VLM 的帧数。"
+        },
+        "max_image_pixels": {
+          "label": "最大帧面积（像素）",
+          "help": "更大的帧会先缩小再发送给 VLM。"
+        },
+        "max_completion_tokens": {
+          "label": "每块摘要最大 Token 数"
+        },
+        "vlm_timeout_seconds": {
+          "label": "VLM 超时（秒）"
+        }
+      },
+      "qa": {
+        "max_context": {
+          "label": "回答参考分块数"
+        },
+        "max_tokens": {
+          "label": "回答最大 Token 数"
+        },
+        "max_history_turns": {
+          "label": "记忆的对话轮数",
+          "help": "随问题一同发送的历史用户/助手问答对数。"
+        },
+        "context_window": {
+          "label": "上下文窗口（Token）",
+          "help": "动态选择上下文时的 Token 预算。"
+        },
+        "retrieval_score_threshold": {
+          "label": "检索分数阈值",
+          "help": "分块被用作上下文所需的最低相关度（0-100）。"
+        }
+      }
+    },
+    "report": {
+      "max_keywords": {
+        "label": "报告关键词数上限"
+      },
+      "max_difficulty_points": {
+        "label": "报告难点数上限"
+      },
+      "pacing_slow_max": {
+        "label": "语速偏慢上限（词/分钟）",
+        "help": "低于此值时报告为语速偏慢。"
+      },
+      "pacing_fast_min": {
+        "label": "语速偏快下限（词/分钟）",
+        "help": "高于此值时报告为语速偏快。"
+      }
+    },
+    "noProxy": {
+      "label": "NO_PROXY",
+      "help": "不经过代理的主机，以逗号分隔。"
+    }
   },
   "services": {
     "title": "服务管理",

@@ -94,7 +94,7 @@ models:
     # mode: "auto" falls back to plain when speculative artifacts cannot be prepared; "on"
     # requires it; "off" is plain generation and ignores the other fields. While active, requests
     # are greedy: temperature > 0 and sampling penalties get HTTP 400.
-    # See smart-classroom/docs/vlm-llm-serving/serving-guide.md.
+    # See smart-classroom/docs/user-guide/vlm-llm-serving/serving-guide.md.
     speculative:
       mode: "off"           # "off" | auto | "on"
       method: auto          # auto | eagle3 | dflash | mtp

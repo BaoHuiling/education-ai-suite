@@ -21,17 +21,17 @@ This design covers shared model serving, speculative decoding, timing instrument
 
 Keep one target per serving instance. Generating tool calls and consuming tool results are in scope; executing tools remains the client's or controller's responsibility. Multi-model routing, UI redesign, and NPU text-generation support are outside the scope; existing NPU use by other classroom components is unchanged.
 
-**Implemented** (usage: [serving-guide.md](../vlm-llm-serving/serving-guide.md)):
+**Implemented** (usage: [serving-guide.md](../../user-guide/vlm-llm-serving/serving-guide.md)):
 
 | Feature | Current implementation |
 | --- | --- |
-| Model choice | Catalog in [text_gen_profiles.py](../../Windows/components/vlm/text_gen_profiles.py): Qwen3-VL-8B-Instruct (default) and Qwen3.5-9B INT4/INT8, Qwen3.6-35B-A3B INT4, Qwen3.8-27B INT4/INT8, all declared tool-capable. Models outside the catalog keep the existing export path. |
+| Model choice | Catalog in [text_gen_profiles.py](../../../Windows/components/vlm/text_gen_profiles.py): Qwen3-VL-8B-Instruct (default) and Qwen3.5-9B INT4/INT8, Qwen3.6-35B-A3B INT4, Qwen3.8-27B INT4/INT8, all declared tool-capable. Models outside the catalog keep the existing export path. |
 | Speculative decoding | Eagle3 for Qwen3-VL-8B-Instruct INT4, DFlash for Qwen3.6-35B-A3B INT4, and for Qwen3.5-9B INT4/INT8 DFlash (the `auto` choice) or target-bundled MTP (with `method: mtp` or `draft_source: target`), both OpenVINO GenAI 2026.4.1 or later and not yet performance- or accuracy-qualified. `dflash2` is an accepted setting without a profile: plain generation under `auto`, a startup failure under `"on"`. |
-| First-run preparation | [text_gen_prepare.py](../../Windows/components/vlm/text_gen_prepare.py), run by the model owner at load (Section 5). |
-| Tool calling | [tool_calls.py](../../Windows/components/vlm/tool_calls.py) and [vlm_chat.py](../../Windows/api/vlm_chat.py) (Section 3). |
+| First-run preparation | [text_gen_prepare.py](../../../Windows/components/vlm/text_gen_prepare.py), run by the model owner at load (Section 5). |
+| Tool calling | [tool_calls.py](../../../Windows/components/vlm/tool_calls.py) and [vlm_chat.py](../../../Windows/api/vlm_chat.py) (Section 3). |
 | Controlled activation | Warm-up before readiness; `/health` reports `hub.text_gen.serving` (Section 6). |
-| Timing statistics | Stage and model-call records, `GET /processing-stats`, per-session logs and a report script: [processing-time-statistics.md](../vlm-llm-serving/processing-time-statistics.md) (Section 7). |
-| `context_bench` | [components/context_bench](../../Windows/components/context_bench/): [context-bench-design.md](../context-bench/context-bench-design.md). |
+| Timing statistics | Stage and model-call records, `GET /processing-stats`, per-session logs and a report script: [processing-time-statistics.md](../processing-time-statistics/processing-time-statistics.md) (Section 7). |
+| `context_bench` | [components/context_bench](../../../Windows/components/context_bench/): [context-bench-design.md](../context-bench/context-bench-design.md). |
 
 ## 2. Model Profiles
 
@@ -104,7 +104,7 @@ Tool-call validation and failure handling from the design requirements:
 - The controller independently validates arguments, authorizes execution, and limits tool-loop iterations.
 - The controller treats tool results as untrusted conversation data; it does not authorize further actions.
 
-**Implemented** ([tool_calls.py](../../Windows/components/vlm/tool_calls.py), [vlm_chat.py](../../Windows/api/vlm_chat.py)):
+**Implemented** ([tool_calls.py](../../../Windows/components/vlm/tool_calls.py), [vlm_chat.py](../../../Windows/api/vlm_chat.py)):
 
 - A request uses the tool path when it has `tools` or `tool_choice`, or its history contains tool calls or results; any other request keeps the existing chat path (last user turn).
 - The supported JSON Schema subset covers `type`, `properties`, `required`, `items`, `enum`, `const`, `additionalProperties`, numeric, length and item bounds, `anyOf`/`oneOf`/`allOf`, `nullable` and annotations. Other keywords, such as `$ref` and `pattern`, are rejected with HTTP 400, as are malformed definitions, history or choices.
@@ -122,7 +122,7 @@ Tool-call validation and failure handling from the design requirements:
 - Continue to select the target with `vlm_name` and `weight_format`.
 - Do not rename existing keys or add top-level blocks.
 
-The following example uses the structure of [config.yaml](../../Windows/config.yaml), selects Qwen3.6 INT4 and enables DFlash, the implemented accelerated profile. It is an illustrative profile, not a snapshot of every installation's values. Preserve existing generation, admission, chunking and segmentation settings when merging it. Omitting `speculative` preserves plain generation. The shipped `config.yaml` keeps Qwen3-VL-8B-Instruct with `mode: "off"`. A DFlash2 selection (Qwen3.8 with `method: dflash2`, `draft_model: z-lab/Qwen3.8-27B-DFlash2`) is validated the same way, but runs plain under `auto` until its profile exists.
+The following example uses the structure of [config.yaml](../../../Windows/config.yaml), selects Qwen3.6 INT4 and enables DFlash, the implemented accelerated profile. It is an illustrative profile, not a snapshot of every installation's values. Preserve existing generation, admission, chunking and segmentation settings when merging it. Omitting `speculative` preserves plain generation. The shipped `config.yaml` keeps Qwen3-VL-8B-Instruct with `mode: "off"`. A DFlash2 selection (Qwen3.8 with `method: dflash2`, `draft_model: z-lab/Qwen3.8-27B-DFlash2`) is validated the same way, but runs plain under `auto` until its profile exists.
 
 ```yaml
 models:
@@ -202,7 +202,7 @@ Resolve and Validate:
 - The model-serving software never changes an explicitly selected method if it fails; in `mode: auto`, the software falls back to the plain generation method.
 - Unknown methods, contradictory sources, mismatched drafters, and out-of-range tuning fail the validation rather than triggering fallback. 
 - In `"off"` mode, the helper ignores dormant speculative settings and prepares only the target.
-- **Implemented:** `resolve_plan()` in [text_gen_profiles.py](../../Windows/components/vlm/text_gen_profiles.py) applies these rules before any model work, so invalid settings under `auto` or `"on"` fail at startup. Bare YAML `off`/`on` booleans are accepted for `mode`.
+- **Implemented:** `resolve_plan()` in [text_gen_profiles.py](../../../Windows/components/vlm/text_gen_profiles.py) applies these rules before any model work, so invalid settings under `auto` or `"on"` fail at startup. Bare YAML `off`/`on` booleans are accepted for `mode`.
 
 Prepare Artifacts:
 - The helper uses the catalog’s pinned Hub sources for first-run downloads. `draft_source: local` requires a non-empty `draft_model` directory and a null `draft_revision`; the helper validates the existing IR and does not download a replacement if it is missing. 
@@ -218,7 +218,7 @@ Tool definitions and selection are per-request API fields (`tools`, `tool_choice
 
 ## 5. Model Preparation
 
-The model owner prepares artifacts during model initialization, before reporting readiness. The shared preparation logic in `components/vlm/text_gen_prepare.py` is called from the VLM load path. As a result, [start-smart-classroom.ps1](../../Windows/start-smart-classroom.ps1), the desktop application [start-desktop-app.ps1](../../Windows/start-desktop-app.ps1), and `python main.py` use the same preparation process; none requires a separate launcher step or switch.
+The model owner prepares artifacts during model initialization, before reporting readiness. The shared preparation logic in `components/vlm/text_gen_prepare.py` is called from the VLM load path. As a result, [start-smart-classroom.ps1](../../../Windows/start-smart-classroom.ps1), the desktop application [start-desktop-app.ps1](../../../Windows/start-desktop-app.ps1), and `python main.py` use the same preparation process; none requires a separate launcher step or switch.
 
 On first start, the helper downloads or converts missing artifacts. On later starts, it reuses and validates existing artifacts, rebuilding derived artifacts when source hashes change. Dependent services wait for the model owner’s `/health` endpoint before using the model. Request handlers do not download or convert files.
 
@@ -290,7 +290,7 @@ If the serving process cannot confirm native cleanup, the operator stops it befo
 The serving application's `/health` endpoint reports the target, tool-call capability, requested and effective methods, drafter identity or target-bundled head, warm-up result, and sanitized fallback reason. Its diagnostics provide detailed revisions, tuning, and runtime versions without exposing private local paths. The application does not log sensitive tool arguments or results by default.
 
 
-**Implemented** ([text_gen_vlm.py](../../Windows/components/vlm/text_gen_vlm.py)):
+**Implemented** ([text_gen_vlm.py](../../../Windows/components/vlm/text_gen_vlm.py)):
 
 - **Warm-up and fallback.** Readiness follows one two-token greedy generation. Under `auto`, a failed load or warm-up with the drafter discards that in-process pipeline (released and garbage-collected) before the plain pipeline is warmed. The plain decision is kept for the process lifetime.
 - **Request policy.** While a speculative pipeline (Eagle3 or DFlash) is active, requests are greedy with the profile's fixed draft window. A request with `temperature > 0` or sampling penalties is rejected with HTTP 400 before generation, and image requests run on the same pipeline. With an `app.language` the profile is not qualified for (Eagle3 under `zh`), the plain pipeline is loaded at startup instead.
@@ -346,7 +346,7 @@ The performance-reporting workflow reports call-latency mean, p50, and p95; TTFT
 
 ### Collection and Reporting
 
-The timing instrumentation reuses existing measurements without changing their meanings: [ASR](../../Windows/components/asr_component.py) writes `performance.transcription_time`; [Summary](../../Windows/components/summarizer_component.py) writes `performance.summarizer_time`, `performance.summary_map_time`, `performance.ttft`, `performance.reduce_ttft`, and `performance.tps`; [Report](../../Windows/components/report_generator/report_generator.py) writes collection, generation, and total times. These are component timers, not isolated model benchmarks. ASR includes upstream input waiting and optional diarization; the report generation timer also includes rendering and persistence. [Hardware monitoring](../../Windows/monitoring/monitor.py) provides utilization, memory, and power samples - not model-call latency. The instrumentation keeps these existing fields compatible and adds the missing stage- and call-level measurements at their owning boundaries.
+The timing instrumentation reuses existing measurements without changing their meanings: [ASR](../../../Windows/components/asr_component.py) writes `performance.transcription_time`; [Summary](../../../Windows/components/summarizer_component.py) writes `performance.summarizer_time`, `performance.summary_map_time`, `performance.ttft`, `performance.reduce_ttft`, and `performance.tps`; [Report](../../../Windows/components/report_generator/report_generator.py) writes collection, generation, and total times. These are component timers, not isolated model benchmarks. ASR includes upstream input waiting and optional diarization; the report generation timer also includes rendering and persistence. [Hardware monitoring](../../../Windows/monitoring/monitor.py) provides utilization, memory, and power samples - not model-call latency. The instrumentation keeps these existing fields compatible and adds the missing stage- and call-level measurements at their owning boundaries.
 
 The timing instrumentation retains a separate record for each stage attempt and model invocation, so repeated calls, retries, and failures are not overwritten by a last-value metric. It uses monotonic clocks and finalizes timers on success, failure, or cancellation; for streaming, it measures through generator completion rather than creation. The timing instrumentation must record client-cancellation time separately from any continuing native inference and retain only status, counts, and timing metadata, with bounded retention. Records must exclude prompts, transcripts, images, tool arguments and results, student identifiers, credentials, and private paths. A failed stage's `error_detail` keeps the exception message with absolute local paths redacted, cut to 300 characters.
 
@@ -356,16 +356,16 @@ The benchmark and reporting process compares repeated warm runs with the same fi
 
 ### Implemented Coverage
 
-See [processing-time-statistics.md](../vlm-llm-serving/processing-time-statistics.md) for fields and usage.
+See [processing-time-statistics.md](../processing-time-statistics/processing-time-statistics.md) for fields and usage.
 
 | Level | Recorded Now | Not Recorded Yet |
 | --- | --- | --- |
-| Workflow stages ([stage_tracker.py](../../Windows/utils/stage_tracker.py)) | `transcribe`, `va`, `board_ocr`, `summarize`, `mindmap`, `segmentation`, and `report`: one record per attempt with status, UTC start and end times, and duration | Media preparation, content-search ingestion, and the retrieval and reranking breakdown for RAG Q&A |
+| Workflow stages ([stage_tracker.py](../../../Windows/utils/stage_tracker.py)) | `transcribe`, `va`, `board_ocr`, `summarize`, `mindmap`, `segmentation`, and `report`: one record per attempt with status, UTC start and end times, and duration | Media preparation, content-search ingestion, and the retrieval and reranking breakdown for RAG Q&A |
 | Stages seen through model calls | `document_ocr`, `board_summary` (`POST /board-ocr/summary`) and `/v1/chat/completions` callers named by the `X-SC-Stage` header (`qa`, `video_captioning`, or `grading`; other callers are identified as `chat_api`) | — |
-| Model calls ([processing_stats.py](../../Windows/utils/processing_stats.py)) | `text_gen`, `asr`, and `ocr`: queue wait, latency, status, client cancellation, and for text generation, TTFT, TPOT, decode, prefill and output tokens per second, token counts, and DFlash accepted and drafted tokens | VA, embedding, reranking, and grading layout and detection models; target-versus-drafter time inside a DFlash call |
+| Model calls ([processing_stats.py](../../../Windows/utils/processing_stats.py)) | `text_gen`, `asr`, and `ocr`: queue wait, latency, status, client cancellation, and for text generation, TTFT, TPOT, decode, prefill and output tokens per second, token counts, and DFlash accepted and drafted tokens | VA, embedding, reranking, and grading layout and detection models; target-versus-drafter time inside a DFlash call |
 | Startup | Preparation, load, and warm-up seconds in the `/health` endpoint | A history for each run |
 
-The processing-statistics collector retains the latest 4,000 records of each kind in memory for `GET /processing-stats` and appends them to `<session>/logs/stage_events.jsonl` and `<session>/logs/model_calls.jsonl`. It records timing metadata only. The [processing_stats_report.py](../../Windows/Scripts/processing_stats_report.py) script builds a per-session timeline from either source, counts each stage attempt's associated model calls, including failed and cancelled calls, lists every text-generation call of a session with its TTFT, TPOT and tokens per second, tabulates the same per stage and per model across sessions, and computes DFlash acceptance only from calls that report both counters.
+The processing-statistics collector retains the latest 4,000 records of each kind in memory for `GET /processing-stats` and appends them to `<session>/logs/stage_events.jsonl` and `<session>/logs/model_calls.jsonl`. It records timing metadata only. The [processing_stats_report.py](../../../Windows/Scripts/processing_stats_report.py) script builds a per-session timeline from either source, counts each stage attempt's associated model calls, including failed and cancelled calls, lists every text-generation call of a session with its TTFT, TPOT and tokens per second, tabulates the same per stage and per model across sessions, and computes DFlash acceptance only from calls that report both counters.
 
 ## 8. Release Decisions
 

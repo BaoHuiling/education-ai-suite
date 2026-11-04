@@ -13,6 +13,8 @@ It never loads the classroom application, starts services, edits application con
 or chooses production defaults. It measures individual model calls, not classroom workflow
 time. Results are observations on the machine that produced them, not qualification.
 
+For implementation details, see [Context Bench Design](context-bench-design.md).
+
 ## Quick start
 
 Run from the app root, `smart-classroom/Windows/`. The benchmark uses the backend

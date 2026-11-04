@@ -9,7 +9,9 @@ export async function unwrap<T>(call: Promise<IpcResult<T>> | undefined): Promis
   const result = await call;
   // The code rides along on the Error so a `catch` gets both without the caller
   // having to unwrap the envelope itself.
-  if (!result?.ok) throw Object.assign(new Error(result?.error || 'Unknown error.'), { code: result?.code });
+  if (!result?.ok) {
+    throw Object.assign(new Error(result?.error || 'Unknown error.'), { code: result?.code, params: result?.params });
+  }
   return result.data;
 }
 
@@ -20,4 +22,10 @@ export const toMessage = (error: unknown): string =>
 export const toCode = (error: unknown): string | null => {
   const code = (error as { code?: unknown } | null | undefined)?.code;
   return typeof code === 'string' ? code : null;
+};
+
+/** The values in a coded failure's message. */
+export const toParams = (error: unknown): Record<string, unknown> => {
+  const params = (error as { params?: unknown } | null | undefined)?.params;
+  return params && typeof params === 'object' ? (params as Record<string, unknown>) : {};
 };

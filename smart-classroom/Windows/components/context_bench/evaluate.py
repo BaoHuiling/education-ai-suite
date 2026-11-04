@@ -28,7 +28,7 @@ baseline (identical artifact, prompt and scheduler) and the speedup is an isolat
 Exit codes: 0 every invocation exited 0; 1 at least one failed, partial or missing case, or a
 run that wrote no evidence; 2 invalid arguments; 130 Ctrl-C (the report covers what finished).
 
-See smart-classroom/docs/context-bench/context-bench-guide.md.
+See smart-classroom/docs/dev-guide/context-bench/context-bench-guide.md.
 """
 
 from __future__ import annotations

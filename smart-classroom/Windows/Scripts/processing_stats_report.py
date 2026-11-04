@@ -15,7 +15,7 @@ workflow stage plus one per model capability, drawn as a Mermaid Gantt chart
 and as plain text. Each VLM/LLM call of a session gets a row with its TTFT,
 TPOT and tokens/s; the closing tables give the same per stage and per model
 across sessions. Distributions reuse ``utils.processing_stats``, so they match
-the API. See smart-classroom/docs/vlm-llm-serving/processing-time-statistics.md.
+the API. See smart-classroom/docs/dev-guide/processing-time-statistics/processing-time-statistics.md.
 
 Video analytics runs as three GStreamer subprocesses (front, back, content)
 that make no model calls through the app, and its ``va`` stage record covers

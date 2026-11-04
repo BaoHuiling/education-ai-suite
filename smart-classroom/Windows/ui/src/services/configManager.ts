@@ -4,7 +4,9 @@
 // Typed bridge to the schema-guarded settings editor in the main process.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { ConfigChange, ConfigDescription, ConfigField, ConfigProblem, ConfigValue } from '../types/config';
+import { configErrorText, localizeProblem } from '../i18n/settingsText';
 import { toMessage, unwrap } from './ipcResult';
 
 /** Draft key for one field; a path alone is ambiguous across the three files. */
@@ -40,22 +42,23 @@ export const NO_CHANGES: ConfigChange[] = [];
  * dropped rather than allowed to overwrite a newer one.
  */
 export function useConfigProblems(changes: ConfigChange[], description: ConfigDescription | null) {
-  const [problems, setProblems] = useState<ConfigProblem[]>([]);
+  const { t } = useTranslation();
+  const [found, setFound] = useState<ConfigProblem[]>([]);
 
   useEffect(() => {
     if (!description || !isConfigManagerAvailable()) {
-      setProblems([]);
+      setFound([]);
       return;
     }
     let live = true;
     const timer = setTimeout(() => {
       validateConfig(changes)
-        .then((found) => {
-          if (live) setProblems(found);
+        .then((result) => {
+          if (live) setFound(result);
         })
         // A failed dry run must not block the user; apply() still enforces.
         .catch(() => {
-          if (live) setProblems([]);
+          if (live) setFound([]);
         });
     }, 200);
     return () => {
@@ -65,6 +68,9 @@ export function useConfigProblems(changes: ConfigChange[], description: ConfigDe
     // description is a dependency, not just a guard: useConfig replaces it after
     // every save, which is exactly when the on-disk answer can have changed.
   }, [changes, description]);
+
+  // Translated here so the banners, field chips and Get started all agree.
+  const problems = useMemo(() => found.map((problem) => localizeProblem(t, problem)), [found, t]);
 
   const blocking = useMemo(() => problems.filter((problem) => problem.blocking), [problems]);
   const byField = useMemo(() => {
@@ -87,6 +93,7 @@ export function useConfigProblems(changes: ConfigChange[], description: ConfigDe
 }
 
 export function useConfig() {
+  const { t } = useTranslation();
   const [description, setDescription] = useState<ConfigDescription | null>(null);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -113,13 +120,13 @@ export function useConfig() {
         await reload();
         return true;
       } catch (e) {
-        setError(toMessage(e));
+        setError(configErrorText(t, e, description?.fields ?? []));
         return false;
       } finally {
         setSaving(false);
       }
     },
-    [reload]
+    [reload, t, description]
   );
 
   return { description, error, saving, save, reload, clearError: () => setError('') };

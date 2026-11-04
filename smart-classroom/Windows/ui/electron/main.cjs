@@ -379,6 +379,7 @@ if (!app.requestSingleInstanceLock()) {
       logs: logStore,
       setup: setupRunner,
       getWindow: () => mainWindow,
+      getLanguage: () => currentLanguage,
     });
     serviceManager.start();
 

@@ -27,7 +27,7 @@ Exit codes: 0 valid plan or completed run with every case ``ok``; 1 failed, part
 unqualified cases, or an orchestration/output-write failure; 2 invalid arguments,
 configuration or missing dependencies; 130 Ctrl-C after checkpoint and child cleanup.
 
-See smart-classroom/docs/context-bench/context-bench-guide.md.
+See smart-classroom/docs/dev-guide/context-bench/context-bench-guide.md.
 """
 
 from __future__ import annotations

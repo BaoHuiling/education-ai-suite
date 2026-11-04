@@ -20,12 +20,36 @@ function ok(data) {
 function fail(error) {
   // Message only — stacks and absolute paths stay in the main process log.
   // A code comes too when the thrower set one, so the renderer can offer a way
-  // out of a known failure without matching on its English text.
+  // out of a known failure without matching on its English text — and params
+  // with it, so the renderer can also say it in the UI language.
   const code = typeof error?.code === 'string' ? error.code : undefined;
-  return { ok: false, error: error instanceof Error ? error.message : String(error), code };
+  const params = code && error?.params && typeof error.params === 'object' ? error.params : undefined;
+  return { ok: false, error: error instanceof Error ? error.message : String(error), code, params };
 }
 
-function register({ manager, logs, setup, getWindow }) {
+// The Recreate confirmation is a native dialog, out of react-i18next's reach,
+// so its text lives here like the menu labels in main.cjs. Recreate on the two
+// environments is the only destructive action, hence the short name tables.
+const CONFIRM_TEXT = {
+  en: {
+    message: (action, step) => `${action.label} the ${step.label.toLowerCase()}?`,
+    deletesFolder: (folder) =>
+      `${folder}\n\nThis folder will be deleted and every package reinstalled, which takes several minutes and needs network access.`,
+    deletesAll: 'Everything it contains will be deleted and reinstalled, which takes several minutes and needs network access.',
+    cancel: 'Cancel',
+    confirm: (action) => `${action.label} and reinstall`,
+  },
+  zh: {
+    message: (action, step) =>
+      `${{ recreate: '重新创建' }[action.id] ?? action.label}${{ venv: 'Python 环境', gradingVenv: '评分转换环境' }[step.id] ?? step.label}？`,
+    deletesFolder: (folder) => `${folder}\n\n将删除此文件夹并重新安装所有软件包，需要几分钟时间且需要联网。`,
+    deletesAll: '其中的所有内容都将被删除并重新安装，需要几分钟时间且需要联网。',
+    cancel: '取消',
+    confirm: () => '重新创建并安装',
+  },
+};
+
+function register({ manager, logs, setup, getWindow, getLanguage = () => 'en' }) {
   const trusted = (event) => {
     const window = getWindow();
     return !!window && !window.isDestroyed() && event.sender.id === window.webContents.id;
@@ -102,14 +126,13 @@ function register({ manager, logs, setup, getWindow }) {
       const window = getWindow();
       // The action says which folder it deletes.
       const folder = action.deletes?.();
+      const text = CONFIRM_TEXT[getLanguage()] ?? CONFIRM_TEXT.en;
       const options = {
         type: 'warning',
         title: 'Smart Classroom',
-        message: `${action.label} the ${step.label.toLowerCase()}?`,
-        detail: folder
-          ? `${folder}\n\nThis folder will be deleted and every package reinstalled, which takes several minutes and needs network access.`
-          : 'Everything it contains will be deleted and reinstalled, which takes several minutes and needs network access.',
-        buttons: ['Cancel', `${action.label} and reinstall`],
+        message: text.message(action, step),
+        detail: folder ? text.deletesFolder(folder) : text.deletesAll,
+        buttons: [text.cancel, text.confirm(action)],
         defaultId: 0,
         cancelId: 0,
       };

@@ -3,9 +3,11 @@
 
 // Typed bridge to the first-run setup runner in the main process.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { LogLine } from '../types/services';
 import type { SetupSection, SetupStep } from '../types/setup';
+import { localizeStep } from '../i18n/settingsText';
 import { toCode, toMessage, unwrap } from './ipcResult';
 
 export const isSetupManagerAvailable = (): boolean => !!window.electronAPI?.setup;
@@ -22,6 +24,7 @@ export const copyText = (text: string) => unwrap(window.electronAPI?.copyText(te
 const MAX_CLIENT_LINES = 2000;
 
 export function useSetup() {
+  const { t } = useTranslation();
   const [sections, setSections] = useState<SetupSection[]>([]);
   const [steps, setSteps] = useState<SetupStep[]>([]);
   const [error, setError] = useState('');
@@ -83,9 +86,12 @@ export function useSetup() {
     }
   }, []);
 
+  // Translated here, once, so every screen that lists steps names them alike.
+  const localized = useMemo(() => steps.map((step) => localizeStep(t, step)), [steps, t]);
+
   return {
     sections,
-    steps,
+    steps: localized,
     error,
     errorCode,
     busyId,

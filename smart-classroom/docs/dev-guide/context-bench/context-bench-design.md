@@ -2,13 +2,14 @@
 
 **Status:** Implementation design for `smart-classroom/Windows/components/context_bench/`.
 
-Companion document: [vlm-llm-serving-design.md](../user-guide/vlm-llm-serving-design.md).
+Usage: [context-bench-guide.md](context-bench-guide.md).
+Companion document: [vlm-llm-serving-design.md](../vlm-llm-serving/vlm-llm-serving-design.md).
 
 ## 1. Purpose and Reference Baseline
 
 ### Scope
 
-Implement `context_bench` as an offline, text-only OpenVINO LLM benchmarking tool. It answers whether a model can process a specified context within configured memory budgets, which runtime profile provides the best measured latency, and, optionally, how that profile affects retrieval accuracy and generation fidelity. It must not load the classroom application, start services, modify application configuration or automatically select production defaults. It benchmarks individual model calls; it does not replace the [workflow-stage instrumentation](../user-guide/vlm-llm-serving-design.md#7-processing-time-statistics) or certify image handling and tool calling.
+Implement `context_bench` as an offline, text-only OpenVINO LLM benchmarking tool. It answers whether a model can process a specified context within configured memory budgets, which runtime profile provides the best measured latency, and, optionally, how that profile affects retrieval accuracy and generation fidelity. It must not load the classroom application, start services, modify application configuration or automatically select production defaults. It benchmarks individual model calls; it does not replace the [workflow-stage instrumentation](../vlm-llm-serving/vlm-llm-serving-design.md#7-processing-time-statistics) or certify image handling and tool calling.
 
 | Mode | Work performed | What the result establishes |
 | --- | --- | --- |
@@ -200,7 +201,7 @@ Preserve CLI options `--config`, `--models`, `--contexts`, `--profiles`, `--devi
 
 ### Target Artifacts
 
-The benchmark consumes artifacts prepared by the [serving preparation workflow](../user-guide/vlm-llm-serving-design.md#5-model-preparation) or an explicitly operated export utility. Missing target IR is `missing_ir` with a model/profile-specific preparation hint; never download, export, install dependencies or repair model files during a timed run. Validate graph/weight pairs and tokenizer/detokenizer assets for the selected layout. Prefer `openvino_language_model.xml` for `VLMPipeline`; otherwise use `openvino_model.xml` for `LLMPipeline`. Check required files for that layout, not just whether one XML exists.
+The benchmark consumes artifacts prepared by the [serving preparation workflow](../vlm-llm-serving/vlm-llm-serving-design.md#5-model-preparation) or an explicitly operated export utility. Missing target IR is `missing_ir` with a model/profile-specific preparation hint; never download, export, install dependencies or repair model files during a timed run. Validate graph/weight pairs and tokenizer/detokenizer assets for the selected layout. Prefer `openvino_language_model.xml` for `VLMPipeline`; otherwise use `openvino_model.xml` for `LLMPipeline`. Check required files for that layout, not just whether one XML exists.
 
 Read model architecture from `config.json`, including nested `text_config` for VLM exports. Read actual target/draft weight compression from IR metadata, not the directory name or YAML label. Record missing metadata as unknown; flag a precision-label mismatch and exclude it from a comparison claiming the requested precision. Dependency qualification covers the OpenVINO, GenAI, tokenizers, Transformers and exporter combination; a nightly snapshot observed in the reference is not a dependency pin for this repository.
 
@@ -213,7 +214,7 @@ Read model architecture from `config.json`, including nested `text_config` for V
 | Hybrid DFlash scheduler | Use one live sequence for the supplied profiles. Require sufficient linear-attention rows: `num_linear_attention_blocks >= max_num_seqs + k + 1`; 17 covers the reference sweep through k=15. Keep the same scheduler reservation on the plain baseline. |
 | All speculative cases | Target/draft use the same CPU/GPU device and a paged scheduler with `max_num_batched_tokens >= k + 1` for positive integer k. Use greedy generation, one returned sequence, static `assistant_confidence_threshold = 0.0`, prefix caching disabled and a qualified runtime API. No sampling, fallback or mechanism substitution. |
 
-These checks run once per case in the parent's preflight; the child does not repeat them. Keep draft dispatch in `_load_pipeline`: `ov_genai.draft_model(draft_directory, device)` with DFlash's external draft directory and the target's device. The reference's MTP path is not ported and the reference has no DFlash2 adapter; their qualification follows the serving design's [model profiles](../user-guide/vlm-llm-serving-design.md#2-model-profiles) and [generation policy](../user-guide/vlm-llm-serving-design.md#6-generation-and-failure-policy).
+These checks run once per case in the parent's preflight; the child does not repeat them. Keep draft dispatch in `_load_pipeline`: `ov_genai.draft_model(draft_directory, device)` with DFlash's external draft directory and the target's device. The reference's MTP path is not ported and the reference has no DFlash2 adapter; their qualification follows the serving design's [model profiles](../vlm-llm-serving/vlm-llm-serving-design.md#2-model-profiles) and [generation policy](../vlm-llm-serving/vlm-llm-serving-design.md#6-generation-and-failure-policy).
 
 ### Artifact Safety
 
@@ -323,7 +324,7 @@ Retain reference field names. Use ms for latency, seconds for generation/load du
 
 ### Aggregation and Matched Comparisons
 
-Exclude warmup from timing aggregates. Per homogeneous case, retain valid count, median/p50, min/max and the [serving statistics contract's](../user-guide/vlm-llm-serving-design.md#7-processing-time-statistics) mean, total duration and p95; use nearest-rank p95 on sorted samples. Fewer than 20 samples must carry a small-sample warning; 20 is a minimum reporting gate, not a guarantee of statistical stability. Nulls do not enter denominators. Compute aggregate decode throughput from median TPOT, not mean reciprocal TPOT. A one-token EOS answer is valid output but has no decode-latency ranking.
+Exclude warmup from timing aggregates. Per homogeneous case, retain valid count, median/p50, min/max and the [serving statistics contract's](../vlm-llm-serving/vlm-llm-serving-design.md#7-processing-time-statistics) mean, total duration and p95; use nearest-rank p95 on sorted samples. Fewer than 20 samples must carry a small-sample warning; 20 is a minimum reporting gate, not a guarantee of statistical stability. Nulls do not enter denominators. Compute aggregate decode throughput from median TPOT, not mean reciprocal TPOT. A one-token EOS answer is valid output but has no decode-latency ranking.
 
 Rank only complete, budget-measured `ok` cases with valid timing, using median TPOT ascending then TTFT ascending; print a separate fastest-TTFT result. Match speculative/plain pairs on target artifact/precision, actual prompt hash/count, device/platform/runtime, task, generation ceiling/greedy settings, warmup/iteration/gap plan and **fully resolved** `ov`/scheduler mappings. The draft mechanism/count is the changed variable. A stateful or differently quantized row is not the DFlash baseline. If auto sizing produces different scheduler settings, mark the comparison confounded and require an explicitly matched-pool rerun for isolated speculative speedup.
 
@@ -367,7 +368,7 @@ Use versioned serializable mappings for IPC and persisted evidence; validate req
 
 ### Persistence and Privacy
 
-Write `results.json` as the authoritative evidence record with the [serving statistics contract's](../user-guide/vlm-llm-serving-design.md#7-processing-time-statistics) raw samples and provenance; render `report.txt` and the terminal summary from the same snapshot. JSON persistence is an addition to the reference's text-only output.
+Write `results.json` as the authoritative evidence record with the [serving statistics contract's](../vlm-llm-serving/vlm-llm-serving-design.md#7-processing-time-statistics) raw samples and provenance; render `report.txt` and the terminal summary from the same snapshot. JSON persistence is an addition to the reference's text-only output.
 
 Keep absolute artifact/cache paths in process memory only. In exported settings, cases and diagnostics, show a path inside the app root relative to it and any other path as an opaque `external:<id>` (a hash of the path); this covers model, draft, output and cache directories, including a profile's own `ov.CACHE_DIR`. Artifact identities add hashes of the small graph/config/tokenizer files and weight sizes. Diagnostic text, child messages included, replaces the home directory with `<home>` before generic path patterns become `<path>`, so a user name containing a space is not split; omit user names, host names and credentials. Represent unavailable hardware/driver metadata as unknown rather than a guessed device name. The runner still uses the original resolved paths internally; redaction must not change which artifacts are loaded.
 
@@ -419,7 +420,7 @@ Choose status in this order: explicit runtime/artifact failure; no measured outp
 | Qwen3.8-27B | INT8; `paged_min` versus MTP k=1/2/3/4/6; 8K context; default `summary_2s`; 64-token ceiling; default zero gap. | Plain `paged_min` only (one case): serving does not support MTP or DFlash2 for this model, so the MTP sweep is not ported. `--weight-format int4` selects the INT4 artifact through the derived path. |
 | Qwen3.5-9B | No dedicated configuration in this pinned directory. | One plain configuration (paged versus stateful, INT4 default, `--weight-format int8`); speculative support requires independent qualification. |
 
-Both pinned configurations use one warmup and three measured iterations. Serving qualification follows the companion [model profiles](../user-guide/vlm-llm-serving-design.md#2-model-profiles).
+Both pinned configurations use one warmup and three measured iterations. Serving qualification follows the companion [model profiles](../vlm-llm-serving/vlm-llm-serving-design.md#2-model-profiles).
 
 ### Implementation Order
 

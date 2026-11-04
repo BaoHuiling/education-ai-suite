@@ -102,6 +102,13 @@ function run(file, args, timeout = 20000) {
 
 const gb = (bytes) => Math.round((bytes / 1024 ** 3) * 10) / 10;
 
+/**
+ * A step detail: the English text, plus a key and the values in it so the
+ * renderer can say it in the UI language (setup.details in src/i18n). The
+ * English stays the fallback, and is what diagnostics and logs read.
+ */
+const detail = (key, params, text) => ({ detail: text, detailKey: key, detailParams: params });
+
 /** -1, 0 or 1, comparing dotted numeric versions of any length. */
 function compareVersions(a, b) {
   const left = String(a).split('.').map(Number);
@@ -143,11 +150,16 @@ async function driverVersionFor(inf) {
 }
 
 function describeDriver(label, installed, latest) {
-  if (!installed) return { status: STATUS.OK, detail: `${label} (driver version unavailable)` };
-  if (compareVersions(installed, latest) >= 0) {
-    return { status: STATUS.OK, detail: `${label}, driver ${installed}` };
+  if (!installed) {
+    return { status: STATUS.OK, ...detail('driverUnknown', { device: label }, `${label} (driver version unavailable)`) };
   }
-  return { status: STATUS.WARN, detail: `${label}, driver ${installed}; ${latest} is newer` };
+  if (compareVersions(installed, latest) >= 0) {
+    return { status: STATUS.OK, ...detail('driverOk', { device: label, installed }, `${label}, driver ${installed}`) };
+  }
+  return {
+    status: STATUS.WARN,
+    ...detail('driverOld', { device: label, installed, latest }, `${label}, driver ${installed}; ${latest} is newer`),
+  };
 }
 
 async function pythonCandidates() {
@@ -219,11 +231,12 @@ function displayPath(target) {
  */
 function importFailure(stderr) {
   const missing = (stderr.match(/No module named '([^']+)'/) || [])[1];
-  if (missing) return `${missing} is not installed`;
+  if (missing) return { key: 'venvModuleMissing', params: { module: missing }, text: `${missing} is not installed` };
   const last = stderr.split(/\r?\n/).filter((line) => line.trim()).pop();
-  if (!last) return 'the core packages do not import';
+  if (!last) return { key: 'venvNoImport', params: {}, text: 'the core packages do not import' };
   const text = last.trim();
-  return text.length > 140 ? `${text.slice(0, 139)}…` : text;
+  const error = text.length > 140 ? `${text.slice(0, 139)}…` : text;
+  return { key: 'venvImportError', params: { error }, text: error };
 }
 
 /**
@@ -478,11 +491,14 @@ const STEPS = [
     section: 'system',
     async check() {
       const build = Number(os.release().split('.')[2] || 0);
-      if (process.platform !== 'win32') return { status: STATUS.FAILED, detail: `${process.platform} is not supported` };
+      if (process.platform !== 'win32') {
+        const platform = process.platform;
+        return { status: STATUS.FAILED, ...detail('osUnsupported', { platform }, `${platform} is not supported`) };
+      }
       // The release string carries no marketing version, so test the build.
       return build >= MIN_WINDOWS_BUILD
-        ? { status: STATUS.OK, detail: `Windows 11 (build ${build})` }
-        : { status: STATUS.WARN, detail: `Windows build ${build}; Windows 11 is recommended` };
+        ? { status: STATUS.OK, ...detail('osOk', { build }, `Windows 11 (build ${build})`) }
+        : { status: STATUS.WARN, ...detail('osOld', { build }, `Windows build ${build}; Windows 11 is recommended`) };
     },
   },
   {
@@ -493,7 +509,9 @@ const STEPS = [
       const model = (os.cpus()[0]?.model ?? '').trim();
       return /Intel.*Core.*Ultra/i.test(model)
         ? { status: STATUS.OK, detail: model }
-        : { status: STATUS.WARN, detail: `${model || 'Unknown'}; Intel Core Ultra is recommended` };
+        : model
+          ? { status: STATUS.WARN, ...detail('cpuOther', { model }, `${model}; Intel Core Ultra is recommended`) }
+          : { status: STATUS.WARN, ...detail('cpuUnknown', {}, 'Unknown; Intel Core Ultra is recommended') };
     },
   },
   {
@@ -504,7 +522,7 @@ const STEPS = [
       const total = gb(os.totalmem());
       return total >= MIN_RAM_GB * RAM_TOLERANCE
         ? { status: STATUS.OK, detail: `${total} GB` }
-        : { status: STATUS.WARN, detail: `${total} GB; ${MIN_RAM_GB} GB recommended` };
+        : { status: STATUS.WARN, ...detail('memoryLow', { total, min: MIN_RAM_GB }, `${total} GB; ${MIN_RAM_GB} GB recommended`) };
     },
   },
   {
@@ -513,10 +531,13 @@ const STEPS = [
     section: 'system',
     async check() {
       const free = freeDiskGb(paths.home());
-      if (free === null) return { status: STATUS.UNKNOWN, detail: 'Could not determine free space' };
+      if (free === null) return { status: STATUS.UNKNOWN, ...detail('diskUnknown', {}, 'Could not determine free space') };
       return free >= MIN_DISK_GB
-        ? { status: STATUS.OK, detail: `${free} GB free` }
-        : { status: STATUS.WARN, detail: `${free} GB free; ${MIN_DISK_GB} GB recommended` };
+        ? { status: STATUS.OK, ...detail('diskOk', { free }, `${free} GB free`) }
+        : {
+            status: STATUS.WARN,
+            ...detail('diskLow', { free, min: MIN_DISK_GB }, `${free} GB free; ${MIN_DISK_GB} GB recommended`),
+          };
     },
   },
   {
@@ -526,7 +547,7 @@ const STEPS = [
     async check() {
       const device = await pnputilDevice('Display', /Intel\(R\)[^\r\n]*?(Arc|Iris|UHD|Graphics|GPU)[^\r\n]*/i);
       if (!device) {
-        return { status: STATUS.WARN, detail: 'No Intel GPU detected' };
+        return { status: STATUS.WARN, ...detail('gpuNone', {}, 'No Intel GPU detected') };
       }
       return describeDriver(device.name, await driverVersionFor(device.inf), LATEST_GPU_DRIVER);
     },
@@ -538,7 +559,7 @@ const STEPS = [
     async check() {
       const device = await pnputilDevice('ComputeAccelerator', /Intel\(R\)[^\r\n]*?(AI Boost|NPU|Neural)[^\r\n]*/i);
       if (!device) {
-        return { status: STATUS.WARN, detail: 'No Intel NPU detected', hint: NPU_DRIVER_URL };
+        return { status: STATUS.WARN, ...detail('npuNone', {}, 'No Intel NPU detected'), hint: NPU_DRIVER_URL };
       }
       const result = describeDriver(device.name, await driverVersionFor(device.inf), LATEST_NPU_DRIVER);
       if (result.status === STATUS.WARN) result.hint = NPU_DRIVER_URL;
@@ -551,10 +572,10 @@ const STEPS = [
     section: 'system',
     async check() {
       return (await longPathsEnabled())
-        ? { status: STATUS.OK, detail: 'Enabled' }
+        ? { status: STATUS.OK, ...detail('longPathsOn', {}, 'Enabled') }
         : {
             status: STATUS.MISSING,
-            detail: 'Disabled; model downloads with deep paths can fail',
+            ...detail('longPathsOff', {}, 'Disabled; model downloads with deep paths can fail'),
             hint: 'Requires an administrator prompt',
           };
     },
@@ -586,15 +607,19 @@ const STEPS = [
       if (!found) {
         return {
           status: STATUS.MISSING,
-          detail: 'No interpreter found; needed to create the Python environment',
+          ...detail('pythonNone', {}, 'No interpreter found; needed to create the Python environment'),
           hint: PYTHON_WINGET_HINT,
         };
       }
       return found.exact
-        ? { status: STATUS.OK, detail: `${found.version} (${found.exe})` }
+        ? { status: STATUS.OK, ...detail('pythonOk', { version: found.version, exe: found.exe }, `${found.version} (${found.exe})`) }
         : {
             status: STATUS.OUTDATED,
-            detail: `${found.version} (${found.exe}); ${PYTHON_VERSION}.x is the verified version, others may fail to build the environment`,
+            ...detail(
+              'pythonOther',
+              { version: found.version, exe: found.exe, verified: PYTHON_VERSION },
+              `${found.version} (${found.exe}); ${PYTHON_VERSION}.x is the verified version, others may fail to build the environment`
+            ),
             hint: PYTHON_WINGET_HINT,
           };
     },
@@ -614,7 +639,8 @@ const STEPS = [
     label: 'Node.js',
     section: 'software',
     async check() {
-      return { status: STATUS.OK, detail: `${process.versions.node} (bundled with this app)` };
+      const version = process.versions.node;
+      return { status: STATUS.OK, ...detail('nodeOk', { version }, `${version} (bundled with this app)`) };
     },
   },
   {
@@ -626,7 +652,7 @@ const STEPS = [
       if (!result.ok) {
         return {
           status: STATUS.MISSING,
-          detail: 'Not found on PATH; audio extraction and video pipelines need it',
+          ...detail('ffmpegNone', {}, 'Not found on PATH; audio extraction and video pipelines need it'),
           hint: 'winget install -e --id Gyan.FFmpeg --source winget',
         };
       }
@@ -650,7 +676,7 @@ const STEPS = [
       if (!install) {
         return {
           status: STATUS.MISSING,
-          detail: `Not installed; video analytics pipelines cannot run without it`,
+          ...detail('dlStreamerNone', {}, 'Not installed; video analytics pipelines cannot run without it'),
           hint: DLSTREAMER_URL,
         };
       }
@@ -658,22 +684,34 @@ const STEPS = [
       if (!install.installDir || !fs.existsSync(install.installDir)) {
         return {
           status: STATUS.MISSING,
-          detail: install.version
-            ? `${install.version} is registered but its files are missing; reinstall to run video pipelines`
-            : 'Registered but its files are missing; reinstall to run video pipelines',
+          ...(install.version
+            ? detail(
+                'dlStreamerFilesGone',
+                { version: install.version },
+                `${install.version} is registered but its files are missing; reinstall to run video pipelines`
+              )
+            : detail('dlStreamerFilesGoneUnversioned', {}, 'Registered but its files are missing; reinstall to run video pipelines')),
           hint: DLSTREAMER_URL,
         };
       }
       const { version, installDir } = install;
       if (!version) {
-        return { status: STATUS.WARN, detail: `Version unknown (${installDir})`, hint: DLSTREAMER_URL };
+        return {
+          status: STATUS.WARN,
+          ...detail('dlStreamerNoVersion', { dir: installDir }, `Version unknown (${installDir})`),
+          hint: DLSTREAMER_URL,
+        };
       }
 
       return compareVersions(version, REQUIRED_DLSTREAMER) >= 0
-        ? { status: STATUS.OK, detail: `${version} (${installDir})` }
+        ? { status: STATUS.OK, ...detail('dlStreamerOk', { version, dir: installDir }, `${version} (${installDir})`) }
         : {
             status: STATUS.OUTDATED,
-            detail: `${version} (${installDir}); ${REQUIRED_DLSTREAMER} is required for video pipelines`,
+            ...detail(
+              'dlStreamerOld',
+              { version, dir: installDir, required: REQUIRED_DLSTREAMER },
+              `${version} (${installDir}); ${REQUIRED_DLSTREAMER} is required for video pipelines`
+            ),
             hint: DLSTREAMER_URL,
           };
     },
@@ -733,20 +771,27 @@ const STEPS = [
       if (!fs.existsSync(exe)) {
         return {
           status: STATUS.MISSING,
-          detail: `Not created; the backend cannot start until it exists (${dir})`,
+          ...detail('venvNone', { dir }, `Not created; the backend cannot start until it exists (${dir})`),
         };
       }
 
       const version = await pythonVersion(exe);
-      if (!version) return { status: STATUS.FAILED, detail: `Its interpreter does not run; select Recreate (${dir})` };
+      if (!version) {
+        return { status: STATUS.FAILED, ...detail('venvBroken', { dir }, `Its interpreter does not run; select Recreate (${dir})`) };
+      }
 
       // Import rather than metadata: a package can be recorded as installed and
       // still not load, which on Windows is the openvino DLL case above.
       const imports = await run(exe, ['-c', 'import fastapi, uvicorn, openvino; print("ok")'], 60000);
       if (!imports.ok) {
+        const failure = importFailure(imports.stderr);
         return {
           status: STATUS.MISSING,
-          detail: `Python ${version}; ${importFailure(imports.stderr)} — select Create to install the requirements`,
+          ...detail(
+            failure.key,
+            { version, ...failure.params },
+            `Python ${version}; ${failure.text} — select Create to install the requirements`
+          ),
         };
       }
 
@@ -759,7 +804,11 @@ const STEPS = [
           // Recreate, not Upgrade: an environment's interpreter is fixed when it
           // is built, so the only way to change it is to build it again.
           repair: 'recreate',
-          detail: `Built with Python ${version}; ${PYTHON_VERSION}.x is the verified version — select Recreate to rebuild it (${dir})`,
+          ...detail(
+            'venvWrongPython',
+            { version, verified: PYTHON_VERSION, dir },
+            `Built with Python ${version}; ${PYTHON_VERSION}.x is the verified version — select Recreate to rebuild it (${dir})`
+          ),
         };
       }
 
@@ -767,16 +816,31 @@ const STEPS = [
       // one requirements.txt now describes. The file is edited far more often
       // than the venv is rebuilt, and nothing else notices when they part.
       const drift = await requirementsDrift(exe, paths.requirementsFile());
-      if (!drift) return { status: STATUS.OK, detail: `Python ${version} with the core packages (${dir})` };
+      if (!drift) {
+        return { status: STATUS.OK, ...detail('venvOk', { version, dir }, `Python ${version} with the core packages (${dir})`) };
+      }
       if (!drift.missing.length && !drift.mismatched.length) {
-        return { status: STATUS.OK, detail: `Python ${version}, ${drift.checked} packages matching requirements.txt (${dir})` };
+        return {
+          status: STATUS.OK,
+          ...detail(
+            'venvMatching',
+            { version, count: drift.checked, dir },
+            `Python ${version}, ${drift.checked} packages matching requirements.txt (${dir})`
+          ),
+        };
       }
       // Outdated, not missing: the backend does start against a drifted
       // environment, so the red "cannot start" treatment would overstate it.
       return {
         status: STATUS.OUTDATED,
         repair: 'upgrade',
-        detail: `Python ${version}; ${describeDrift(drift)} — select Upgrade to match requirements.txt`,
+        // Package names and versions read the same in any language, so the
+        // list goes across as English and only the sentence around it changes.
+        ...detail(
+          'venvDrift',
+          { version, drift: describeDrift(drift) },
+          `Python ${version}; ${describeDrift(drift)} — select Upgrade to match requirements.txt`
+        ),
       };
     },
     actions: venvActions({
@@ -801,13 +865,19 @@ const STEPS = [
     async check() {
       const dir = paths.convertVenvDir();
       if (!fs.existsSync(paths.venvPython(dir))) {
-        return { status: STATUS.MISSING, detail: 'Not created; needed once to convert the layout detection model' };
+        return {
+          status: STATUS.MISSING,
+          ...detail('gradingVenvNone', {}, 'Not created; needed once to convert the layout detection model'),
+        };
       }
       // paddle2onnx is what the conversion actually shells out to.
       const tool = path.join(dir, paths.isWindows ? 'Scripts\\paddle2onnx.exe' : 'bin/paddle2onnx');
       return fs.existsSync(tool)
-        ? { status: STATUS.OK, detail: `paddle2onnx ready (${displayPath(dir)})` }
-        : { status: STATUS.MISSING, detail: 'Created, but paddle2onnx is missing; select Create to install it' };
+        ? { status: STATUS.OK, ...detail('gradingVenvOk', { dir: displayPath(dir) }, `paddle2onnx ready (${displayPath(dir)})`) }
+        : {
+            status: STATUS.MISSING,
+            ...detail('gradingVenvNoTool', {}, 'Created, but paddle2onnx is missing; select Create to install it'),
+          };
     },
     // paddle2onnx conflicts with the main environment, hence the separate venv.
     actions: venvActions({
@@ -831,10 +901,17 @@ const STEPS = [
     enabled: () => config.featureEnabled('grading'),
     async check() {
       return fs.existsSync(paths.layoutIrModel())
-        ? { status: STATUS.OK, detail: `OpenVINO IR ready (${displayPath(path.dirname(paths.layoutIrModel()))})` }
+        ? {
+            status: STATUS.OK,
+            ...detail(
+              'layoutModelOk',
+              { dir: displayPath(path.dirname(paths.layoutIrModel())) },
+              `OpenVINO IR ready (${displayPath(path.dirname(paths.layoutIrModel()))})`
+            ),
+          }
         : {
             status: STATUS.MISSING,
-            detail: 'Not prepared; grading needs it. Preparing downloads and converts the model.',
+            ...detail('layoutModelNone', {}, 'Not prepared; grading needs it. Preparing downloads and converts the model.'),
           };
     },
     actions: [
@@ -881,6 +958,9 @@ class SetupRunner extends EventEmitter {
     this.state.set(step.id, {
       status: result.status,
       detail: result.detail ?? '',
+      // Absent for raw error text, which the renderer then shows as it is.
+      detailKey: result.detailKey ?? null,
+      detailParams: result.detailParams ?? {},
       hint: result.hint ?? null,
       repair: repairFor(step, result),
     });
@@ -1027,7 +1107,7 @@ class SetupRunner extends EventEmitter {
 
     this.busy = true;
     this.logs.openSink(LOG_ID);
-    this.record(step, { status: STATUS.RUNNING, detail: `${action.label}…` });
+    this.record(step, { status: STATUS.RUNNING, ...detail('running', { action: action.id }, `${action.label}…`) });
     this.emitChanged();
 
     const emit = (line) => this.log(line);

@@ -8,6 +8,7 @@ import type { ConfigChange, ConfigField, ConfigSubgroup, ConfigValue } from '../
 import { revealConfig, useConfig, useConfigProblems, withFix, fieldKey as keyOf } from '../../services/configManager';
 import { useServices } from '../../services/serviceManager';
 import ConfigFieldControl from './ConfigFieldControl';
+import { fieldHelp, fieldLabel } from '../../i18n/settingsText';
 
 type Draft = Record<string, ConfigValue>;
 
@@ -59,10 +60,14 @@ const ConfigScreen: React.FC<ConfigScreenProps> = ({ onOpenScreen, focusPath }) 
     const hits = new Set<string>();
     for (const field of description.fields) {
       const subgroup = field.subgroup ? byId.get(field.subgroup) : undefined;
+      // English as well as the translation: the help text and docs name
+      // settings in English, so either should find them.
       const haystack = [
         field.label,
+        fieldLabel(t, field),
         field.path,
         field.help ?? '',
+        fieldHelp(t, field) ?? '',
         subgroup ? subgroupLabel(subgroup) : '',
         subgroup?.node ?? '',
       ]

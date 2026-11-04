@@ -12,7 +12,7 @@ Smart Classroom times every run at two levels:
 The two levels are nested: a stage's duration includes its model calls plus
 pre- and postprocessing. Use stages to see what a teacher waits for, and model
 calls to see what inference costs. The requirements behind this feature are in
-[vlm-llm-serving-design.md §7](../user-guide/vlm-llm-serving-design.md#7-processing-time-statistics).
+[vlm-llm-serving-design.md §7](../vlm-llm-serving/vlm-llm-serving-design.md#7-processing-time-statistics).
 
 ## What Is Recorded
 
@@ -163,7 +163,7 @@ With `raw=true` the response also contains `raw.stages` and `raw.model_calls`.
 
 ## Generate a Report
 
-[Scripts/processing_stats_report.py](../../Windows/Scripts/processing_stats_report.py)
+[Scripts/processing_stats_report.py](../../../Windows/Scripts/processing_stats_report.py)
 turns the raw records into a Markdown report. Run it from `smart-classroom/Windows/`
 with the backend virtual environment active:
 

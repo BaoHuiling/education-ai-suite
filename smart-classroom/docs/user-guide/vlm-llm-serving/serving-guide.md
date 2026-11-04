@@ -3,8 +3,10 @@
 How to select a text-generation model, enable speculative decoding, prepare
 models ahead of time, call tools through port 8000 and read processing-time
 statistics. The requirements behind these features are in
-[vlm-llm-serving-design.md](../user-guide/vlm-llm-serving-design.md); the offline benchmark is
-described in [context-bench-design.md](../context-bench/context-bench-design.md).
+[vlm-llm-serving-design.md](../../dev-guide/vlm-llm-serving/vlm-llm-serving-design.md);
+the offline benchmark is described in the
+[Context Bench guide](../../dev-guide/context-bench/context-bench-guide.md) and
+[design](../../dev-guide/context-bench/context-bench-design.md).
 
 > **Qualification status.** The model profiles below are implemented, but
 > hardware qualification (the ARL/PTL matrix in the design) and tool-call
@@ -14,7 +16,7 @@ described in [context-bench-design.md](../context-bench/context-bench-design.md)
 ## Model Choice
 
 The target is selected as before, under `models.text_gen` in
-[config.yaml](../../Windows/config.yaml). Existing selections keep working unchanged.
+[config.yaml](../../../Windows/config.yaml). Existing selections keep working unchanged.
 
 | `vlm_name` | `weight_format` | Optional accelerator |
 | --- | --- | --- |
@@ -26,7 +28,7 @@ The target is selected as before, under `models.text_gen` in
 Pre-converted OpenVINO IR is downloaded on first start into
 `models/openvino/<model>/<weight_format>`. Other models keep the existing
 export path. The catalog lives in
-[components/vlm/text_gen_profiles.py](../../Windows/components/vlm/text_gen_profiles.py).
+[components/vlm/text_gen_profiles.py](../../../Windows/components/vlm/text_gen_profiles.py).
 
 ## Speculative Decoding
 
@@ -76,7 +78,7 @@ While a speculative pipeline is active:
 * Requests are greedy. A request with `temperature > 0` is rejected with HTTP 400
   instead of being changed. Classroom stages already generate greedily; grading
   does not (`vlm.temperature: 0.2` in
-  [components/grading/config.yaml](../../Windows/components/grading/config.yaml)), so set
+  [components/grading/config.yaml](../../../Windows/components/grading/config.yaml)), so set
   that to 0 before using grading with speculative decoding. Sampling penalties
   are rejected the same way.
 * Image requests run on the same pipeline (including Qwen3.5 MTP);
@@ -210,10 +212,10 @@ deleted. Preparation of the drafter is described in
 
 No model files need to exist beforehand. The backend prepares the configured
 model when it loads the warm VLM at startup, so
-[start-smart-classroom.ps1](../../Windows/start-smart-classroom.ps1), the desktop app
+[start-smart-classroom.ps1](../../../Windows/start-smart-classroom.ps1), the desktop app
 and `python main.py` all prepare the same way, with no extra switch. Code:
-[text_gen_prepare.py](../../Windows/components/vlm/text_gen_prepare.py) (preparation)
-and [text_gen_vlm.py](../../Windows/components/vlm/text_gen_vlm.py) (load and warm-up).
+[text_gen_prepare.py](../../../Windows/components/vlm/text_gen_prepare.py) (preparation)
+and [text_gen_vlm.py](../../../Windows/components/vlm/text_gen_vlm.py) (load and warm-up).
 
 ### First start
 
@@ -421,4 +423,4 @@ queue wait, latency, TTFT, decode throughput and speculative (Eagle3/DFlash) acc
 to the stage that made each call. Each session's records are also written to
 its `logs/` folder, and `Scripts/processing_stats_report.py` turns them into a
 Markdown report with a timeline. See
-[processing-time-statistics.md](processing-time-statistics.md).
+[processing-time-statistics.md](../../dev-guide/processing-time-statistics/processing-time-statistics.md).

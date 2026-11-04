@@ -44,5 +44,8 @@ export interface LogBatch {
 
 export type IpcResult<T> =
   | { ok: true; data: T }
-  /** `code` is set only for failures the caller is expected to recognise and act on. */
-  | { ok: false; error: string; code?: string };
+  /**
+   * `code` is set only for failures the caller is expected to recognise and act
+   * on; `params` are the values in `error`, so it can be said in the UI language.
+   */
+  | { ok: false; error: string; code?: string; params?: Record<string, unknown> };

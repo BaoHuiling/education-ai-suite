@@ -66,9 +66,13 @@ export interface ConfigProblem {
   path: string;
   /** Rule id, stable across the fields one rule flags. */
   rule: string;
+  /** Set when one rule labels its fields differently: config.rules.<rule>.summaries.<summaryId>. */
+  summaryId: string | null;
   /** Short form for a field row, where the full message would repeat per field. */
   summary: string;
   message: string;
+  /** The values in `message`. An array is a list of feature ids. */
+  params: Record<string, string | number | string[]>;
   /**
    * False for a problem already in the file that this edit neither introduced
    * nor touched, and for a rule the backend tolerates: shown as a warning, but

@@ -26,8 +26,10 @@
 // Subgroups are what keep the two structures honest: if a field's path does not
 // start with its subgroup's node, one of the two is wrong.
 //
-// Field labels are intentionally plain English rather than i18n keys: they name
-// technical config paths, and the path itself is shown next to each control.
+// Labels, help, rule messages and coerce() errors here are the English text.
+// The renderer shows them in the UI language by looking up stable ids — the
+// field path, the rule id, the error code — in src/i18n, and falls back to the
+// English sent from here, so a string missing from a translation is never blank.
 
 const CONFIG = 'config'; // config.yaml
 const PROXY = 'proxy'; // .proxy-config (JSON)
@@ -1144,22 +1146,30 @@ function get(file, path) {
 }
 
 // Returns the value to write, or throws with a message safe to show the user.
+// The error carries a code and params as well, so the renderer can say it in
+// the UI language (config.errors in src/i18n) instead of showing this English.
+function invalid(field, code, message, params = {}) {
+  return Object.assign(new Error(message), { code: `config-${code}`, params: { path: field.path, ...params } });
+}
+
 function coerce(field, value) {
   switch (field.type) {
     case 'boolean':
-      if (typeof value !== 'boolean') throw new Error(`${field.label} must be true or false.`);
+      if (typeof value !== 'boolean') throw invalid(field, 'boolean', `${field.label} must be true or false.`);
       return value;
 
     case 'enum':
-      if (!field.options.includes(value)) throw new Error(`${field.label} must be one of: ${field.options.join(', ')}.`);
+      if (!field.options.includes(value)) {
+        const options = field.options.join(', ');
+        throw invalid(field, 'enum', `${field.label} must be one of: ${options}.`, { options });
+      }
       return value;
 
     case 'number': {
       const numeric = typeof value === 'number' ? value : Number(value);
-      if (!Number.isFinite(numeric)) throw new Error(`${field.label} must be a number.`);
-      if (field.integer && !Number.isInteger(numeric)) throw new Error(`${field.label} must be a whole number.`);
-      if (field.min !== undefined && numeric < field.min) throw new Error(`${field.label} must be at least ${field.min}.`);
-      if (field.max !== undefined && numeric > field.max) throw new Error(`${field.label} must be at most ${field.max}.`);
+      if (!Number.isFinite(numeric)) throw invalid(field, 'number', `${field.label} must be a number.`);
+      if (field.integer && !Number.isInteger(numeric)) throw invalid(field, 'integer', `${field.label} must be a whole number.`);
+      checkRange(field, numeric);
       return numeric;
     }
 
@@ -1168,37 +1178,45 @@ function coerce(field, value) {
     case 'autoNumber': {
       const text = String(value).trim();
       if (text.toLowerCase() === 'auto') return 'auto';
-      if (!/^\d+$/.test(text)) throw new Error(`${field.label} must be "auto" or a whole number.`);
+      if (!/^\d+$/.test(text)) throw invalid(field, 'autoNumber', `${field.label} must be "auto" or a whole number.`);
       const numeric = Number(text);
-      if (field.min !== undefined && numeric < field.min) throw new Error(`${field.label} must be at least ${field.min}.`);
-      if (field.max !== undefined && numeric > field.max) throw new Error(`${field.label} must be at most ${field.max}.`);
+      checkRange(field, numeric);
       return numeric;
     }
 
     case 'url': {
-      if (typeof value !== 'string') throw new Error(`${field.label} must be text.`);
+      if (typeof value !== 'string') throw invalid(field, 'text', `${field.label} must be text.`);
       const trimmed = value.trim();
       if (!trimmed) return '';
-      if (!/^https?:\/\/[^\s"']+$/.test(trimmed)) throw new Error(`${field.label} must be an http(s) URL.`);
-      if (trimmed.length > field.maxLength) throw new Error(`${field.label} is too long.`);
+      if (!/^https?:\/\/[^\s"']+$/.test(trimmed)) throw invalid(field, 'url', `${field.label} must be an http(s) URL.`);
+      if (trimmed.length > field.maxLength) throw invalid(field, 'tooLong', `${field.label} is too long.`);
       return trimmed;
     }
 
     case 'string':
     case 'secret': {
-      if (typeof value !== 'string') throw new Error(`${field.label} must be text.`);
+      if (typeof value !== 'string') throw invalid(field, 'text', `${field.label} must be text.`);
       // Control characters would corrupt the YAML document or the .env-style
       // consumers downstream.
-      if (/[\u0000-\u001f\u007f]/.test(value)) throw new Error(`${field.label} contains invalid characters.`);
-      if (value.length > (field.maxLength ?? 512)) throw new Error(`${field.label} is too long.`);
+      if (/[\u0000-\u001f\u007f]/.test(value)) throw invalid(field, 'characters', `${field.label} contains invalid characters.`);
+      if (value.length > (field.maxLength ?? 512)) throw invalid(field, 'tooLong', `${field.label} is too long.`);
       if (field.pattern && !field.pattern.test(value)) {
-        throw new Error(`${field.label} must be ${field.patternHint ?? 'in the expected format'}.`);
+        throw invalid(field, 'pattern', `${field.label} must be ${field.patternHint ?? 'in the expected format'}.`);
       }
       return value;
     }
 
     default:
       throw new Error(`Unsupported field type for ${field.path}.`);
+  }
+}
+
+function checkRange(field, numeric) {
+  if (field.min !== undefined && numeric < field.min) {
+    throw invalid(field, 'min', `${field.label} must be at least ${field.min}.`, { min: field.min });
+  }
+  if (field.max !== undefined && numeric > field.max) {
+    throw invalid(field, 'max', `${field.label} must be at most ${field.max}.`, { max: field.max });
   }
 }
 
@@ -1231,6 +1249,8 @@ const isSet = (value) => {
   const text = lower(value);
   return text !== '' && text !== 'none' && text !== 'null';
 };
+
+const currentAsr = (cfg) => `${cfg?.models?.asr?.provider}/${cfg?.models?.asr?.name}`;
 
 function isFunasrParaformer(cfg) {
   return lower(cfg?.models?.asr?.provider) === 'funasr' && lower(cfg?.models?.asr?.name) === 'paraformer-zh';
@@ -1293,7 +1313,10 @@ const RULES = [
       // by the field itself; neither is this rule's to report.
       if (!family || !name) return null;
       if (name.includes(family)) return null;
-      return `The ${provider} provider only runs ${family} models, but the ASR model is "${cfg.models.asr.name}". Pick a ${family} model or change the provider.`;
+      return {
+        message: `The ${provider} provider only runs ${family} models, but the ASR model is "${cfg.models.asr.name}". Pick a ${family} model or change the provider.`,
+        params: { provider, family, model: cfg.models.asr.name },
+      };
     },
   },
   {
@@ -1308,7 +1331,10 @@ const RULES = [
       if (context.diarizationModelReady) return null;
       if (isSet(cfg?.models?.asr?.hf_token)) return null;
       const model = cfg?.models?.diarization?.name || 'the diarization model';
-      return `Speaker diarization needs ${model}, which is not downloaded yet, and downloading it needs a Hugging Face token. Add the token or turn diarization off.`;
+      return {
+        message: `Speaker diarization needs ${model}, which is not downloaded yet, and downloading it needs a Hugging Face token. Add the token or turn diarization off.`,
+        params: { model },
+      };
     },
   },
   {
@@ -1319,7 +1345,10 @@ const RULES = [
     check(cfg) {
       if (lower(cfg?.models?.diarization?.backend) !== 'campplus') return null;
       if (isFunasrParaformer(cfg)) return null;
-      return `The campplus diarization backend requires ${FUNASR_PARAFORMER}, but the ASR is ${cfg?.models?.asr?.provider}/${cfg?.models?.asr?.name}.`;
+      return {
+        message: `The campplus diarization backend requires ${FUNASR_PARAFORMER}, but the ASR is ${currentAsr(cfg)}.`,
+        params: { asr: currentAsr(cfg) },
+      };
     },
   },
   {
@@ -1332,7 +1361,10 @@ const RULES = [
       // Absent means the default, which is on; only an explicit false applies.
       if (chunking === undefined || chunking === null || asBool(chunking)) return null;
       if (isFunasrParaformer(cfg)) return null;
-      return `Transcribing without chunking requires ${FUNASR_PARAFORMER}, but the ASR is ${cfg?.models?.asr?.provider}/${cfg?.models?.asr?.name}.`;
+      return {
+        message: `Transcribing without chunking requires ${FUNASR_PARAFORMER}, but the ASR is ${currentAsr(cfg)}.`,
+        params: { asr: currentAsr(cfg) },
+      };
     },
   },
   {
@@ -1388,11 +1420,13 @@ const RULES = [
           `${labelsOf(drivers)} need${drivers.length > 1 ? '' : 's'} ${them}, so the backend ` +
           `turns ${them} on at startup. Turn ${them} on here to match what actually runs, ` +
           `or switch ${labelsOf(drivers)} off.`,
+        // Feature ids, not labels, so the renderer can name them in its own language.
+        params: { missing, drivers },
         // Opposite ends of one rule, so the chips have to differ: one toggle is
         // being overridden, the other is what overrides it.
         paths: [
-          ...missing.map((id) => ({ path: featurePath(id), summary: 'Turned on anyway' })),
-          ...drivers.map((id) => ({ path: featurePath(id), summary: 'Needs features that are off' })),
+          ...missing.map((id) => ({ path: featurePath(id), summaryId: 'overridden', summary: 'Turned on anyway' })),
+          ...drivers.map((id) => ({ path: featurePath(id), summaryId: 'drivers', summary: 'Needs features that are off' })),
         ],
         fix: missing.map((id) => ({ file: CONFIG, path: featurePath(id), value: true })),
       };
@@ -1410,8 +1444,9 @@ const RULES = [
  *
  *   {
  *     message,            // required
+ *     params,             // the values interpolated into it, for translations
  *     summary,            // overrides the rule's, for the whole finding
- *     paths,              // string, or {path, summary} to vary the chip per field
+ *     paths,              // string, or {path, summaryId, summary} to vary the chip per field
  *     fix,                // changes that would clear it, offered as one click
  *   }
  *
@@ -1420,8 +1455,12 @@ const RULES = [
  *
  * @param {object} cfg the config.yaml that saving would produce
  * @param {{diarizationModelReady?: boolean}} context facts the document cannot answer
- * @returns {Array<{file: string, path: string, rule: string, summary: string, message: string,
- *                  advisory: boolean, fix?: Array<{file: string, path: string, value: unknown}>}>}
+ * `rule`, `summaryId` and `params` are what the renderer translates from; the
+ * English `summary` and `message` are its fallback.
+ *
+ * @returns {Array<{file: string, path: string, rule: string, summaryId: string|null, summary: string,
+ *                  message: string, params: object, advisory: boolean,
+ *                  fix?: Array<{file: string, path: string, value: unknown}>}>}
  */
 function validate(cfg, context = {}) {
   const problems = [];
@@ -1446,8 +1485,10 @@ function validate(cfg, context = {}) {
         file: rule.file,
         path,
         rule: rule.id,
+        summaryId: (typeof entry === 'string' ? null : entry.summaryId) ?? null,
         summary: (typeof entry === 'string' ? null : entry.summary) ?? detail.summary ?? rule.summary,
         message,
+        params: detail.params ?? {},
         advisory: rule.severity === 'warning',
         ...(detail.fix ? { fix: detail.fix } : {}),
       });
