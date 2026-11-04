@@ -2,7 +2,6 @@ import logging
 
 from .asr_feature import ASRFeature
 from .content_search_feature import ContentSearchFeature
-from .grading_feature import GradingFeature
 from .mindmap_feature import MindmapFeature
 from .qa_feature import QAFeature
 from .registry import REGISTRY, register
@@ -20,7 +19,6 @@ _BUILTIN_FEATURES = [
     VideoAnalyticsFeature,
     ContentSearchFeature,
     QAFeature,
-    GradingFeature,
 ]
 
 

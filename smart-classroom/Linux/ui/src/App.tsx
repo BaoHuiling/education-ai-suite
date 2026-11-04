@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useState } from 'react';
 import TopPanel from './components/TopPanel/TopPanel';
 import HeaderBar from './components/Header/Header';
 import Body from './components/common/Body';
-import GradingScreen from './components/Grading/GradingScreen';
 import Footer from './components/Footer/Footer';
 import './App.css';
 import './assets/css/HeaderBar.css';
@@ -23,7 +22,7 @@ const App: React.FC = () => {
   const [projectName, setProjectName] = useState<string>('');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [backendStatus, setBackendStatus] = useState<'checking' | 'available' | 'unavailable'>('checking');
-  const [activeScreen, setActiveScreen] = useState<'main' | 'content-search' | 'grading'>('main');
+  const [activeScreen, setActiveScreen] = useState<'main' | 'content-search'>('main');
   useVideoPipelineMonitor();
   // Both pipelines are driven from here, not from the panels that display them,
   // so they keep running while the user moves around the UI.
@@ -37,30 +36,20 @@ const App: React.FC = () => {
     ['asr', 'summary', 'mindmap', 'topic_segmentation', 'video_analytics'].some(f => guard.hasFeature(f)) : 
     true; // Default to true during loading
 
-  // Auto-switch to content-search or grading screen if only those features are enabled
+  // Auto-switch to content-search screen if only content-search features are enabled
   useEffect(() => {
     if (!featuresLoaded || !guard) return;
 
     const mainFeatures = ['asr', 'summary', 'mindmap', 'topic_segmentation', 'video_analytics'];
     const contentSearchFeatures = ['content_search', 'qa'];
-    const gradingFeatures = ['grading'];
 
     const hasMainFeature = mainFeatures.some(f => guard.hasFeature(f));
     const hasContentSearchFeature = contentSearchFeatures.some(f => guard.hasFeature(f));
-    const hasGradingFeature = gradingFeatures.some(f => guard.hasFeature(f));
 
     // If main features are disabled, auto-switch based on what's available
-    if (!hasMainFeature) {
-      // Prefer content-search if available (grading can coexist)
-      if (hasContentSearchFeature) {
-        console.log('📋 Main features disabled, content-search enabled - auto-switching to content-search screen');
-        setActiveScreen('content-search');
-      }
-      // Only switch to grading if content-search is not available
-      else if (hasGradingFeature) {
-        console.log('📝 Only grading feature enabled - auto-switching to grading screen');
-        setActiveScreen('grading');
-      }
+    if (!hasMainFeature && hasContentSearchFeature) {
+      console.log('📋 Main features disabled, content-search enabled - auto-switching to content-search screen');
+      setActiveScreen('content-search');
     }
   }, [featuresLoaded, guard]);
 
@@ -179,18 +168,9 @@ const App: React.FC = () => {
           <span>{t('contentSearch.subtitle')}</span>
         </div>
       )}
-      <div style={{ display: activeScreen === 'grading' ? 'none' : 'contents' }}>
-        <div className="main-content">
-          <Body isModalOpen={isSettingsOpen} activeScreen={activeScreen} featureGuard={guard} hasMainFeatures={hasMainFeatures} />
-        </div>
+      <div className="main-content">
+        <Body isModalOpen={isSettingsOpen} activeScreen={activeScreen} featureGuard={guard} hasMainFeatures={hasMainFeatures} />
       </div>
-      {activeScreen === 'grading' && (
-        <>
-          <div className="main-content">
-            <GradingScreen />
-          </div>
-        </>
-      )}
       <Footer />
     </div>
   );

@@ -35,7 +35,7 @@ Topic segmentation automatically enables Content Search.
 - The reranker requires an Intel GPU.
 - Run `./setup.sh` to configure GPU access and start the app.
 
-For manual startup, see the [Advanced Setup Guide](../docs/user-guide/advanced-setup-guide.md#linux-manual-docker-startup).
+For manual startup, see the [Manual Docker Startup](../docs/user-guide/get-started/get-started-linux.md#manual-docker-startup-optional) section of the Linux Get Started guide.
 
 ## Architecture
 
@@ -61,3 +61,4 @@ To see the system requirements and other installations, see the following guides
 
 - [System Requirements](../docs/user-guide/get-started/system-requirements.md): Check the hardware and software requirements for deploying the application.
 - [Get Started](../docs/user-guide/get-started/get-started-linux.md): Follow step-by-step instructions to set up the application.
+- [Linux Docker Architecture](../docs/user-guide/linux-docker-architecture.md): See the containers, ports, startup order, and data flow in the Docker Compose stack.

@@ -57,7 +57,6 @@ _FEATURE_PROFILES: Dict[str, FrozenSet[str]] = {
     "topic_segmentation":  frozenset({"asr", "text-gen"}),
     "content_search":      frozenset({"text-gen"}),
     "qa":                  frozenset({"text-gen"}),
-    "grading":             frozenset({"text-gen"}),
     "video_analytics":     frozenset({"va"}),
 }
 

@@ -12,7 +12,7 @@ import { parseServerTimestamp } from '../../utils/serverTime';
 Chart.register(...registerables);
 
 interface ResourceUtilizationAccordionProps {
-  activeScreen?: 'main' | 'content-search' | 'grading';
+  activeScreen?: 'main' | 'content-search';
 }
 
 const ResourceUtilizationAccordion: React.FC<ResourceUtilizationAccordionProps> = ({ activeScreen = 'main' }) => {

@@ -87,7 +87,7 @@ label {
    selector carries it while `:where([type="text"])` adds nothing. That sits
    between the `*` reset in App.css (0-0-0, which would otherwise strip the
    padding off every unstyled input) and any component's own class rule (0-1-0,
-   e.g. `.search-input`, `.grading-input`), which a plain `input[type="text"]`
+   e.g. `.search-input`), which a plain `input[type="text"]`
    at 0-1-1 would silently override. */
 input:where([type="text"]),
 select {

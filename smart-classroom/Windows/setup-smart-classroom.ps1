@@ -1472,7 +1472,14 @@ $dlStreamerRequiredVersion = "2026.1.0"
 # lives in Scripts\check_dlstreamer.ps1. Delegate to it and act on its exit code.
 $dlStreamerCheckScript = Join-Path $PSScriptRoot "Scripts\check_dlstreamer.ps1"
 if (Test-Path $dlStreamerCheckScript) {
-    & $dlStreamerCheckScript -Install -RequiredVersion $dlStreamerRequiredVersion -HttpProxy $script:httpProxy -HttpsProxy $script:httpsProxy
+    $dlsArgs = @{
+        Install         = $true
+        RequiredVersion = $dlStreamerRequiredVersion
+        HttpProxy       = $script:httpProxy
+        HttpsProxy      = $script:httpsProxy
+    }
+    if ($Silent) { $dlsArgs.Yes = $true }
+    & $dlStreamerCheckScript @dlsArgs
     switch ($LASTEXITCODE) {
         0       { $dlStreamerFound = $true }                          # present and meets required version
         1       { $dlStreamerFound = $true; $appChecksFailed = $true } # present but required reinstall failed

@@ -8,7 +8,7 @@ import type { FeatureGuard } from "../../utils/featureGuards";
 
 interface BodyProps {
   isModalOpen: boolean;
-  activeScreen: 'main' | 'content-search' | 'grading';
+  activeScreen: 'main' | 'content-search';
   featureGuard: FeatureGuard;
   hasMainFeatures: boolean;
 }

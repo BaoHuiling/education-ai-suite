@@ -1,6 +1,6 @@
 # Advanced Setup Guide
 
-This guide walks you through installing dependencies, configuring defaults, and running the application.
+This guide walks you through installing dependencies, configuring defaults, and running the application on Windows.
 
 ## Step 1: Install Dependencies
 
@@ -75,6 +75,8 @@ features:
   board_ocr:          { enabled: true }   # OCR of the teacher's display (IFPD)
   content_search:     { enabled: true }   # Multimodal search + RAG service (port 9011)
   qa:                 { enabled: true }   # RAG-based Q&A over uploaded materials
+  grading:            { enabled: true }   # VLM-based exam paper grading
+  report:             { enabled: true }   # Class report generation (.docx, PDF export)
 ```
 
 > [!IMPORTANT]
@@ -396,45 +398,6 @@ that opens automatically):
 
 The UI is only reachable from the machine running the services. If you changed
 the port, adjust the URL accordingly.
-
-## Linux: Manual Docker Startup
-
-Complete the prerequisites in the [Linux Get Started guide](./get-started/get-started-linux.md)
-first. The reranker requires an Intel GPU at `/dev/dri` and a host `render` group.
-From `smart-classroom/Linux`, configure GPU permissions and start the stack:
-
-```bash
-test -d /dev/dri || { echo "Required GPU device /dev/dri not found"; exit 1; }
-export RENDER_GID="$(getent group render | cut -d: -f3)"
-test -n "$RENDER_GID" || { echo "Required render group not found"; exit 1; }
-cp -n .env.example .env
-python3 -m utils.compose_profiles --write-env
-python3 -m utils.sync_startup_models --write
-docker compose --env-file .env \
-  -f docker/docker-compose.yml \
-  -f docker/docker-compose.gpu.yml \
-  up -d --build
-```
-
-The default configuration always pulls `intel/audio-analyzer`. For an optional
-manual local audio-analyzer build, add
-`-f docker/docker-compose.audio-analyzer.local.yml` to the Compose command,
-after the base file and before `up`. This override builds
-`smart-classroom-audio-analyzer:local` from the `edge-ai-libraries` submodule
-instead of pulling the registry image.
-
-`RENDER_GID` gives the container GPU access. Export it in each new terminal or
-save its numeric value in `.env`. The image includes the Intel GPU runtime;
-first startup may take longer while models download.
-
-Verify Content Search readiness:
-
-```bash
-curl --noproxy '*' http://127.0.0.1:8000/api/v1/system/health
-```
-
-HTTP 200 with `"status":"ok"` means ready. Use the same Compose command with
-`logs -f app` or `down` instead of `up -d --build` to inspect logs or stop services.
 
 ## Troubleshooting
 

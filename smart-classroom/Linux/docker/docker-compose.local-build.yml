@@ -1,0 +1,46 @@
+# SPDX-FileCopyrightText: (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+# Local-build override: used when `REGISTRY: false` in config.yaml (setup.sh adds
+# it automatically). Builds the services that are otherwise pulled from Docker
+# Hub (see docker-compose.yml) from the edge-ai-libraries / performance-tools
+# git submodules. Requires `git submodule update --init` (setup.sh does this).
+#
+# Manual usage:
+#   docker compose -f docker/docker-compose.yml -f docker/docker-compose.gpu.yml \
+#     -f docker/docker-compose.local-build.yml up -d --build
+
+services:
+  audio-analyzer:
+    build:
+      context: ../edge-ai-libraries/microservices/audio-analyzer
+      dockerfile: docker/Dockerfile
+      args:
+        INSTALL_CJK: "${INSTALL_CJK:-true}"
+        HTTP_PROXY: "${HTTP_PROXY:-}"
+        HTTPS_PROXY: "${HTTPS_PROXY:-}"
+        NO_PROXY: "${NO_PROXY:-}"
+    image: smart-classroom-audio-analyzer:local
+    pull_policy: build
+
+  model-downloader:
+    build:
+      context: ../edge-ai-libraries/microservices/model-download
+      dockerfile: docker/Dockerfile
+      args:
+        HTTP_PROXY: "${HTTP_PROXY:-}"
+        HTTPS_PROXY: "${HTTPS_PROXY:-}"
+        NO_PROXY: "${NO_PROXY:-}"
+    image: sc-model-downloader:local
+    pull_policy: build
+
+  metrics-collector:
+    build:
+      context: ../performance-tools
+      dockerfile: docker/Dockerfile
+      args:
+        HTTP_PROXY: "${HTTP_PROXY:-}"
+        HTTPS_PROXY: "${HTTPS_PROXY:-}"
+        NO_PROXY: "${NO_PROXY:-}"
+    image: sc-metrics-collector:local
+    pull_policy: build

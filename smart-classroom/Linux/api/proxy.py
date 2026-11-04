@@ -2,13 +2,13 @@
 
 Reproduces, at the app origin, the same-origin passthrough the Vite dev proxy
 provides in development so the *production* SPA (served from FastAPI, see
-``_mount_spa`` in ``main.py``) can reach the content_search (``:9011``) and
-grading (``:9012``) services without CORS.
+``_mount_spa`` in ``main.py``) can reach the content_search (``:9011``)
+service without CORS.
 
 Design — app-level httpx passthrough (not nginx/Caddy): the headless edge
 appliance boots via ``setup.sh``/systemd, so an in-app proxy adds zero new
 runtime components, keeps one origin/port/process, and is config-driven from
-``config.content_search`` / ``config.grading``. Request and response bodies are
+``config.content_search``. Request and response bodies are
 streamed with ``httpx.AsyncClient.stream(...)`` → ``StreamingResponse`` so SSE,
 multipart uploads, and large downloads pass through intact.
 
@@ -16,8 +16,6 @@ Scope — the ``/api/v1`` prefix collides: the main app owns ``/api/v1/sessions/
 (``api/v1/api.py``) while content_search owns ``/api/v1/object|task|system/*``
 (``:9011``). Only the content_search namespaces are proxied — **not** all of
 ``/api/v1`` — so the app's own ``/api/v1/sessions`` routes are never shadowed.
-Grading is exposed under the distinct ``/grading-api`` prefix (rewritten to
-``/api/v1``) for the same reason.
 """
 from __future__ import annotations
 
@@ -37,8 +35,6 @@ logger = logging.getLogger(__name__)
 # content_search (:9011) namespaces used by the SPA. Deliberately NOT
 # "/api/v1" wholesale: "/api/v1/sessions" belongs to the main app.
 _CONTENT_SEARCH_PREFIXES = ("/api/v1/object", "/api/v1/task", "/api/v1/system")
-# Distinct prefix for grading (:9012); rewritten to "/api/v1" upstream.
-_GRADING_PREFIX = "/grading-api"
 
 # Hop-by-hop headers must not be forwarded (RFC 7230 §6.1). "host" is dropped
 # too so httpx sets it from the upstream target URL. "content-length" is dropped
@@ -61,7 +57,7 @@ _HOP_BY_HOP = frozenset(
 # from the proxy prefixes so ``main.py`` can extend the fallback's reserved set.
 PROXY_RESERVED_SEGMENTS = frozenset(
     prefix.lstrip("/").split("/", 1)[0]
-    for prefix in (*_CONTENT_SEARCH_PREFIXES, _GRADING_PREFIX)
+    for prefix in _CONTENT_SEARCH_PREFIXES
 )
 
 
@@ -111,7 +107,7 @@ async def _passthrough(request: Request, target_url: str) -> StreamingResponse:
 
 
 def register_proxy_routes(app: FastAPI) -> None:
-    """Register the content_search / grading passthrough routes on ``app``.
+    """Register the content_search passthrough routes on ``app``.
 
     Must be called **after** ``register_routes(app)`` (so nothing is shadowed)
     and **before** the SPA catch-all mount (so the catch-all reserves these
@@ -123,11 +119,6 @@ def register_proxy_routes(app: FastAPI) -> None:
     cs_host = str(getattr(cs, "host_addr", "127.0.0.1")) if cs is not None else "127.0.0.1"
     cs_port = int(getattr(cs, "port", 9011)) if cs is not None else 9011
     cs_base = f"http://{cs_host}:{cs_port}"
-
-    grading = getattr(config, "grading", None)
-    g_host = str(getattr(grading, "host_addr", "127.0.0.1")) if grading is not None else "127.0.0.1"
-    g_port = int(getattr(grading, "port", 9012)) if grading is not None else 9012
-    g_base = f"http://{g_host}:{g_port}"
 
     # Create the shared client up front so concurrent first requests never race
     # to build one. Closed on shutdown via close_proxy_client().
@@ -143,13 +134,6 @@ def register_proxy_routes(app: FastAPI) -> None:
             target = f"{target}?{request.url.query}"
         return await _passthrough(request, target)
 
-    async def grading_proxy(request: Request, full_path: str):
-        # Rewrite the /grading-api prefix to the service's /api/v1 namespace.
-        target = f"{g_base}/api/v1/{full_path}"
-        if request.url.query:
-            target = f"{target}?{request.url.query}"
-        return await _passthrough(request, target)
-
     for prefix in _CONTENT_SEARCH_PREFIXES:
         app.add_api_route(
             f"{prefix}/{{full_path:path}}",
@@ -157,19 +141,11 @@ def register_proxy_routes(app: FastAPI) -> None:
             methods=methods,
             include_in_schema=False,
         )
-    app.add_api_route(
-        f"{_GRADING_PREFIX}/{{full_path:path}}",
-        grading_proxy,
-        methods=methods,
-        include_in_schema=False,
-    )
 
     logger.info(
-        "Reverse proxy registered: %s -> %s, %s -> %s/api/v1",
+        "Reverse proxy registered: %s -> %s",
         ", ".join(_CONTENT_SEARCH_PREFIXES),
         cs_base,
-        _GRADING_PREFIX,
-        g_base,
     )
 
 

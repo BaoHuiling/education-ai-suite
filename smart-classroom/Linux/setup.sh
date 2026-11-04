@@ -20,6 +20,35 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 log() { printf '\033[1;32m[setup]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[setup]\033[0m %s\n' "$*" >&2; exit 1; }
 
+port_in_use() {
+  local port="$1"
+  if command -v ss >/dev/null 2>&1; then
+    [[ -n "$(ss -ltnH "sport = :${port}" 2>/dev/null)" ]]
+  else
+    (exec 3<>"/dev/tcp/127.0.0.1/${port}") 2>/dev/null
+  fi
+}
+
+# Prints the first free TCP port in [start, start+49]; returns 1 if none is free.
+find_free_port() {
+  local port="$1" last=$(( $1 + 49 ))
+  while (( port <= last )); do
+    if ! port_in_use "$port"; then
+      echo "$port"
+      return 0
+    fi
+    port=$(( port + 1 ))
+  done
+  return 1
+}
+
+# Prints the TCP port a PID is listening on; returns 1 if it cannot be determined.
+pid_listen_port() {
+  local port
+  port="$(ss -ltnpH 2>/dev/null | awk -v p="pid=$1," 'index($0, p) { n = split($4, a, ":"); print a[n]; exit }')"
+  [[ -n "$port" ]] && echo "$port"
+}
+
 
 if git -C "$SCRIPT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   log "Initializing git submodules (edge-ai-libraries, performance-tools)…"
@@ -88,12 +117,6 @@ else
 fi
 
 # --- Keep startup-models.yaml/.gpu.yaml in sync with config.yaml ------------
-# model-downloader exports whatever model names are in
-# components/vlm/config/startup-models(.gpu).yaml — these are hand-authored
-# and NOT auto-generated, so changing models.text_gen.vlm_name / embedding /
-# content_search reranker in config.yaml does not automatically update them.
-# Auto-apply the sync (not just warn) so a bare `./setup.sh` always launches
-# the models config.yaml actually asks for.
 if command -v python3 >/dev/null 2>&1; then
   log "Syncing startup-models.yaml/.gpu.yaml model names from config.yaml…"
   (cd "$SCRIPT_DIR" && python3 -m utils.sync_startup_models --write) \
@@ -123,22 +146,43 @@ fi
 log "GPU required: /dev/dri detected; set RENDER_GID=${RENDER_GID} in .env."
 COMPOSE_FILES+=(-f docker/docker-compose.gpu.yml)
 
+# --- Image source: config.yaml REGISTRY (true = Docker Hub, false = local build) ---
+REGISTRY="true"
+if command -v python3 >/dev/null 2>&1; then
+  REGISTRY="$(cd "$SCRIPT_DIR" && python3 -m utils.registry_mode)" \
+    || die "Could not resolve REGISTRY from config.yaml (must be true or false) — see the error above."
+else
+  log "⚠️  python3 not found — defaulting to REGISTRY=true (pull Docker Hub images)."
+fi
+
+if [[ "$REGISTRY" == "true" ]]; then
+  log "REGISTRY=true: pulling audio-analyzer, model-downloader and metrics-collector images from Docker Hub."
+else
+  log "REGISTRY=false: building audio-analyzer, model-downloader and metrics-collector images locally."
+  for build_ctx in edge-ai-libraries/microservices/audio-analyzer edge-ai-libraries/microservices/model-download performance-tools; do
+    [[ -f "${SCRIPT_DIR}/${build_ctx}/docker/Dockerfile" ]] \
+      || die "Missing ${build_ctx}/docker/Dockerfile — initialize the git submodules (git submodule update --init) or set REGISTRY: true in config.yaml."
+  done
+  COMPOSE_FILES+=(-f docker/docker-compose.local-build.yml)
+fi
+
 # --- Sanity-check the compose config before building anything --------------
 log "Validating docker compose config (docker compose config --services)…"
 (cd "$SCRIPT_DIR" && docker compose --env-file "$ENV_FILE" "${COMPOSE_FILES[@]}" config --services >/dev/null) \
   || die "docker compose config failed — check COMPOSE_PROFILES/.env and the compose files above before retrying."
 
 # --- Build + start the stack -------------------------------------------------
-log "Starting the stack (docker compose up -d --build)…"
+if [[ "$REGISTRY" == "true" ]]; then
+  log "Pulling Docker Hub images (docker compose pull --ignore-buildable)…"
+  (cd "$SCRIPT_DIR" && docker compose --env-file "$ENV_FILE" "${COMPOSE_FILES[@]}" pull --ignore-buildable) \
+    || die "docker compose pull failed — check network/proxy access to Docker Hub, or set REGISTRY: false in config.yaml to build locally."
+fi
+
+log "Starting the stack (docker compose up -d --build; the app and video-analytics images are always built locally)…"
 (cd "$SCRIPT_DIR" && docker compose --env-file "$ENV_FILE" "${COMPOSE_FILES[@]}" up -d --build) \
   || die "docker compose up failed — check the build/service logs above."
 
 # --- Wait for the app to become healthy -------------------------------------
-# First run can be slow: model-downloader pulls + exports VLM/embedding/rerank
-# models before `ovms` (and in turn `app`'s SERVING_BASE_URL) is usable, and
-# its own healthcheck start_period is 1800s (30 min). Give the overall wait
-# here enough headroom to cover that, polling `app`'s container health status
-# (cheaper/more reliable than curling the endpoint ourselves pre-healthy).
 HEALTH_TIMEOUT_S="${HEALTH_TIMEOUT_S:-1900}"
 HEALTH_POLL_INTERVAL_S=10
 log "Waiting for the app container to become healthy (timeout ${HEALTH_TIMEOUT_S}s — first run can be slow while models download)…"
@@ -210,13 +254,21 @@ if [[ -d "$UI_DIR" ]]; then
 
   if [[ -f "$UI_PID_FILE" ]] && kill -0 "$(cat "$UI_PID_FILE")" 2>/dev/null; then
     log "UI dev server already running (PID $(cat "$UI_PID_FILE")) — leaving it as is."
+    if RUNNING_UI_PORT="$(pid_listen_port "$(cat "$UI_PID_FILE")")"; then
+      log "✅ UI: http://localhost:${RUNNING_UI_PORT}/"
+    else
+      log "⚠️  Could not determine the UI port."
+    fi
   else
-    log "Starting UI dev server in the background (npm run dev --port ${UI_PORT})…"
-    # Loopback only: the dev server proxies to the unauthenticated content-search and
-    # grading backends, so binding 0.0.0.0 would expose them to the whole network.
-    (cd "$UI_DIR" && nohup npm run dev -- --host 127.0.0.1 --port "$UI_PORT" >"$UI_LOG" 2>&1 & echo $! >"$UI_PID_FILE")
-    log "✅ UI: http://localhost:${UI_PORT}/  (logs: ${UI_LOG})"
-    log "   Stop with: kill \$(cat \"${UI_PID_FILE}\")"
+    UI_PORT_REQUESTED="$UI_PORT"
+    UI_PORT="$(find_free_port "$UI_PORT_REQUESTED")" \
+      || die "No free UI port in ${UI_PORT_REQUESTED}-$(( UI_PORT_REQUESTED + 49 )) — set UI_PORT to a free port."
+    if [[ "$UI_PORT" != "$UI_PORT_REQUESTED" ]]; then
+      log "⚠️  UI port ${UI_PORT_REQUESTED} is already in use — using ${UI_PORT} instead."
+    fi
+    log "Starting UI dev server in the background (vite --port ${UI_PORT})…"
+    (cd "$UI_DIR" && { nohup ./node_modules/.bin/vite --host 127.0.0.1 --port "$UI_PORT" --strictPort >"$UI_LOG" 2>&1 & echo $! >"$UI_PID_FILE"; })
+    log "✅ UI: http://localhost:${UI_PORT}/"
   fi
 else
   log "⚠️  ${UI_DIR} not found — skipping UI startup."

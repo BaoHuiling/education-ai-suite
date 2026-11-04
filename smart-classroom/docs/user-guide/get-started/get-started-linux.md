@@ -1,8 +1,5 @@
 # Get Started on Linux
 
-> [!IMPORTANT]
-> **Feature availability disclaimer:** The Linux version of Smart Classroom is still under development. In addition to ASR, summaries, mind maps and video analytics, the Linux app packages topic segmentation and Content Search (including RAG Q&A). Do not assume that other Windows features or all Windows workflows are supported on Linux.
-
 This guide walks you through cloning the repository, configuring defaults, and running the application on Linux using the `setup.sh` script.
 
 ## Step 1: Prerequisites
@@ -37,29 +34,13 @@ Features are enabled or disabled through the `features:` block in `config.yaml`.
 ```yaml
 features:
   asr:                { enabled: true }   # Speech-to-text transcription
-  summary:            { enabled: true }   # AI class summary / report
+  summary:            { enabled: true }   # AI class summary 
   mindmap:            { enabled: true }   # Mind map generation
-  topic_segmentation: { enabled: true }   # Timestamped topics and topic search
-  content_search:     { enabled: true }   # Multimodal uploads and semantic search
-  qa:                 { enabled: true }   # RAG Q&A over indexed materials
+  topic_segmentation: { enabled: true }
   video_analytics:    { enabled: true }   # Video analytics
+  content_search:     { enabled: true }   # Multimodal search + RAG service (port 9011)
+  qa:                 { enabled: true }   # RAG-based Q&A over uploaded materials
 ```
-
-Topic segmentation automatically enables ASR and Content Search. Q&A also
-automatically enables Content Search. Search services run inside the app container,
-with their internal ports bound to localhost; access them through the app proxy on
-port 8000, not through a host port 9011. Both the packaged UI and Vite development
-UI use this proxy.
-
-The first search-enabled start downloads/exports CLIP, the document embedding
-model and the reranker. The Content Search reranker always runs on GPU;
-document embeddings may run on CPU, and the main text-generation model can run
-on GPU through OVMS. The app image includes the Intel OpenCL/Level Zero runtime,
-and Docker passes through `/dev/dri` with the host `render` group permission.
-The Hugging Face cache and converted models persist in
-the model-cache volume. ChromaDB, SQLite metadata and uploaded files persist in
-`storage/content-search/` (or under `STORAGE_DIR` when overridden). Do not remove
-that directory when recreating the app container.
 
 ### B. Default Configuration
 
@@ -93,9 +74,21 @@ HF_TOKEN=hf_your_access_token_here
 > [!NOTE]
 > `setup.sh` creates `.env` from `.env.example` on first run. If you want to set `HF_TOKEN` beforehand, run `cp .env.example .env` first. `setup.sh` warns when diarization is enabled and `HF_TOKEN` is missing.
 
-Setup pulls `intel/audio-analyzer` whenever the audio-analyzer service is started.
-For an optional manual local build, see
-[Linux: Manual Docker Startup](../advanced-setup-guide.md#linux-manual-docker-startup).
+### D. Docker Image Source (Optional)
+
+The `REGISTRY` flag in `config.yaml` selects where `setup.sh` gets the third-party images:
+
+```yaml
+REGISTRY: true   # true: pull from Docker Hub (default); false: build locally
+```
+
+| `REGISTRY` | `audio-analyzer`, `model-downloader`, `metrics-collector` | Compose files |
+|---|---|---|
+| `true` | Pulled from Docker Hub (`intel/audio-analyzer`, `intel/model-download`, `intel/retail-benchmark`) | `docker-compose.yml` |
+| `false` | Built locally from the `edge-ai-libraries` and `performance-tools` submodules | `docker-compose.yml` + `docker-compose.local-build.yml` |
+
+The Smart Classroom app and video-analytics images are always built locally. For manual
+Compose commands, see [Manual Docker Startup](#manual-docker-startup-optional).
 
 ## Step 4: Run the Setup Script
 
@@ -115,8 +108,9 @@ The script performs the following:
 5. Syncs `startup-models.yaml` and `startup-models.gpu.yaml` with `config.yaml`.
 6. Derives `COMPOSE_PROFILES` from the enabled features.
 7. Requires an Intel GPU (`/dev/dri`), sets `RENDER_GID` from the host's `render` group, and enables the GPU Compose configuration.
-8. Validates the compose config, pulls `intel/audio-analyzer`, builds the
-   remaining locally configured images, then starts the stack.
+8. Validates the compose config, then follows `REGISTRY` in `config.yaml`: pulls the
+   Docker Hub images when `true`, or builds them locally when `false`. The app and
+   video-analytics images are always built locally. Then starts the stack.
 9. Waits for the `smart-classroom-app` container to become healthy and, when search
    features are enabled, for Content Search aggregate readiness. Setup exits with
    an error rather than reporting success if either readiness check times out.
@@ -124,12 +118,6 @@ The script performs the following:
 
 > [!NOTE]
 > First-time execution can take a long time (up to about 30 minutes) while models are downloaded and exported. Override the wait time with `HEALTH_TIMEOUT_S`, for example `HEALTH_TIMEOUT_S=3600 ./setup.sh`.
-
-> [!NOTE]
-> For manual Docker startup instead of `./setup.sh`, including how to set
-> `RENDER_GID` and run the Compose commands, see
-> [Linux: Manual Docker Startup](../advanced-setup-guide.md#linux-manual-docker-startup)
-> in the Advanced Setup Guide.
 
 On success you should see:
 
@@ -142,7 +130,10 @@ On success you should see:
 ## Step 5: Verify and Manage the Application
 
 - Backend: <http://localhost:8000/>
-- UI: <http://localhost:5173/> (change with `UI_PORT=<port> ./setup.sh`)
+- UI: <http://localhost:5173/> (change with `UI_PORT=<port> ./setup.sh`). If the port is already in use, `setup.sh` uses the next free one and prints the actual URL.
+
+To see which containers `setup.sh` starts, how they depend on each other, and which ports they use, see
+[Linux Docker Architecture](../linux-docker-architecture.md).
 
 Check status and logs:
 
@@ -150,13 +141,7 @@ Check status and logs:
 docker compose -f docker/docker-compose.yml ps
 docker compose -f docker/docker-compose.yml logs -f app
 docker compose -f docker/docker-compose.yml logs -f model-downloader ovms
-curl --noproxy '*' http://localhost:8000/api/v1/system/health
 ```
-
-The Content Search health response reports ChromaDB, file ingestion/embedding
-models, SQLite and (when enabled) video preprocessing/VLM readiness. HTTP 503
-means the search stack is not ready yet, even if the main app's `/health` is 200.
-Service startup errors are included in `docker logs smart-classroom-app`.
 
 Stop the services:
 
@@ -167,6 +152,48 @@ kill $(cat ui/vite-dev.pid)   # stop the UI dev server
 
 > [!IMPORTANT]
 > After changing `config.yaml`, rerun `./setup.sh` so that profiles and model lists are regenerated and the stack restarts with the new configuration.
+
+## Manual Docker Startup (Optional)
+
+Use this instead of `./setup.sh` to run the Compose commands yourself. Complete
+Steps 1–3 first. The reranker requires an Intel GPU at `/dev/dri` and a host
+`render` group. From `smart-classroom/Linux`, configure GPU permissions and start
+the stack:
+
+```bash
+test -d /dev/dri || { echo "Required GPU device /dev/dri not found"; exit 1; }
+export RENDER_GID="$(getent group render | cut -d: -f3)"
+test -n "$RENDER_GID" || { echo "Required render group not found"; exit 1; }
+cp -n .env.example .env
+python3 -m utils.compose_profiles --write-env
+python3 -m utils.sync_startup_models --write
+docker compose --env-file .env \
+  -f docker/docker-compose.yml \
+  -f docker/docker-compose.gpu.yml \
+  up -d --build
+```
+
+The default `REGISTRY: true` in `config.yaml` pulls `intel/audio-analyzer`,
+`intel/model-download` and `intel/retail-benchmark` from Docker Hub. When
+`REGISTRY: false`, add `-f docker/docker-compose.local-build.yml` to the Compose
+command, after the base file and before `up`. This override builds
+`smart-classroom-audio-analyzer:local`, `sc-model-downloader:local` and
+`sc-metrics-collector:local` from the `edge-ai-libraries` and `performance-tools`
+submodules instead of pulling them. To pull the registry images explicitly first,
+run the same command with `pull --ignore-buildable` instead of `up -d --build`.
+
+`RENDER_GID` gives the container GPU access. Export it in each new terminal or
+save its numeric value in `.env`. The image includes the Intel GPU runtime;
+first startup may take longer while models download.
+
+Verify Content Search readiness:
+
+```bash
+curl --noproxy '*' http://127.0.0.1:8000/api/v1/system/health
+```
+
+HTTP 200 with `"status":"ok"` means ready. Use the same Compose command with
+`logs -f app` or `down` instead of `up -d --build` to inspect logs or stop services.
 
 ## Network Requirements
 

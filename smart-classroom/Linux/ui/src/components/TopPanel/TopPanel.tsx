@@ -12,8 +12,8 @@ interface TopPanelProps {
   setProjectName: (name: string) => void;
   isSettingsOpen: boolean;
   setIsSettingsOpen: (isOpen: boolean) => void;
-  activeScreen: 'main' | 'content-search' | 'grading';
-  setActiveScreen: (screen: 'main' | 'content-search' | 'grading') => void;
+  activeScreen: 'main' | 'content-search';
+  setActiveScreen: (screen: 'main' | 'content-search') => void;
   featureGuard: FeatureGuard;
   hasMainFeatures: boolean;
 }

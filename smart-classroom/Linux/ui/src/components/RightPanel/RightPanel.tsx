@@ -8,7 +8,7 @@ import "../../assets/css/RightPanel.css";
 import type { FeatureGuard } from "../../utils/featureGuards";
 
 interface RightPanelProps {
-  activeScreen: 'main' | 'content-search' | 'grading';
+  activeScreen: 'main' | 'content-search';
   featureGuard: FeatureGuard;
 }
 

@@ -63,8 +63,8 @@ app.add_middleware(
 
 register_routes(app)
 
-# Same-origin passthrough to the no-CORS backends (content_search :9011,
-# grading :9012). Registered after register_routes() so nothing is shadowed and
+# Same-origin passthrough to the no-CORS backend (content_search :9011).
+# Registered after register_routes() so nothing is shadowed and
 # before _mount_spa() so the SPA catch-all reserves these prefixes.
 from api.proxy import register_proxy_routes, register_realtime_ws_proxy
 register_proxy_routes(app)
@@ -102,7 +102,7 @@ def _mount_spa(app: FastAPI) -> None:
 
     # Anything already claimed by an API route (its first path segment) stays
     # off-limits to the SPA fallback. Reverse-proxy prefixes (/api/v1/object,
-    # /grading-api, ...) are folded in explicitly so their passthrough routes
+    # ...) are folded in explicitly so their passthrough routes
     # win over the index.html fallback.
     from api.proxy import PROXY_RESERVED_SEGMENTS
     reserved = set(PROXY_RESERVED_SEGMENTS)

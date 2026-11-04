@@ -94,18 +94,9 @@ services:
     volumes:
       - ${STORAGE_DIR:-../storage}:/app/storage
       - model-cache:/app/models
-    # NOTE: no hard `depends_on: ovms` here — `ovms` carries the "text-gen"
-    # Compose profile while `app` is unprofiled (always-on), and
-    # `docker compose config` errors if an unprofiled service hard-depends on
-    # a profile that isn't active (see repo memory: containerization
-    # skeleton). SERVING_BASE_URL is treated as optional at runtime instead;
-    # the app only calls it when text-gen is enabled in config.yaml.
-    # Content Search runs inside app when enabled by the feature resolver.
-    # Its localhost-only APIs are exposed through app's same-origin proxy;
-    # SQLite, ChromaDB and uploaded files persist under /app/storage/content-search.
 
   metrics-collector:   # telemetry sidecar: CPU/GPU/NPU/memory/power -> /metrics, /platform-info
-    image: ${METRICS_COLLECTOR_IMAGE:-intel/retail-benchmark:latest}
+    image: ${METRICS_COLLECTOR_IMAGE:-intel/retail-benchmark:${INTEL_IMAGE_TAG:-latest}}
     container_name: sc-metrics-collector
     # privileged + host /proc,/sys are required by sar/free/qmassa/PCM inside
     # the performance-tools image; this does not require network_mode: host,
@@ -180,16 +171,9 @@ services:
     restart: unless-stopped
     networks: [smart-classroom]
 
-  model-downloader:  
+  model-downloader:
     profiles: ["text-gen"]
-    build:
-      context: ../edge-ai-libraries/microservices/model-download
-      dockerfile: docker/Dockerfile
-      args:
-        HTTP_PROXY: "${HTTP_PROXY:-}"
-        HTTPS_PROXY: "${HTTPS_PROXY:-}"
-        NO_PROXY: "${NO_PROXY:-}"
-    image: sc-model-downloader:local
+    image: ${MODEL_DOWNLOADER_IMAGE:-intel/model-download:${INTEL_IMAGE_TAG:-latest}}
     container_name: sc-model-downloader
     command: --plugins ${ENABLED_PLUGINS:-huggingface,openvino}
     environment:
@@ -268,16 +252,6 @@ services:
       retries: 12
     restart: unless-stopped
     networks: [smart-classroom]
-
-  # content-search:     # RAG / multimodal backend (:9011, internal only)
-  #   profiles: ["content-search"]
-  #   build:
-  #     context: .
-  #     dockerfile: docker/content-search.Dockerfile
-  #   depends_on:
-  #     ovms: { condition: service_healthy }
-  #   restart: unless-stopped
-  #   networks: [smart-classroom]
 
   va-model-provision:  # one-shot: export VA OpenVINO IR models into the model volume
     profiles: ["va"]
