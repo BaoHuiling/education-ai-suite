@@ -378,7 +378,6 @@ def test_a_run_that_ended_early_says_how_much_input_it_processed(tmp_path):
     session = _va_session(tmp_path)
     va_dir = session / "raw" / "va"
     _frames(va_dir / "back_posture.txt", [i / 15 for i in range(int(26.0 * 15))])
-    _frames(va_dir / "back_resnet18.txt", range(26))
     movie = _mp4(tmp_path / "in.mp4", 300.1).as_posix()
     log = va_dir / "logs" / f"back_{VA_EPOCH + 1}.log"
     log.write_text(log.read_text(encoding="utf-8").replace("C:/v/in.mp4", movie),

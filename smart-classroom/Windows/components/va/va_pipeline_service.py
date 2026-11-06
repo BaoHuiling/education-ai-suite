@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from enum import Enum
 import atexit
 import json
+import math
+import statistics
 import threading
 from utils.config_loader import config
 from utils.data_dirs import models_base_path
@@ -83,7 +85,6 @@ class VideoAnalyticsPipelineService:
             "front-pose": f"{config.models.va.front_pose_model}.xml",
             "back-pose": f"{config.models.va.back_pose_model}.xml",
             "resnet18": "resnet18.xml",
-            "mobilenetv2": "mobilenetv2.xml",
             "reid": "person-reidentification-retail-0288.xml",
         }
 
@@ -158,6 +159,8 @@ class VideoAnalyticsPipelineService:
         self.center_dist_threshold = getattr(ps, "center_dist_threshold", 0.1) if ps else 0.1
         self.unidentified_max = getattr(ps, "unidentified_max", 50) if ps else 50
         self.stale_unidentified_threshold = getattr(ps, "stale_unidentified_threshold", 30) if ps else 30
+        self.count_bucket_sec = getattr(ps, "count_bucket_sec", 60) if ps else 60
+        self.count_percentile = getattr(ps, "count_percentile", 90) if ps else 90
 
         # Upper bound on the framerate the pipeline runs inference at. Protects against high-framerate cameras.
         self.max_input_framerate = MAX_INPUT_FRAMERATE
@@ -963,39 +966,9 @@ class VideoAnalyticsPipelineService:
             "!",
             "gvaposturedetect",
             "!",
-            "tee",
-            "name=t",
-            # Branch 1: ResNet18 classification
-            "t.",
-            "!",
             "queue",
             "!",
-            *self._get_classify_decimation_elements(options),
-            "gvaroifilter",
-            "max-rois-num=10",
-            "!",
-            "gvaclassify",
-            f"model={self._get_model_path('resnet18')}",
-            f"device={options.device}",
-            *self._get_preprocess_backend_elements(options),
-            "batch-size=1",
-            "inference-region=1",
-            "model-instance-id=resnet18-0",
-            "!",
-            "gvametaconvert",
-            "!",
-            "gvametapublish",
-            f"file-path={output_dir.as_posix()}/front_resnet18.txt",
-            "file-format=json-lines",
-            "!",
-            "fakesink",
-            "async=false",
-            "sync=false",
-            # Branch 2: ReID and RTSP output
-            "t.",
-            "!",
-            "queue",
-            "!",
+            # ReID and RTSP output
             "gvaroifilter",
             "max-rois-num=2",
             "label=stand,stand_raise_up",
@@ -1023,36 +996,10 @@ class VideoAnalyticsPipelineService:
             "!",
             "gvawatermark",
             "!",
-            # Not on a decimated branch, so this sink runs at the capped source rate.
+            # Not decimated, so this sink runs at the capped source rate.
             *self._get_video_sink_elements(
                 options, "front_stream", self.max_input_framerate
             ),
-            # Branch 3: MobileNetv2 classification
-            "t.",
-            "!",
-            "queue",
-            "!",
-            *self._get_classify_decimation_elements(options),
-            "gvaroifilter",
-            "max-rois-num=50",
-            "!",
-            "gvaclassify",
-            f"model={self._get_model_path('mobilenetv2')}",
-            f"device={options.device}",
-            *self._get_preprocess_backend_elements(options),
-            "batch-size=1",
-            "inference-region=1",
-            "model-instance-id=mobilenetv2-0",
-            "!",
-            "gvametaconvert",
-            "!",
-            "gvametapublish",
-            f"file-path={output_dir.as_posix()}/front_mobilenetv2.txt",
-            "file-format=json-lines",
-            "!",
-            "fakesink",
-            "async=false",
-            "sync=false",
         ]
         return pipeline
 
@@ -1088,41 +1035,12 @@ class VideoAnalyticsPipelineService:
             f"file-path={output_dir.as_posix()}/back_posture.txt",
             "file-format=json-lines",
             "!",
-            "tee",
-            "name=t",
-            # Branch 1: video output, kept at the source framerate. Split off ahead
-            # of the classification decimation so the stream is not thinned too;
-            # gvawatermark already ran, and it only draws the pose detections.
-            "t.",
-            "!",
             "queue",
             "!",
+            # Not decimated, so this sink runs at the capped source rate.
             *self._get_video_sink_elements(
                 options, "back_stream", self.max_input_framerate
             ),
-            # Branch 2: ResNet18 classification
-            "t.",
-            "!",
-            "queue",
-            "!",
-            *self._get_classify_decimation_elements(options),
-            "gvaclassify",
-            f"model={self._get_model_path('resnet18')}",
-            f"device={options.device}",
-            *self._get_preprocess_backend_elements(options),
-            "batch-size=1",
-            "inference-region=1",
-            "model-instance-id=resnet18-0",
-            "!",
-            "gvametaconvert",
-            "!",
-            "gvametapublish",
-            f"file-path={output_dir.as_posix()}/back_resnet18.txt",
-            "file-format=json-lines",
-            "!",
-            "fakesink",
-            "async=false",
-            "sync=false",
         ]
         return pipeline
 
@@ -1266,16 +1184,9 @@ class VideoAnalyticsPipelineService:
             # Store output files for monitoring
             output_files = []
             if pipeline_name == PipelineName.FRONT.value:
-                output_files = [
-                    Path(options.output_dir) / "front_resnet18.txt",
-                    Path(options.output_dir) / "front_posture.txt",
-                    Path(options.output_dir) / "front_mobilenetv2.txt",
-                ]
+                output_files = [Path(options.output_dir) / "front_posture.txt"]
             elif pipeline_name == PipelineName.BACK.value:
-                output_files = [
-                    Path(options.output_dir) / "back_posture.txt",
-                    Path(options.output_dir) / "back_resnet18.txt",
-                ]
+                output_files = [Path(options.output_dir) / "back_posture.txt"]
             elif pipeline_name == PipelineName.CONTENT.value:
                 output_files = [Path(options.output_dir) / "content_results.txt"]
             self.pipeline_output_files[pipeline_name] = output_files
@@ -1593,7 +1504,7 @@ class VideoAnalyticsPipelineService:
 
         Args:
             pipeline_name: Name of pipeline to monitor
-            file_name: Specific output file to monitor (e.g., "front_resnet18.txt")
+            file_name: Specific output file to monitor (e.g., "front_posture.txt")
                       If None, monitors the first output file for the pipeline
 
         Yields:
@@ -1782,7 +1693,7 @@ class VideoAnalyticsPipelineService:
         Returns:
             Tuple of (statistics_dict, new_state_dict):
             - statistics: Current statistics with all data up to now
-                - student_count: Average person count
+                - student_count: Detected person count; see _calculate_stats
                 - stand_count: Count of stand transitions
                 - raise_up_count: Count of raise up transitions
                 - stand_reid: List of student IDs with their stand transition counts
@@ -1795,8 +1706,9 @@ class VideoAnalyticsPipelineService:
             previous_state = {
                 "processed_lines": 0,
                 "total_frames": 0,
-                "person_count_samples": [],  # person counts sampled at target frame indices
-                "last_person_count": 0,       # person count from the most recent frame
+                "count_bucket": None,         # index of the time bucket being filled
+                "count_bucket_samples": [],   # per-frame person counts in that bucket
+                "count_bucket_values": [],    # percentile count of each completed bucket
                 "student_states": {},
                 "student_stand_counts": {},
                 "student_raise_counts": {},
@@ -1823,7 +1735,7 @@ class VideoAnalyticsPipelineService:
                 return self._calculate_stats(previous_state), previous_state
 
             # Process frames directly — do not accumulate them in memory
-            TARGET_FRAMES = {900, 1800, 2700}
+            fps = self._framerate_to_fps(self.max_input_framerate)
             frame_base = previous_state["total_frames"]
             new_frames = 0
 
@@ -1845,10 +1757,11 @@ class VideoAnalyticsPipelineService:
                     if obj.get("detection", {}).get("bounding_box", {}).get("x_max", 0) > 0
                 ]
 
-                # Sample person count only at target frame indices
-                if frame_idx in TARGET_FRAMES:
-                    previous_state["person_count_samples"].append(len(valid_objects))
-                previous_state["last_person_count"] = len(valid_objects)
+                timestamp = frame.get("timestamp")
+                seconds = timestamp / 1e9 if timestamp is not None else frame_idx / fps
+                self._add_count_sample(
+                    previous_state, int(seconds // self.count_bucket_sec), len(valid_objects)
+                )
 
                 self._process_frame(frame_idx, valid_objects, previous_state)
 
@@ -1992,8 +1905,34 @@ class VideoAnalyticsPipelineService:
                 if frame_idx - student_states[student_id]["last_seen_frame"] >= ABSENCE_THRESHOLD:
                     del student_states[student_id]
 
+    @staticmethod
+    def _percentile(values: List[int], pct: float) -> int:
+        """Nearest-rank percentile of a non-empty list."""
+        ordered = sorted(values)
+        rank = max(1, math.ceil(pct / 100 * len(ordered)))
+        return ordered[rank - 1]
+
+    def _add_count_sample(self, state: Dict, bucket: int, count: int):
+        """Add one frame's person count to its time bucket, closing the
+        previous bucket into its percentile value when the bucket changes."""
+        if bucket != state["count_bucket"]:
+            if state["count_bucket_samples"]:
+                state["count_bucket_values"].append(
+                    self._percentile(state["count_bucket_samples"], self.count_percentile)
+                )
+            state["count_bucket"] = bucket
+            state["count_bucket_samples"] = []
+        state["count_bucket_samples"].append(count)
+
     def _calculate_stats(self, state: Dict) -> Dict:
-        """Calculate current statistics from accumulated state."""
+        """Calculate current statistics from accumulated state.
+
+        student_count: missed detections (occlusion, small or turned students)
+        only ever lower a frame's count, so each time bucket takes a high
+        percentile of its per-frame counts, and the class value is the median
+        over buckets, which ignores minutes of settling in or leaving. The
+        bucket still filling is used only until the first one completes.
+        """
         if state["total_frames"] == 0:
             return {
                 "student_count": 0,
@@ -2003,11 +1942,12 @@ class VideoAnalyticsPipelineService:
                 "raise_reid": [],
             }
 
-        person_count_samples = state["person_count_samples"]
-        if person_count_samples:
-            student_count = int(sum(person_count_samples) / len(person_count_samples))
-        else:
-            student_count = state["last_person_count"]
+        bucket_values = state["count_bucket_values"]
+        if not bucket_values and state["count_bucket_samples"]:
+            bucket_values = [
+                self._percentile(state["count_bucket_samples"], self.count_percentile)
+            ]
+        student_count = round(statistics.median(bucket_values)) if bucket_values else 0
 
         stand_count = sum(state["student_stand_counts"].values())
         raise_up_count = (
