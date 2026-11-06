@@ -721,6 +721,9 @@ const STEPS = [
       {
         id: 'install',
         label: 'Install',
+        // The installer reinstalls GStreamer, and its silent setup hangs on DLLs
+        // a running pipeline has loaded.
+        requiresBackendStopped: true,
         async run(emit) {
           const script = paths.dlStreamerScript();
           if (!fs.existsSync(script)) throw new Error(`${script} is missing.`);
@@ -1091,7 +1094,8 @@ class SetupRunner extends EventEmitter {
     if (this.busy) throw new Error('Another setup step is already running.');
 
     // Windows locks the .pyd/.dll files of a running interpreter, so pip would
-    // fail part-way through and leave the environment half-upgraded.
+    // fail part-way through and leave the environment half-upgraded; the same
+    // goes for the GStreamer DLLs its pipelines load.
     if (action.requiresBackendStopped) {
       const port = registry.get('backend')?.port;
       if (port && !(await proc.isPortFree(port))) {
@@ -1099,7 +1103,7 @@ class SetupRunner extends EventEmitter {
         // screen turns this into a button rather than an instruction to go
         // hunting for one.
         throw setupError(
-          'Stop the backend first: its Python environment is in use.',
+          'Stop the backend first: it has files this step replaces in use.',
           SETUP_ERROR.BACKEND_RUNNING
         );
       }

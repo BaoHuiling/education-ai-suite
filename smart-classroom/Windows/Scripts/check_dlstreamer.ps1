@@ -19,7 +19,9 @@
        Runs the complete DL Streamer check used by setup-smart-classroom.ps1:
        detection, minimum-version enforcement (reinstall prompt when the
        installed version is older than -RequiredVersion), post-reinstall
-       re-verification, and a fresh-install prompt when nothing is detected.
+       re-verification, a fresh-install prompt when nothing is detected, and a
+       reinstall prompt when DL Streamer is registered but unusable. Before
+       running the installer it checks that no process holds GStreamer files.
        The download/installer logic is fully self-contained here. Proxy
        settings can be supplied via -HttpProxy / -HttpsProxy.
 
@@ -43,6 +45,10 @@
 
 .PARAMETER HttpsProxy
     HTTPS proxy URL used for installer downloads in -Install mode.
+
+.PARAMETER InstallerTimeoutSec
+    Install mode only. How long to wait for the DL Streamer installer before
+    treating it as stuck and stopping it (default 900).
 
 .OUTPUTS
     Detection mode exit codes:
@@ -69,7 +75,8 @@ param(
     [switch]$Yes,
     [string]$RequiredVersion = "2026.1.0",
     [string]$HttpProxy = "",
-    [string]$HttpsProxy = ""
+    [string]$HttpsProxy = "",
+    [int]$InstallerTimeoutSec = 900
 )
 
 # Expose proxy settings to the download helper via script scope
@@ -154,6 +161,48 @@ function Invoke-WebRequestWithProxy {
     $webClient.DownloadFile($Uri, $OutFile)
 }
 
+# Lists processes that have GStreamer or DL Streamer DLLs loaded. The DL Streamer
+# installer uninstalls and reinstalls GStreamer, and when its silent GStreamer
+# setup meets a locked file it waits on a prompt nobody can see, so these must
+# be closed first. A running Smart Classroom app is the usual culprit.
+function Get-GStreamerUsers {
+    $roots = @(Join-Path $env:ProgramFiles 'gstreamer')
+    $gstRoot = [Environment]::GetEnvironmentVariable('GSTREAMER_1_0_ROOT_MSVC_X86_64', 'Machine')
+    if ($gstRoot) { $roots += $gstRoot }
+    $reg = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Intel\dlstreamer' -ErrorAction SilentlyContinue
+    if ($reg -and $reg.InstallDir) { $roots += $reg.InstallDir }
+    $roots = $roots | ForEach-Object { $_.TrimEnd('\') + '\' }
+
+    Get-Process | Where-Object { $_.Id -ne $PID } | ForEach-Object {
+        $proc = $_
+        # Modules of protected or other users' processes cannot be read; skip those.
+        $modules = try { $proc.Modules } catch { $null }
+        $hit = $modules | Where-Object {
+            $file = $_.FileName
+            $file -and ($roots | Where-Object { $file.StartsWith($_, [StringComparison]::OrdinalIgnoreCase) })
+        } | Select-Object -First 1
+        if ($hit) { [pscustomobject]@{ Name = $proc.ProcessName; Id = $proc.Id } }
+    }
+}
+
+# Returns $true once no process holds GStreamer / DL Streamer files. Interactive
+# runs can close them and check again; -Yes runs fail at once, since nobody is
+# there to close anything.
+function Wait-GStreamerReleased {
+    while ($true) {
+        $users = @(Get-GStreamerUsers)
+        if ($users.Count -eq 0) { return $true }
+
+        Write-Host "    [WARN] These programs are using GStreamer / DL Streamer files:" -ForegroundColor Yellow
+        foreach ($u in $users) { Write-Host "      $($u.Name) (PID $($u.Id))" -ForegroundColor Yellow }
+        Write-Host "    The installer replaces GStreamer and hangs on files that are in use." -ForegroundColor DarkYellow
+        Write-Host "    Close them first (stop Smart Classroom if it is running)." -ForegroundColor DarkYellow
+        if ($Yes) { return $false }
+        $retry = Read-Host "    Press Enter to check again, or N to cancel"
+        if ($retry -match "^[Nn]") { return $false }
+    }
+}
+
 # Downloads and runs the DL Streamer Windows installer. Returns $true on success.
 function Install-DLStreamer {
     Write-Host ""
@@ -168,6 +217,14 @@ function Install-DLStreamer {
     $dlsVersion = $RequiredVersion
     $installerName = "dlstreamer-$dlsVersion-win64.exe"
     $downloadUrl = "https://github.com/open-edge-platform/dlstreamer/releases/download/v$dlsVersion/$installerName"
+
+    # Checked before the download so a blocked install fails in seconds, not
+    # after a 500+ MB download.
+    if (-not (Wait-GStreamerReleased)) {
+        Write-Host "    [FAIL] Installer not started: close the programs above and re-run." -ForegroundColor Red
+        return $false
+    }
+
     try {
         Write-Host "  Step 1: Download Installer" -ForegroundColor Yellow
         $installerPath = Join-Path $env:TEMP $installerName
@@ -227,7 +284,19 @@ function Install-DLStreamer {
 
         Write-Host "    Running DL Streamer installer in silent mode..." -ForegroundColor Gray
         try {
-            $process = Start-Process -FilePath $installerPath -ArgumentList "/S" -Wait -PassThru
+            $process = Start-Process -FilePath $installerPath -ArgumentList "/S" -PassThru
+            # Cache the handle now; without it ExitCode reads back empty after the exit.
+            $null = $process.Handle
+
+            if (-not $process.WaitForExit($InstallerTimeoutSec * 1000)) {
+                # /T also stops the GStreamer setup the installer spawned.
+                & taskkill.exe /PID $process.Id /T /F *> $null
+                Write-Host "    [FAIL] Installer did not finish within $InstallerTimeoutSec s and was stopped" -ForegroundColor Red
+                Write-Host "           It is most likely blocked by a file in use. GStreamer may now be" -ForegroundColor DarkYellow
+                Write-Host "           partly removed: close every program using it, then re-run setup." -ForegroundColor DarkYellow
+                Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
+                return $false
+            }
 
             if ($process.ExitCode -eq 0) {
                 Write-Host "    [OK] Installer completed successfully" -ForegroundColor Green
@@ -282,7 +351,7 @@ if (-not $Install) {
             exit 1
         }
         'NoGstInspect' {
-            Write-Status "gst-inspect-1.0 not available after DL Streamer environment setup." "Yellow"
+            Write-Status "DL Streamer is registered but gst-inspect-1.0 is unavailable: GStreamer is missing or broken." "Yellow"
             exit 1
         }
         'NoPlugin' {
@@ -355,19 +424,28 @@ if ($result.Status -eq 'Found') {
             }
         }
     }
+} elseif ($result.Status -eq 'NoGstInspect') {
+    Write-Host "  [WARN] DL Streamer $($result.Version) is registered ($($result.InstallDir))" -ForegroundColor Yellow
+    Write-Host "         but gst-inspect-1.0 is unavailable: GStreamer is missing or broken" -ForegroundColor Yellow
 } elseif ($result.Status -eq 'NoPlugin') {
-    Write-Host "  [INFO] DL Streamer is registered but the gvadetect sanity check failed" -ForegroundColor Yellow
+    Write-Host "  [WARN] DL Streamer $($result.Version) is registered ($($result.InstallDir))" -ForegroundColor Yellow
+    Write-Host "         but the gvadetect sanity check failed" -ForegroundColor Yellow
 }
 
 if (-not $dlStreamerFound) {
-    Write-Host "  [INFO] DL Streamer is not installed" -ForegroundColor Yellow
+    # A registered but unusable install is repaired by reinstalling over it,
+    # which also restores the GStreamer runtime the installer bundles.
+    $installVerb = if ($result.Status -eq 'NotInstalled') { "Install" } else { "Reinstall" }
+    if ($result.Status -eq 'NotInstalled') {
+        Write-Host "  [INFO] DL Streamer is not installed" -ForegroundColor Yellow
+    }
     Write-Host ""
     Write-Host "  DL Streamer is required for video analytics pipelines." -ForegroundColor Gray
     Write-Host "  Latest verified version: $RequiredVersion" -ForegroundColor Gray
     Write-Host ""
     Write-Host "  This will download and run the DL Streamer $RequiredVersion installer." -ForegroundColor Gray
     Write-Host ""
-    $installChoice = if ($Yes) { "Y" } else { Read-Host "  Install DL Streamer $RequiredVersion now? (Y/N)" }
+    $installChoice = if ($Yes) { "Y" } else { Read-Host "  $installVerb DL Streamer $RequiredVersion now? (Y/N)" }
 
     if ($installChoice -match "^[Yy]") {
         if (Install-DLStreamer) {
