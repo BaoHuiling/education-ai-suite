@@ -14,7 +14,7 @@ Download the Deep Learning Streamer (DL Streamer) installer from [DL Streamer as
 For details, refer to the [Install Guide](https://docs.openedgeplatform.intel.com/dev/edge-ai-libraries/dlstreamer/install/install_guide_windows.html).
 
 > [!NOTE]
-> DL Streamer 2026.1.0 is the latest verified version. Also update your [NPU driver](./get-started/system-requirements.md#software-and-hardware-requirements) to the latest version for compatibility.
+> DL Streamer 2026.2.0 is the latest verified version. Also update your [NPU driver](./get-started/system-requirements.md#software-and-hardware-requirements) to the latest version for compatibility.
 
 **Run your shell with administrator privileges before starting the application**
 
