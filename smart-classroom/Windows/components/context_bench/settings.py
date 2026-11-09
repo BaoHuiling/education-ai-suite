@@ -65,8 +65,10 @@ _BENCHMARK_KEYS = (
     "iteration_gap_sec", "timeout_sec", "max_system_memory_pct", "gpu_memory_budget_gb",
     "cache_dir", "output_dir", "record_text",
 )
-_PROFILE_KEYS = ("name", "ov", "scheduler", "dflash")
-_DFLASH_KEYS = ("enabled", "model", "num_assistant_tokens")
+# Speculative strategies, each a profile section of `_SPECULATIVE_KEYS` named after it.
+SPECULATIVE_STRATEGIES = ("dflash", "eagle3")
+_PROFILE_KEYS = ("name", "ov", "scheduler", *SPECULATIVE_STRATEGIES)
+_SPECULATIVE_KEYS = ("enabled", "model", "num_assistant_tokens")
 _ACCURACY_KEYS = (
     "suites", "baseline_profile", "seed", "embedding_model",
     accuracy.SUITE_RETRIEVAL, accuracy.SUITE_GENERATION,
@@ -309,7 +311,7 @@ def _parse_args(argv=None):
                         "numbers converted); KEY= removes")
     parser.add_argument("--assistant-tokens", dest="mtp_tokens", type=int,
                         metavar="K", help="num_assistant_tokens for every profile that already "
-                        "enables DFlash; plain baselines stay plain")
+                        "speculates (dflash/eagle3); plain baselines stay plain")
     parser.add_argument("--accuracy", action="store_true",
                         help="run the accuracy suites from the config's `accuracy` section")
     parser.add_argument("--accuracy-suites", nargs="+", metavar="S",
@@ -386,7 +388,7 @@ def _validate_ov(name: str, ov: dict) -> dict:
         if key in _FORBIDDEN_OV_KEYS:
             raise ConfigError(
                 f"profile {name!r} ov.{key} is a speculative/runtime setting, not a plugin "
-                "property; use the profile's dflash/scheduler sections"
+                "property; use the profile's dflash/eagle3/scheduler sections"
             )
         _scalar(value, f"profile {name!r} ov.{key}")
     return ov
@@ -425,26 +427,33 @@ def _validate_scheduler(name: str, scheduler: dict) -> dict:
 
 
 def _resolve_speculative(name: str, entry: dict, scheduler: dict, mtp_tokens) -> dict:
-    section = entry.get("dflash")
-    if section is None:
+    present = [key for key in SPECULATIVE_STRATEGIES if entry.get(key) is not None]
+    if not present:
         return dict(SPECULATIVE_OFF)
-    section = _mapping(section, f"profile {name!r} dflash")
-    _check_keys(section, _DFLASH_KEYS, f"profile {name!r} dflash")
+    if len(present) > 1:
+        raise ConfigError(
+            f"profile {name!r} has {' and '.join(present)} sections; a profile speculates "
+            "with at most one strategy"
+        )
+    strategy = present[0]
+    where = f"profile {name!r} {strategy}"
+    section = _mapping(entry[strategy], where)
+    _check_keys(section, _SPECULATIVE_KEYS, where)
     enabled = section.get("enabled", bool(section))
-    _boolean(enabled, f"profile {name!r} dflash.enabled")
+    _boolean(enabled, f"{where}.enabled")
     if not enabled:
         return dict(SPECULATIVE_OFF)
 
     tokens = mtp_tokens if mtp_tokens is not None else section.get("num_assistant_tokens")
     if isinstance(tokens, bool) or not isinstance(tokens, int) or tokens < 1:
         raise ConfigError(
-            f"profile {name!r} dflash.num_assistant_tokens must be an integer >= 1 (got "
+            f"{where}.num_assistant_tokens must be an integer >= 1 (got "
             f"{tokens!r}); it is how many candidates the draft offers per verification pass"
         )
     if not scheduler:
         raise ConfigError(
-            f"profile {name!r} enables dflash on the stateful pipeline; speculative decoding "
-            "requires a paged `scheduler` section"
+            f"profile {name!r} enables {strategy} on the stateful pipeline; speculative "
+            "decoding requires a paged `scheduler` section"
         )
     chunk = scheduler.get("max_num_batched_tokens")
     if chunk < tokens + 1:
@@ -453,16 +462,16 @@ def _resolve_speculative(name: str, entry: dict, scheduler: dict, mtp_tokens) ->
             f"tokens one speculative step submits (num_assistant_tokens={tokens} candidates "
             "plus the token being verified)"
         )
-    model = _string(section.get("model"), f"profile {name!r} dflash.model")
+    model = _string(section.get("model"), f"{where}.model")
     linear_blocks = scheduler.get("num_linear_attention_blocks")
     required = scheduler["max_num_seqs"] + tokens + 1
     if linear_blocks is not None and linear_blocks < required:
         raise ConfigError(
             f"profile {name!r} has num_linear_attention_blocks={linear_blocks}, below the "
-            f"{required} rows required by max_num_seqs={scheduler['max_num_seqs']} and dflash "
-            f"num_assistant_tokens={tokens}"
+            f"{required} rows required by max_num_seqs={scheduler['max_num_seqs']} and "
+            f"{strategy} num_assistant_tokens={tokens}"
         )
-    return {"enabled": True, "strategy": "dflash", "model": model,
+    return {"enabled": True, "strategy": strategy, "model": model,
             "num_assistant_tokens": tokens}
 
 
@@ -473,7 +482,8 @@ def _resolve_profiles(raw_profiles, names_filter=None, ov_overrides=None, sched_
     Overrides apply to selected profiles and validation runs after them: removing a
     required property is an error. `--assistant-tokens` only changes profiles that already
     speculate. Returns plain dicts with ``{name, ov, scheduler, mtp, pipeline_mode,
-    cache_pool}``; the DFlash section keeps the reference's internal name `mtp`.
+    cache_pool}``; the speculative (dflash/eagle3) section keeps the reference's internal
+    name `mtp`.
     """
     notices = notices if notices is not None else []
     if not isinstance(raw_profiles, list) or not raw_profiles:
@@ -500,8 +510,10 @@ def _resolve_profiles(raw_profiles, names_filter=None, ov_overrides=None, sched_
         for key in ("ov", "scheduler"):
             if entry.get(key) is not None and not isinstance(entry[key], dict):
                 raise ConfigError(f"profile {name!r} ov and scheduler must be mappings")
-        if entry.get("dflash") is not None and not isinstance(entry["dflash"], dict):
-            raise ConfigError(f"profile {name!r} dflash must be a mapping of {_DFLASH_KEYS}")
+        for strategy in SPECULATIVE_STRATEGIES:
+            if entry.get(strategy) is not None and not isinstance(entry[strategy], dict):
+                raise ConfigError(
+                    f"profile {name!r} {strategy} must be a mapping of {_SPECULATIVE_KEYS}")
         entries.append(entry)
         names.append(name)
     duplicates = sorted({name for name in names if names.count(name) > 1})

@@ -16,8 +16,8 @@ Estimated demand, in bytes:
    estimate is unavailable rather than zero;
 3. plus fixed linear-attention state (unique IR state variables) times the reserved
    sequence / linear-attention rows;
-4. plus the DFlash draft's KV: every draft layer, its sliding-window layers capped at the
-   declared window (`draft_kv_bytes`).
+4. plus the speculative (DFlash or Eagle3) draft's KV: every draft layer, its sliding-window
+   layers capped at the declared window (`draft_kv_bytes`).
 
 Any unknown contribution makes the whole estimate unavailable.
 """
@@ -236,7 +236,7 @@ def theoretical_kv_bytes_per_token(config: dict, kv_cache_dtype_bytes: float = 2
 
 def draft_kv_bytes(draft_config: dict | None, tokens: int, kv_cache_dtype_bytes: float = 2,
                    quantization_param_bytes: int = 0) -> float | None:
-    """KV bytes of a DFlash draft holding `tokens`; None when its architecture is unknown.
+    """KV bytes of a speculative draft holding `tokens`; None when its architecture is unknown.
 
     A draft's non-full layers are sliding-window attention, which also hold KV, so unlike
     the target's linear-attention layers they are counted: each `full_attention` layer grows
@@ -270,7 +270,7 @@ def draft_kv_bytes(draft_config: dict | None, tokens: int, kv_cache_dtype_bytes:
 
 def estimate_cache(model_config: dict | None, fixed_state_bytes: int | None, ov_config,
                    tokens: int | None, state_rows: int = 1,
-                   draft_config: dict | None = None, dflash: bool = False) -> dict:
+                   draft_config: dict | None = None, speculative: bool = False) -> dict:
     """Estimated persistent cache demand; ``{"gib": float|None, "reason": str|None, ...}``."""
     detail = {"gib": None, "reason": None, "tokens": tokens, "state_rows": state_rows,
               "kv_bytes_per_token": None, "fixed_state_bytes": fixed_state_bytes,
@@ -295,15 +295,14 @@ def estimate_cache(model_config: dict | None, fixed_state_bytes: int | None, ov_
         return detail
     total = per_token * tokens + (fixed_state_bytes or 0) * max(1, state_rows)
 
-    speculative = 0.0
-    if dflash:
+    draft_bytes = 0.0
+    if speculative:
         draft_bytes = draft_kv_bytes(draft_config, tokens, dtype, quant)
         if draft_bytes is None:
-            detail["reason"] = "the DFlash draft architecture is unknown"
+            detail["reason"] = "the speculative draft architecture is unknown"
             return detail
-        speculative += draft_bytes
-    detail["speculative_bytes"] = speculative
-    detail["gib"] = (total + speculative) / _GIB
+    detail["speculative_bytes"] = draft_bytes
+    detail["gib"] = (total + draft_bytes) / _GIB
     return detail
 
 

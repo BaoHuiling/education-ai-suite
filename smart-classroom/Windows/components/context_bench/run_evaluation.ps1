@@ -3,15 +3,24 @@
 #
 # Runs the cross-model evaluation (python -m components.context_bench.evaluate) with the
 # backend venv's Python from the Smart Classroom root: performance and accuracy of the INT4
-# Qwen3-VL-8B-Instruct, Qwen3.5-9B, Qwen3.6-35B-A3B (DFlash off and on) and Qwen3.8-27B, then
-# one Markdown report. Every argument is forwarded; its exit code (0 ok, 1 failed/partial
-# cases, 2 invalid arguments, 130 Ctrl-C) is this script's exit code.
+# models, then one Markdown report. By default every profile of every config_*.yaml runs, so
+# each config's documented test steps are all covered (throughput, classroom and accuracy):
+#
+#   Model             Profiles
+#   qwen3-vl-8b       paged_min, eagle3_k3, eagle3_k4, eagle3_k5     (Eagle3 off and on)
+#   qwen3.5-9b        paged_min, dflash_k3, dflash_k5, dflash_k7, dflash_k15   (DFlash off and on)
+#   qwen3.6-35b-a3b   paged_min, dflash_k3, dflash_k5, dflash_k7, dflash_k15   (DFlash off and on)
+#   qwen3.8-27b       paged_min
+#
+# Every argument is forwarded; its exit code (0 ok, 1 failed/partial cases, 2 invalid
+# arguments, 130 Ctrl-C) is this script's exit code.
 #
 # Usage:
 #   .\components\context_bench\run_evaluation.ps1 --list-profiles
 #   .\components\context_bench\run_evaluation.ps1 --quick
 #   .\components\context_bench\run_evaluation.ps1
-#   .\components\context_bench\run_evaluation.ps1 --models qwen3.6-35b-a3b --dflash-k 3 5 7
+#   .\components\context_bench\run_evaluation.ps1 --spec-k 5 7          # paged_min + only k=5/7
+#   .\components\context_bench\run_evaluation.ps1 --models qwen3-vl-8b qwen3.5-9b --suites throughput
 #
 # If PowerShell blocks local scripts, relax the policy for this process only:
 #   Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned

@@ -18,9 +18,11 @@ from components.context_bench.settings import POOL_AUTO, context_label
 
 _USABLE_STATUSES = ("ok", "memory_limit", "gpu_memory_limit", "measurement_error", "partial")
 
-_DFLASH_TOKEN_SUGGESTION_CEILING = 15
-_DFLASH_WINDOW_SLACK = 2.0
-_DFLASH_FULL_WINDOW_FILL = 0.8
+# Largest window worth suggesting per strategy: DFlash's block_size 16 minus the seed token;
+# the top of serving's qualified Eagle3 range (text_gen_profiles).
+_WINDOW_SUGGESTION_CEILING = {"dflash": 15, "eagle3": 8}
+_WINDOW_SLACK = 2.0
+_FULL_WINDOW_FILL = 0.8
 
 _ACCEPTANCE_LENGTH_LEGEND = (
     "AL = acceptance length: tokens committed per target verification pass, excluding "
@@ -121,25 +123,27 @@ def _mtp_cell(case: dict, prefix: str = "", empty: str = "") -> str:
 
 
 def _mtp_tuning_hint(case: dict) -> str | None:
-    """The next DFlash window worth measuring, in either direction; never a correctness
-    threshold."""
+    """The next speculative window worth measuring, in either direction; never a
+    correctness threshold."""
     tokens = case.get("num_assistant_tokens")
     al = metrics.positive_number(case.get("tokens_per_step"))
     if not case.get("mtp") or not isinstance(tokens, int) or al is None:
         return None
-    if tokens > 1 and tokens + 1 > _DFLASH_WINDOW_SLACK * al:
+    label = metrics.strategy_label(case)
+    if tokens > 1 and tokens + 1 > _WINDOW_SLACK * al:
         smaller = max(1, min(tokens - 1, math.ceil(al)))
         return (
-            f"  hint: dFlash k={tokens} reached acceptance length {al:.2f}: the target verifies "
+            f"  hint: {label} k={tokens} reached acceptance length {al:.2f}: the target verifies "
             f"{tokens + 1} tokens per pass to commit {al:.1f}. Compare k={smaller} and pick the "
             "window from the sweep table (speedup ~= AL / pass cost)."
         )
-    if (al - 1) / tokens >= _DFLASH_FULL_WINDOW_FILL and tokens < _DFLASH_TOKEN_SUGGESTION_CEILING:
-        larger = min(_DFLASH_TOKEN_SUGGESTION_CEILING, 2 * tokens)
+    ceiling = _WINDOW_SUGGESTION_CEILING.get(case.get("speculative_strategy"), 15)
+    if (al - 1) / tokens >= _FULL_WINDOW_FILL and tokens < ceiling:
+        larger = min(ceiling, 2 * tokens)
         return (
-            f"  hint: dFlash k={tokens} reached acceptance length {al:.2f} of a possible "
-            f"{tokens + 1}; the window is nearly full, so compare k={larger}. The draft proposes "
-            "its block in one parallel pass; check the verification cost in the sweep table."
+            f"  hint: {label} k={tokens} reached acceptance length {al:.2f} of a possible "
+            f"{tokens + 1}; the window is nearly full, so compare k={larger}; check the "
+            "verification cost in the sweep table."
         )
     return None
 

@@ -6,10 +6,10 @@ Runs `benchmark` once per (model, suite) with one shared workload, so the models
 under identical contexts, tasks, decode ceilings and repetition, then renders every run's
 `results.json` into one Markdown report, `evaluation_report.md`.
 
-  Model             Config                      Profiles
-  qwen3-vl-8b       config_qwen3_8b.yaml        paged_min
-  qwen3.5-9b        config_qwen3.5_9b.yaml      paged_min
-  qwen3.6-35b-a3b   config_qwen3.6_35b.yaml     paged_min (DFlash off), dflash_k5 and dflash_k7 (on)
+  Model             Config                      Profiles (every profile of the config)
+  qwen3-vl-8b       config_qwen3_8b.yaml        paged_min (plain), eagle3_k3/k4/k5 (Eagle3)
+  qwen3.5-9b        config_qwen3.5_9b.yaml      paged_min (plain), dflash_k3/k5/k7/k15 (DFlash)
+  qwen3.6-35b-a3b   config_qwen3.6_35b.yaml     paged_min (plain), dflash_k3/k5/k7/k15 (DFlash)
   qwen3.8-27b       config_qwen3.8_27b.yaml     paged_min
 
   Suite       What each invocation measures
@@ -17,8 +17,9 @@ under identical contexts, tasks, decode ceilings and repetition, then renders ev
   classroom   the application's summarizer request at 8,000 tokens; 1024 tokens
   accuracy    RULER retrieval + generation fidelity probes at 8,000 tokens (--accuracy)
 
-DFlash off and on run in the same invocation, so every DFlash case has its matched plain
-baseline (identical artifact, prompt and scheduler) and the speedup is an isolated one.
+Speculative decoding off and on run in the same invocation, so every DFlash/Eagle3 case has
+its matched plain baseline (identical artifact, prompt and scheduler) and the speedup is an
+isolated one. `--spec-k K ...` keeps only the speculative profiles with those windows.
 
     python -m components.context_bench.evaluate --list-profiles      # every plan; loads nothing
     python -m components.context_bench.evaluate                      # the full evaluation
@@ -45,15 +46,18 @@ from pathlib import Path
 
 from components.context_bench import accuracy, evidence, metrics, report
 from components.context_bench.benchmark import EXIT_CONFIG, EXIT_FAILURE, EXIT_INTERRUPTED, EXIT_OK
-from components.context_bench.settings import SC_ROOT, TOOL_DIR, context_label, load_yaml
+from components.context_bench.settings import (
+    SC_ROOT,
+    SPECULATIVE_STRATEGIES,
+    TOOL_DIR,
+    context_label,
+    load_yaml,
+)
 
 MANIFEST_NAME = "evaluation.json"
 REPORT_NAME = "evaluation_report.md"
 DEFAULT_OUTPUT_DIR = "monitoring/executionlogs/context_bench/evaluation"
 BASELINE_PROFILE = "paged_min"
-# k=5: serving's window (text_gen_profiles), best for summaries and chat; k=7: the published
-# reference's window, best for code and math. Without k=7 the blog comparison is empty.
-DEFAULT_DFLASH_K = (5, 7)
 DEFAULT_TIMING_GAP_SEC = 30.0  # the configs' iteration_gap_sec; see default_iteration_gap
 
 
@@ -61,13 +65,12 @@ DEFAULT_TIMING_GAP_SEC = 30.0  # the configs' iteration_gap_sec; see default_ite
 class ModelSpec:
     key: str
     config: str
-    dflash: bool = False
 
 
 MODELS = (
     ModelSpec("qwen3-vl-8b", "config_qwen3_8b.yaml"),
     ModelSpec("qwen3.5-9b", "config_qwen3.5_9b.yaml"),
-    ModelSpec("qwen3.6-35b-a3b", "config_qwen3.6_35b.yaml", dflash=True),
+    ModelSpec("qwen3.6-35b-a3b", "config_qwen3.6_35b.yaml"),
     ModelSpec("qwen3.8-27b", "config_qwen3.8_27b.yaml"),
 )
 MODEL_KEYS = tuple(m.key for m in MODELS)
@@ -101,24 +104,33 @@ class EvaluationError(Exception):
 # ---------------------------------------------------------------------------
 # Planning
 # ---------------------------------------------------------------------------
-def dflash_profiles(config: str, windows) -> list:
-    """`paged_min` plus the config's `dflash_k<K>` profile for every requested window."""
-    names = [p.get("name") for p in load_yaml(TOOL_DIR / config).get("profiles") or []]
-    available = sorted(int(n[len("dflash_k"):]) for n in names
-                       if isinstance(n, str) and n.startswith("dflash_k") and n[8:].isdigit())
-    missing = [k for k in windows if k not in available]
-    if missing:
-        raise EvaluationError(f"{config} has no DFlash profile for k={missing}; "
-                              f"available windows: {available}")
-    return [BASELINE_PROFILE] + [f"dflash_k{k}" for k in windows]
+def config_profiles(config: str) -> list:
+    """``(name, k)`` for every profile of `config`, in config order; k is the speculative
+    window (its dflash/eagle3 ``num_assistant_tokens``), None for a plain profile. The
+    benchmark validates the profiles themselves when it resolves the invocation."""
+    profiles = []
+    for entry in load_yaml(TOOL_DIR / config).get("profiles") or []:
+        section = next((entry[s] for s in SPECULATIVE_STRATEGIES
+                        if isinstance(entry.get(s), dict)), None)
+        enabled = section is not None and section.get("enabled", True) is not False
+        profiles.append((entry.get("name"),
+                         section.get("num_assistant_tokens") if enabled else None))
+    return profiles
+
+
+def select_profiles(config: str, windows=None) -> list:
+    """Every profile of `config`; with `windows`, its plain profiles plus the speculative
+    profiles whose window is listed."""
+    return [name for name, k in config_profiles(config)
+            if windows is None or k is None or k in windows]
 
 
 def default_iteration_gap(suite: str, quick: bool) -> float:
     """Idle before each measured generation when --iteration-gap is not given.
 
     The timing suites idle like the configs (and the published reference): back to back, the
-    iGPU's clocks sag over the iterations, and DFlash, which works the GPU harder per step,
-    loses more than the plain baseline it is compared against. Accuracy timings are not used,
+    iGPU's clocks sag over the iterations, and speculative decoding, which works the GPU harder
+    per step, loses more than the plain baseline it is compared against. Accuracy timings are not used,
     and its gap would apply to every probe, so it runs back to back; so does --quick.
     """
     return 0.0 if quick or suite == SUITE_ACCURACY else DEFAULT_TIMING_GAP_SEC
@@ -132,14 +144,22 @@ def suite_arguments(suite: str, quick: bool, iteration_gap: float | None) -> lis
     return workload + repeat + ["--iteration-gap", f"{iteration_gap:g}"]
 
 
-def plan_invocations(models, suites, *, quick: bool = False, windows=DEFAULT_DFLASH_K,
+def plan_invocations(models, suites, *, quick: bool = False, windows=None,
                      weight_format: str = "int4", device: str | None = None,
                      iteration_gap: float | None = None) -> list:
-    """One benchmark invocation per (model, suite), model by model."""
+    """One benchmark invocation per (model, suite), model by model, each running every
+    profile of the model's config (or, with `windows`, the speculative ones of those k)."""
     selected = [m for m in MODELS if m.key in models]
+    if windows is not None:
+        available = sorted({k for m in selected for _, k in config_profiles(m.config)
+                            if k is not None})
+        missing = sorted(set(windows) - set(available))
+        if missing:
+            raise EvaluationError(f"no selected model has a speculative profile for k={missing}; "
+                                  f"available windows: {available}")
     invocations = []
     for model in selected:
-        profiles = dflash_profiles(model.config, windows) if model.dflash else [BASELINE_PROFILE]
+        profiles = select_profiles(model.config, windows)
         for suite in (s for s in SUITES if s in suites):
             args = ["--config", f"components/context_bench/{model.config}",
                     "--weight-format", weight_format, "--profiles", *profiles]
@@ -328,8 +348,8 @@ def _header_section(manifest: dict, loaded: list, evaluation_dir: Path) -> list:
         f"{packages.get('openvino-genai') or '--'}, transformers {packages.get('transformers') or '--'}",
         f"- Weights: {options.get('weight_format', '--')} | device: "
         f"{options.get('device') or 'per config (GPU)'} | iteration gap: {gap_label}"
-        + (" | DFlash windows: " + ", ".join(f"k={k}" for k in options['dflash_k'])
-           if options.get("dflash_k") else ""),
+        + (" | speculative windows: " + ", ".join(f"k={k}" for k in options["spec_k"])
+           if options.get("spec_k") else ""),
         "",
     ]
     if options.get("quick"):
@@ -430,7 +450,7 @@ def _performance_section(loaded: list, suite: str, title: str) -> list:
 
 
 def _speculative_references(loaded: list) -> dict:
-    """Each model's `speculative_reference` (the published DFlash figures) from its snapshots."""
+    """Each model's `speculative_reference` (published figures) from its snapshots."""
     references = {}
     for run, _, snapshot in loaded:
         reference = ((snapshot or {}).get("settings") or {}).get("speculative_reference")
@@ -439,7 +459,7 @@ def _speculative_references(loaded: list) -> dict:
     return references
 
 
-def _dflash_section(loaded: list) -> list:
+def _speculative_section(loaded: list) -> list:
     rows = []
     reference_lines = []
     references = _speculative_references(loaded)
@@ -457,10 +477,14 @@ def _dflash_section(loaded: list) -> list:
                     case = entry["case"]
                     plain = report._matched_baseline(case, report._leaderboard(at_context)) or {}
                     acceptance = metrics.finite_number(case.get("mtp_acceptance_rate"))
-                    same = case.get("output_sha256") and case.get("output_sha256") == plain.get("output_sha256")
+                    # A missing hash (repeated outputs disagreed, or no baseline) is unknown,
+                    # not a mismatch.
+                    ours, theirs = case.get("output_sha256"), plain.get("output_sha256")
+                    output = ("--" if not (ours and theirs)
+                              else "identical" if ours == theirs else "differs")
                     rows.append([
                         model, suite, context_label(context), report.task_label(case),
-                        case.get("num_assistant_tokens"),
+                        metrics.strategy_label(case), case.get("num_assistant_tokens"),
                         _fmt(plain.get("other_tokens_avg_latency")),
                         _fmt(case.get("other_tokens_avg_latency")),
                         _ratio_cell(entry["decode_speedup"])
@@ -472,22 +496,24 @@ def _dflash_section(loaded: list) -> list:
                         _ratio_cell(entry["pass_cost"]),
                         f"{_seconds(plain.get('first_token_latency'))} / "
                         f"{_seconds(case.get('first_token_latency'))}",
-                        "identical" if same else "differs",
+                        output,
                     ])
     if not rows:
         return []
     return [
-        "## DFlash speculative decoding: off vs on", "",
-        "Each DFlash case is compared only with the `paged_min` case of the same invocation that "
+        "## Speculative decoding: off vs on", "",
+        "Each DFlash/Eagle3 case is compared only with the `paged_min` case of the same invocation that "
         "shares artifact, prompt, task, device and scheduler, so the drafter is the only change. "
         "Speedup ~= AL / pass cost: AL (acceptance length) is tokens committed per verification "
         "pass, pass cost is one verification pass relative to one plain decode step. Greedy "
         "speculative decoding should reproduce the plain output; `differs` is worth inspecting "
-        "in the run's report.txt.", "",
-        *_table(["Model", "Suite", "Context", "Task", "k", "Plain TPOT ms", "DFlash TPOT ms",
+        "in the run's report.txt, and `--` means a side's repeated outputs disagreed, so no "
+        "comparison was made.", "",
+        *_table(["Model", "Suite", "Context", "Task", "Method", "k", "Plain TPOT ms",
+                 "Speculative TPOT ms",
                  "Decode speedup", "Total-call speedup", "AL", "Accepted", "Pass cost",
                  "TTFT s off / on", "Output"], rows),
-        *(["## DFlash against the published reference", "",
+        *(["## Speculative decoding against the published reference", "",
            "The reference measured whole datasets without a long-context prefix, so the "
            "no-transcript rows are its comparable setting; one prompt per domain here, so "
            "compare ordering and size, not the second decimal.", "", *reference_lines]
@@ -543,7 +569,7 @@ def _accuracy_section(loaded: list) -> list:
             "Coverage is scored against the planted facts (ground truth) and compares models. "
             "Similarity (embedding cosine), ROUGE-L, chrF and Identical measure drift from the "
             f"same model's `{BASELINE_PROFILE}` answer to the identical prompt, so they are only "
-            "meaningful for a non-baseline profile (here: DFlash).", "",
+            "meaningful for a non-baseline profile (here: DFlash/Eagle3).", "",
             *_table(["Model", "Profile", "Context", "Status", "Fact coverage", "Similarity",
                      "ROUGE-L", "chrF", "Identical", "Probes"], generation),
         ]
@@ -583,7 +609,7 @@ def render_markdown(manifest: dict, loaded: list, evaluation_dir: Path) -> str:
     lines += _runs_section(loaded, evaluation_dir)
     lines += _performance_section(loaded, SUITE_THROUGHPUT, "Performance: throughput tasks")
     lines += _performance_section(loaded, SUITE_CLASSROOM, "Performance: classroom summary")
-    lines += _dflash_section(loaded)
+    lines += _speculative_section(loaded)
     lines += _accuracy_section(loaded)
     lines += _failure_section(loaded)
     command = (manifest.get("options") or {}).get("command")
@@ -612,10 +638,10 @@ def _parse_args(argv=None):
                         help="models to evaluate (default: all)")
     parser.add_argument("--suites", nargs="+", choices=SUITES, default=list(SUITES),
                         help="suites to run per model (default: all)")
-    parser.add_argument("--dflash-k", type=int, nargs="+", default=list(DEFAULT_DFLASH_K),
-                        metavar="K", help="DFlash windows for Qwen3.6-35B-A3B, each a dflash_k<K> "
-                        "profile of its config (default: 5 7 -- serving's window and the "
-                        "published reference's)")
+    parser.add_argument("--spec-k", type=int, nargs="+", default=None, metavar="K",
+                        help="run only the speculative (DFlash/Eagle3) profiles with these "
+                        "windows, plus every plain profile (default: every profile of each "
+                        "config)")
     parser.add_argument("--weight-format", default="int4", help="weights of every model (default int4)")
     parser.add_argument("--device", help="override every config's device (CPU, GPU, GPU.1)")
     parser.add_argument("--iteration-gap", type=float, default=None, metavar="SECONDS",
@@ -661,7 +687,7 @@ def main(argv=None) -> int:
         return EXIT_CONFIG
     try:
         invocations = plan_invocations(
-            args.models, args.suites, quick=args.quick, windows=args.dflash_k,
+            args.models, args.suites, quick=args.quick, windows=args.spec_k,
             weight_format=args.weight_format, device=args.device, iteration_gap=args.iteration_gap)
     except EvaluationError as exc:
         print(f"evaluation: {exc}", file=sys.stderr)
@@ -680,7 +706,7 @@ def main(argv=None) -> int:
     evaluation_dir = _create_evaluation_dir(base if base.is_absolute() else SC_ROOT / base)
     options = {
         "models": args.models, "suites": args.suites,
-        "dflash_k": args.dflash_k if any(m.dflash for m in MODELS if m.key in args.models) else [],
+        "spec_k": args.spec_k,
         "weight_format": args.weight_format, "device": args.device,
         "iteration_gap": args.iteration_gap, "quick": args.quick,
         "command": " ".join([".\\components\\context_bench\\run_evaluation.ps1",
