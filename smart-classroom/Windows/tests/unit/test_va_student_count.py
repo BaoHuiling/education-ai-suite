@@ -1,13 +1,13 @@
 # SPDX-FileCopyrightText: (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""student_count is robust to missed detections.
+"""student_count is robust to momentary missed and doubled detections.
 
 It used to be the mean of the person counts at frames 900/1800/2700 -- three
 snapshots from the first three minutes at 15 fps -- so any one frame with
-occluded students dragged it down. Missed detections only ever lower a
-frame's count, so each minute now takes a high percentile and the class value
-is the median over minutes.
+occluded students dragged it down. Each minute now takes a percentile of its
+per-frame counts (the median by default) and the class value is the median
+over minutes.
 
 The service is built with object.__new__, as in test_va_pipeline_stop.py, and
 reads a real front_posture.txt from a temporary directory.
@@ -27,14 +27,14 @@ def make_service():
     svc.logger = logging.getLogger("test.va.count")
     svc.max_input_framerate = "15/1"
     svc.count_bucket_sec = 60
-    svc.count_percentile = 90
-    svc.min_frames_for_transition = 3
-    svc.min_frames_for_transition_unid = 15
-    svc.absence_threshold = 90
-    svc.min_stand_frames = 10
+    svc.count_percentile = 50
+    svc.raise_confirm_sec = 0.13
+    svc.raise_confirm_sec_unid = 0.93
+    svc.stand_confirm_sec = 0.6
+    svc.absence_sec = 6.0
+    svc.stale_unidentified_sec = 2.0
     svc.center_dist_threshold = 0.1
     svc.unidentified_max = 50
-    svc.stale_unidentified_threshold = 30
     return svc
 
 
@@ -67,6 +67,13 @@ def test_transient_misses_do_not_lower_count(tmp_path):
     stats, _ = make_service().get_pose_stats(str(posture))
     # The mean of these frames would be ~37.
     assert stats["student_count"] == 40
+
+
+def test_transient_double_detections_do_not_raise_count(tmp_path):
+    posture = tmp_path / "front_posture.txt"
+    write(posture, [c + 6 if k % 4 == 0 else c for k, c in enumerate([30] * (300 * FPS))])
+    stats, _ = make_service().get_pose_stats(str(posture))
+    assert stats["student_count"] == 30
 
 
 def test_count_follows_whole_class_not_first_minutes(tmp_path):
