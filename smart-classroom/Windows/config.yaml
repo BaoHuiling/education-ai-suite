@@ -78,7 +78,7 @@ models:
 
   text_gen:
     provider: vlm
-    vlm_name: Qwen/Qwen3-VL-8B-Instruct
+    vlm_name: Qwen/Qwen3.5-9B
     device: GPU # GPU or CPU
     weight_format: int4 # int4,int 8-- shared with content_search.vlm.weight_format
     max_new_tokens: 5120
@@ -96,8 +96,8 @@ models:
     # are greedy: temperature > 0 and sampling penalties get HTTP 400.
     # See smart-classroom/docs/user-guide/vlm-llm-serving/serving-guide.md.
     speculative:
-      mode: "off"           # "off" | auto | "on"
-      method: auto          # auto | eagle3 | dflash | mtp
+      mode: "on"           # "off" | auto | "on"
+      method: dflash          # auto | eagle3 | dflash | mtp
       draft_source: null    # null = profile default | huggingface | local | target (bundled MTP)
       draft_model: null     # null = profile default; MTP always uses the target's bundled head
       draft_revision: null  # null = the tested pinned commit; a full 40-char commit overrides it

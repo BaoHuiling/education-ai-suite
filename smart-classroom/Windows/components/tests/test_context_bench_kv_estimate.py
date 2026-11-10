@@ -498,50 +498,38 @@ class TestShippedConfigs(unittest.TestCase):
         cpu = self._load("config_qwen3.6_35b.yaml", "--device", "CPU")
         self.assertEqual(cpu["device"], "CPU")
 
-    def test_qwen38_config_is_one_plain_paged_baseline(self):
-        for label in self.WEIGHTS["config_qwen3.8_27b.yaml"]:
-            with self.subTest(weights=label):
-                resolved = self._load("config_qwen3.8_27b.yaml", "--weight-format", label)
-                self.assertEqual(resolved["weight_format"], label)
-                self.assertEqual([(p["name"], p["pipeline_mode"], p["mtp"]["enabled"])
-                                  for p in resolved["profiles"]],
-                                 [("paged_min", settings.PIPELINE_PAGED, False)])
+    def test_qwen38_and_qwen3_vl_8b_configs_are_one_plain_paged_baseline(self):
+        for name in ("config_qwen3.8_27b.yaml", "config_qwen3_8b.yaml"):
+            for label in self.WEIGHTS[name]:
+                with self.subTest(config=name, weights=label):
+                    resolved = self._load(name, "--weight-format", label)
+                    self.assertEqual(resolved["weight_format"], label)
+                    self.assertEqual([(p["name"], p["pipeline_mode"], p["mtp"]["enabled"])
+                                      for p in resolved["profiles"]],
+                                     [("paged_min", settings.PIPELINE_PAGED, False)])
 
-    def _assert_matched_sweep(self, resolved, strategy, draft, windows):
-        """paged_min, then one speculative profile per window, identical otherwise."""
-        profiles = resolved["profiles"]
+    def test_qwen35_matrix_and_matched_dflash_sweep(self):
+        """paged_min, then one DFlash profile per window, identical otherwise."""
+        profiles = self._load("config_qwen3.5_9b.yaml")["profiles"]
         baseline = profiles[0]
+        windows = [3, 5, 7, 15]
         self.assertEqual(baseline["name"], "paged_min")
         self.assertFalse(baseline["mtp"]["enabled"])
-        self.assertEqual([p["name"] for p in profiles[1:]], [f"{strategy}_k{k}" for k in windows])
-        self.assertEqual([p["mtp"]["num_assistant_tokens"] for p in profiles[1:]], list(windows))
+        self.assertEqual([p["name"] for p in profiles[1:]], [f"dflash_k{k}" for k in windows])
+        self.assertEqual([p["mtp"]["num_assistant_tokens"] for p in profiles[1:]], windows)
         for profile in profiles:
             self.assertEqual(profile["pipeline_mode"], settings.PIPELINE_PAGED)
         for profile in profiles[1:]:
-            self.assertEqual(profile["mtp"]["strategy"], strategy)
-            self.assertEqual(profile["mtp"]["model"], draft)
+            self.assertEqual(profile["mtp"]["strategy"], "dflash")
+            self.assertEqual(profile["mtp"]["model"], "models/openvino/Qwen3.5-9B-DFlash/int4-lmhead")
             self.assertEqual(profile["ov"], baseline["ov"])
             self.assertEqual(profile["scheduler"], baseline["scheduler"])
-
-    def test_qwen35_matrix_and_matched_dflash_sweep(self):
-        resolved = self._load("config_qwen3.5_9b.yaml")
-        self._assert_matched_sweep(resolved, "dflash",
-                                   "models/openvino/Qwen3.5-9B-DFlash/int4-lmhead", (3, 5, 7, 15))
-        for profile in resolved["profiles"][1:]:
             self.assertGreaterEqual(profile["scheduler"]["num_linear_attention_blocks"],
                                     1 + profile["mtp"]["num_assistant_tokens"] + 1)
 
-    def test_qwen3_vl_8b_matched_eagle3_sweep_reads_the_vlm_export(self):
+    def test_qwen3_vl_8b_config_reads_the_vlm_export(self):
         resolved = self._load("config_qwen3_8b.yaml")
         self.assertEqual(resolved["models"], ("Qwen3-VL-8B-Instruct",))
-        self._assert_matched_sweep(resolved, "eagle3",
-                                   "models/openvino/Qwen3-VL-8B-Instruct-eagle3/int4", (3, 4, 5))
-        # Serving's qualified Eagle3 windows (text_gen_profiles) cover the sweep.
-        from components.vlm.text_gen_profiles import target_profile
-
-        low, high = target_profile("Qwen/Qwen3-VL-8B-Instruct").methods["eagle3"].num_assistant_tokens_range
-        self.assertTrue(all(low <= p["mtp"]["num_assistant_tokens"] <= high
-                            for p in resolved["profiles"][1:]))
         # The dense model has no linear-attention rows to reserve.
         self.assertNotIn("num_linear_attention_blocks", resolved["profiles"][0]["scheduler"])
         # A dense model with its text architecture nested under text_config, as in the export.

@@ -57,7 +57,7 @@ def _write_run(evaluation_dir: Path, model: str, suite: str, snapshot: dict) -> 
 class TestPlan(unittest.TestCase):
     # By default every test case of every config runs.
     EVERY_PROFILE = {
-        "qwen3-vl-8b": ["paged_min", "eagle3_k3", "eagle3_k4", "eagle3_k5"],
+        "qwen3-vl-8b": ["paged_min"],
         "qwen3.5-9b": ["paged_min", "dflash_k3", "dflash_k5", "dflash_k7", "dflash_k15"],
         "qwen3.6-35b-a3b": ["paged_min", "dflash_k3", "dflash_k5", "dflash_k7", "dflash_k15"],
         "qwen3.8-27b": ["paged_min"],
@@ -107,8 +107,7 @@ class TestPlan(unittest.TestCase):
     def test_speculative_off_and_on_run_matched_in_one_invocation(self):
         for model, windows, expected, strategy in (
                 ("qwen3.6-35b-a3b", [3, 7], ["paged_min", "dflash_k3", "dflash_k7"], "dflash"),
-                ("qwen3.5-9b", [5, 15], ["paged_min", "dflash_k5", "dflash_k15"], "dflash"),
-                ("qwen3-vl-8b", [4], ["paged_min", "eagle3_k4"], "eagle3")):
+                ("qwen3.5-9b", [5, 15], ["paged_min", "dflash_k5", "dflash_k15"], "dflash")):
             with self.subTest(model=model):
                 invocation = evaluate.plan_invocations([model], [evaluate.SUITE_THROUGHPUT],
                                                        windows=windows)[0]
@@ -125,14 +124,12 @@ class TestPlan(unittest.TestCase):
         planned = evaluate.plan_invocations(evaluate.MODEL_KEYS, [evaluate.SUITE_THROUGHPUT],
                                             windows=[5])
         self.assertEqual({i["model"]: i["profiles"] for i in planned}, {
-            "qwen3-vl-8b": ["paged_min", "eagle3_k5"], "qwen3.5-9b": ["paged_min", "dflash_k5"],
+            "qwen3-vl-8b": ["paged_min"], "qwen3.5-9b": ["paged_min", "dflash_k5"],
             "qwen3.6-35b-a3b": ["paged_min", "dflash_k5"], "qwen3.8-27b": ["paged_min"]})
 
     def test_an_unshipped_window_is_an_argument_error(self):
         with self.assertRaisesRegex(evaluate.EvaluationError, r"k=\[4\]"):
             evaluate.plan_invocations(["qwen3.6-35b-a3b"], evaluate.SUITES, windows=[4])
-        # Shipped for Eagle3 only, so valid as soon as its model is selected.
-        evaluate.plan_invocations(["qwen3.6-35b-a3b", "qwen3-vl-8b"], evaluate.SUITES, windows=[4])
         self.assertEqual(evaluate.main(["--models", "qwen3.8-27b", "--spec-k", "5",
                                         "--list-profiles"]), evaluate.EXIT_CONFIG)
 
