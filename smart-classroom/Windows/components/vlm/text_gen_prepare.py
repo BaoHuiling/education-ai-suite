@@ -69,6 +69,26 @@ _DRAFT_IR_FILES = ("openvino_model.xml", "openvino_model.bin", "config.json")
 # never repository code.
 _DRAFT_SOURCE_PATTERNS = ["*.json", "*.safetensors"]
 
+# optimum-cli exports a quantized model to a temporary directory and moves the
+# files to the output. tempfile.mkdtemp() creates that directory with mode 0o700,
+# which on Windows (Python >= 3.12.4) is a private ACL (SYSTEM, Administrators,
+# owner) that a same-volume move keeps. Exported from an elevated session the
+# owner is the Administrators group, so a later non-elevated start could not read
+# the drafter. Both export scripts therefore create it with a plain mkdir beside
+# the output (sys.argv[-1]): its files inherit the models directory's permissions
+# and are renamed, never copied, on the same volume.
+_EXPORT_TMP_SUFFIX = ".tmp-"
+_EXPORT_TMP_PATCH = f"""\
+import os, uuid
+import optimum.intel.openvino.utils as _ov_utils
+_export_out = os.path.abspath(sys.argv[-1])
+def _mkdtemp(suffix=None, prefix=None, dir=None):
+    path = _export_out + "{_EXPORT_TMP_SUFFIX}" + uuid.uuid4().hex[:8]
+    os.mkdir(path)
+    return path
+_ov_utils.mkdtemp = _mkdtemp
+"""
+
 # optimum-intel ships DFlash drafter classes but selects them only through
 # trust_remote_code; the export subprocess registers them instead, so no
 # repository code can run. They are subclassed because optimum-intel treats
@@ -90,6 +110,7 @@ class DFlashDraftModel(mp.Qwen3DFlashDraftModel): pass
 class DFlashForCausalLM(mp.Qwen3DFlashForCausalLM): pass
 AutoModel.register(Qwen3Config, DFlashDraftModel, exist_ok=True)
 AutoModelForCausalLM.register(Qwen3Config, DFlashForCausalLM, exist_ok=True)
+""" + _EXPORT_TMP_PATCH + """\
 from optimum.commands.optimum_cli import main
 sys.argv = ["optimum-cli"] + sys.argv[1:]
 main()
@@ -134,6 +155,7 @@ class Eagle3Model(mp.LlamaEagle3Model): pass
 class Eagle3ForCausalLM(mp.LlamaEagle3ForCausalLM): pass
 AutoModel.register(LlamaConfig, Eagle3Model, exist_ok=True)
 AutoModelForCausalLM.register(LlamaConfig, Eagle3ForCausalLM, exist_ok=True)
+""" + _EXPORT_TMP_PATCH + """\
 from optimum.commands.optimum_cli import main
 sys.argv = ["optimum-cli", "export", "openvino", "--model", str(keyed),
             "--task", "text-generation-with-past", "--library", "transformers",
@@ -382,7 +404,7 @@ def _ready_revision(draft_dir: Path, pinned: Optional[str]) -> Optional[str]:
     """Revision of a complete, readable drafter export matching ``pinned`` (any if None)."""
     if not all((draft_dir / f).is_file() for f in _DRAFT_IR_FILES):
         return None
-    if _unreadable_files(draft_dir, _DRAFT_IR_FILES):
+    if _unreadable_files(draft_dir, _DRAFT_IR_FILES + (".prepared.json",)):
         return None  # re-exported; _export_draft sets the unreadable one aside
     revision = _read_json(draft_dir / ".prepared.json").get("revision")
     return revision if revision and pinned in (None, revision) else None
@@ -419,6 +441,8 @@ def _export_draft(source_dir: Path, draft_dir: Path, settings: SpeculativeSettin
     staging = draft_dir.with_name(draft_dir.name + ".partial")
     if staging.exists():
         shutil.rmtree(staging)
+    for leftover in staging.parent.glob(staging.name + _EXPORT_TMP_SUFFIX + "*"):
+        shutil.rmtree(leftover, ignore_errors=True)  # an interrupted export's temp dir
     fmt = settings.profile.draft_export_weight_format or "int4"
     # The interpreter's own environment; -X utf8 keeps the exporter's progress
     # output printable on non-UTF-8 consoles.
@@ -443,7 +467,6 @@ def _export_draft(source_dir: Path, draft_dir: Path, settings: SpeculativeSettin
             f"drafter export of {repo} failed (exit {completed.returncode}); it needs "
             f"{needs} (pip install -r requirements.txt)"
         )
-    _inherit_parent_permissions(staging)
     source_cfg = _read_json(source_dir / "config.json")
     exported_cfg = _read_json(staging / "config.json")
     if "dflash_config" in source_cfg and "dflash_config" not in exported_cfg:
@@ -468,28 +491,6 @@ def _export_draft(source_dir: Path, draft_dir: Path, settings: SpeculativeSettin
                 _rel(draft_dir), ", ".join(unreadable))
         _set_aside(draft_dir, "unreadable" if unreadable else "superseded")
     staging.replace(draft_dir)
-
-
-def _inherit_parent_permissions(directory: Path) -> None:
-    """Rewrite each exported file as a new one, so it takes the folder's permissions.
-
-    optimum exports a quantized model to a ``tempfile.mkdtemp()`` directory and
-    moves the files out; a same-volume move keeps the private ACL Python gives
-    that directory on Windows (SYSTEM, Administrators, owner). Exported from an
-    elevated session the owner is the Administrators group, so a later
-    non-elevated start could not read the drafter. A file created here inherits
-    the models directory's permissions instead: plain file I/O as the current
-    user, no ACL is edited. Peak extra disk is one file.
-    """
-    if os.name != "nt":
-        return
-    for path in sorted(p for p in directory.rglob("*") if p.is_file()):
-        fresh = path.with_name(path.name + ".inherit")
-        try:
-            shutil.copyfile(path, fresh)
-            os.replace(fresh, path)
-        finally:
-            fresh.unlink(missing_ok=True)
 
 
 def _unreadable_files(directory: Path, names) -> list:
@@ -1092,12 +1093,25 @@ def _file_sizes(directory: Path) -> dict:
             for p in sorted(directory.rglob("*")) if p.is_file() and not p.name.startswith(".")}
 
 
-def _read_json(path: Path) -> dict:
+def _read_json(path: Path, *, lenient: bool = False) -> dict:
+    """The JSON object in ``path``; ``{}`` if the file is missing or not a JSON object.
+
+    A file that exists but cannot be read raises :class:`PreparationError`: read
+    as ``{}`` it would pass for absent metadata, as when a drafter exported from
+    an elevated session was reported as declaring no DFlash target layers.
+    ``lenient`` reads optional bookkeeping (the manifest) as if it were missing.
+    """
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except (OSError, ValueError):
+    except (FileNotFoundError, NotADirectoryError, ValueError):
         return {}
+    except OSError as exc:
+        if lenient:
+            return {}
+        reason = ("not readable by this user" if isinstance(exc, PermissionError)
+                  else f"unreadable: {exc.strerror or exc}")
+        raise PreparationError(f"{_rel(path)} is {reason}") from exc
+    return data if isinstance(data, dict) else {}
 
 
 def _write_json(path: Path, data: dict) -> None:
@@ -1126,7 +1140,7 @@ def manifest_path(plan: TextGenPlan) -> Path:
 
 
 def _recorded_draft_revision(plan: TextGenPlan, repo: Optional[str]) -> Optional[str]:
-    spec = _read_json(manifest_path(plan)).get("speculative") or {}
+    spec = _read_json(manifest_path(plan), lenient=True).get("speculative") or {}
     if repo and str(spec.get("draft_model", "")).lower() == repo.lower():
         revision = spec.get("draft_revision")
         return revision if isinstance(revision, str) and _COMMIT_RE.match(revision) else None
@@ -1136,7 +1150,7 @@ def _recorded_draft_revision(plan: TextGenPlan, repo: Optional[str]) -> Optional
 def _write_manifest(result: PreparedArtifacts) -> Optional[Path]:
     plan = result.plan
     path = manifest_path(plan)
-    previous = _read_json(path)
+    previous = _read_json(path, lenient=True)
     data = {
         "schema_version": 1,
         "updated_at": _now(),

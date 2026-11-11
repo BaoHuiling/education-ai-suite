@@ -226,11 +226,11 @@ def _preflight_dflash(model_dir: Path, draft_dir: Path, tokens: int) -> None:
     """The serving preparation's DFlash pair check plus the window and target metadata."""
     # Layer ids, target depth and vocabulary. k=1 never trips its block-size check, which is
     # applied below as `unsupported`.
-    from components.vlm.text_gen_prepare import CompatibilityError, validate_dflash_pair
+    from components.vlm.text_gen_prepare import PreparationError, validate_dflash_pair
 
     try:
         validate_dflash_pair(model_dir, draft_dir, 1)
-    except CompatibilityError as exc:
+    except PreparationError as exc:  # an incompatible pair or an unreadable config.json
         raise _Rejected("artifact", str(exc)) from exc
     block_size = trial_runner.dflash_block_size(draft_dir)
     if block_size and tokens > block_size - 1:
@@ -253,11 +253,11 @@ def _preflight_eagle3(model_dir: Path, draft_dir: Path) -> None:
     """The serving preparation's Eagle3 pair check: architecture, target model type, hidden
     size and vocabulary, and the VLM drafter IR interface. The runtime taps the target's
     hidden states itself, so the ordinary target is used as-is."""
-    from components.vlm.text_gen_prepare import CompatibilityError, validate_eagle3_pair
+    from components.vlm.text_gen_prepare import PreparationError, validate_eagle3_pair
 
     try:
         validate_eagle3_pair(model_dir, draft_dir)
-    except (CompatibilityError, ET.ParseError, OSError) as exc:
+    except (PreparationError, ET.ParseError, OSError) as exc:
         raise _Rejected("artifact", str(exc)) from exc
 
 
