@@ -12,6 +12,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from components.context_bench import benchmark, settings, sizing
 from components.context_bench.sizing import (
@@ -294,6 +295,23 @@ class TestCasePreflight(unittest.TestCase):
         with self.assertRaises(benchmark._Rejected) as caught:
             self._preflight(raw)
         self.assertEqual(caught.exception.category, "artifact")
+
+    def test_an_unreadable_dflash_config_is_an_artifact_rejection_that_says_so(self):
+        draft = _write_ir(self.root / "draft", {**DENSE, "dflash_config": {"target_layer_ids": [1]}})
+        raw = _raw()
+        raw["profiles"][0]["dflash"] = {"model": str(draft), "num_assistant_tokens": 3}
+        denied, real_read_text = draft / "config.json", Path.read_text
+
+        def read_text(path, *args, **kwargs):
+            if path == denied:
+                raise PermissionError(13, "Access is denied", str(path))
+            return real_read_text(path, *args, **kwargs)
+
+        with mock.patch.object(Path, "read_text", read_text), \
+                self.assertRaises(benchmark._Rejected) as caught:
+            self._preflight(raw)
+        self.assertEqual(caught.exception.category, "artifact")
+        self.assertIn("not readable", str(caught.exception))
 
     def _eagle3_draft(self, **config):
         """A VLM Eagle3 drafter IR as the serving recipe exports it."""
