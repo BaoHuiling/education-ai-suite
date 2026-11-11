@@ -1,12 +1,14 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 #
-# Qwen3.5-9B, plain generation only: paged attention versus the stateful pipeline.
+# Qwen3.5-9B INT4: plain paged baseline versus DFlash speculative decoding (k=3/5/7/15).
 #
 #   .\components\context_bench\run_benchmark.ps1 --config components/context_bench/config_qwen3.5_9b.yaml
 #   ... --list-profiles                       # the plan below; loads nothing
-#   ... --weight-format int8                  # the INT8 artifact, same profiles and steps
+#   ... --profiles paged_min dflash_k5 --contexts 8000 --throughput-task math
+#   ... --weight-format int8                  # the INT8 target, same profiles and steps (see below)
 #   ... --contexts 8000 32000                 # long-context; accuracy probes cost ~one prefill each
+#   ... --accuracy
 #   ... --throughput-task classroom_summary --output-tokens 1024       # the app's own request
 #
 # TEST STEPS. Every case below is one child process: load the model, run the warm-up(s), then
@@ -15,17 +17,17 @@
 # CLI filters (--profiles, --contexts, --throughput-task) renumber the steps; --list-profiles
 # prints the exact plan, with its IDs, before anything loads.
 #
-# Throughput run (default): 14 cases, each 1 warm-up + 3 measured generations of up to 512
+# Throughput run (default): 35 cases, each 1 warm-up + 3 measured generations of up to 512
 # tokens (EOS respected), 30 s idle before each measured one.
 #
-#   Context           Task       | paged_min  stateful
-#   none (task only)  code       | c01        c02
-#   none (task only)  math       | c03        c04
-#   none (task only)  chat       | c05        c06
-#   8,000 tokens      code       | c07        c08
-#   8,000 tokens      math       | c09        c10
-#   8,000 tokens      chat       | c11        c12
-#   8,000 tokens      summary_2s | c13        c14
+#   Context           Task       | paged_min  dflash_k3  dflash_k5  dflash_k7  dflash_k15
+#   none (task only)  code       | c01        c02        c03        c04        c05
+#   none (task only)  math       | c06        c07        c08        c09        c10
+#   none (task only)  chat       | c11        c12        c13        c14        c15
+#   8,000 tokens      code       | c16        c17        c18        c19        c20
+#   8,000 tokens      math       | c21        c22        c23        c24        c25
+#   8,000 tokens      chat       | c26        c27        c28        c29        c30
+#   8,000 tokens      summary_2s | c31        c32        c33        c34        c35
 #
 #   Context   none: the task prompt alone; 8,000 tokens: a synthetic classroom transcript,
 #             then the task, 8,000 rendered tokens in total.
@@ -33,29 +35,49 @@
 #             math       six worked physics/arithmetic/algebra problems (GSM8K-like)
 #             chat       eight open-ended assistant requests (MT-Bench-like)
 #             summary_2s two-sentence summary of the transcript (~45 tokens; transcript only)
-#   Profile   paged_min  continuous-batching (paged attention) pipeline, runtime-managed pool
-#             stateful   stateful pipeline: one SDPA prefill, KV cache as model state
+#   Profile   paged_min  no speculation: the matched baseline of every dflash_k* case
+#             dflash_kN  DFlash draft proposes N tokens per verification pass; otherwise
+#                        identical OpenVINO properties and scheduler, so k is the only variable
+# Each (context, task) row gets its own speed table, plus a speculative window sweep (AL, pass
+# cost, speedup per k).
 #
-# Accuracy run (--accuracy): 2 cases replace the throughput cases, one per profile:
+# Accuracy run (--accuracy): 5 cases replace the throughput cases, one per profile at each
+# context with a transcript (context 0 has nowhere to plant a fact):
 #
-#   Context       Task     | paged_min  stateful
-#   8,000 tokens  accuracy | c01        c02
+#   Context       Task     | paged_min  dflash_k3  dflash_k5  dflash_k7  dflash_k15
+#   8,000 tokens  accuracy | c01        c02        c03        c04        c05
 #
 #   accuracy  1 warm-up + 32 probes (`accuracy` below): 28 RULER retrieval probes scored
 #             against planted ground truth, and 4 generation probes (summary, fact_sheet)
 #             scored against paged_min's answer to the identical prompt.
 #
 # Artifacts (prepared by the serving workflow, never downloaded here) are derived from
-# `models_base_path` and the weight format, so --weight-format selects the artifact:
+# `models_base_path` and the weight format, so --weight-format selects the target:
 #   models/openvino/Qwen3.5-9B/int4   (OpenVINO/Qwen3.5-9B-int4-ov)   default
 #   models/openvino/Qwen3.5-9B/int8   (OpenVINO/Qwen3.5-9B-int8-ov)   --weight-format int8
 # Results of both go under output_dir; each report's header names the weights it ran.
+# The DFlash draft comes from the same preparation: start the app once with models.text_gen
+# vlm_name: Qwen/Qwen3.5-9B, weight_format: int4 and speculative mode: auto (method auto or
+# dflash), and it exports
+#   draft   models/openvino/Qwen3.5-9B-DFlash/int4-lmhead
+#           the z-lab/Qwen3.5-9B-DFlash export plus its own int4 lm_head, requantized from the
+#           target's head; the stock export without the head sits beside it in .../int4
+# Without the draft every dflash_k* case ends `missing_ir` at preflight while paged_min runs.
+# The head belongs to the target it was built from: serving builds the INT8 target's copy in
+# .../int4-lmhead-int8, so for --weight-format int8 point the dflash `model` there to measure
+# what serving runs. DFlash also needs the target IR's `hidden_states_decoder_layers` rt_info,
+# which the current export carries; for an older export without it, serving derives
+# models/openvino/Qwen3.5-9B/int4-dflash (same weights, annotated XML).
 #
-# No speculative profile: speculative decoding for this model requires its own qualified
-# profile. Qwen3.5-9B is a hybrid model (linear + full attention): on the paged pipeline every
+# Read ACCEPTANCE LENGTH (AL), not the accepted %: speedup ~= AL / pass cost, and the
+# accepted % ((AL - 1) / k) falls with k by construction. The draft's block_size=16 includes
+# the seed token, so k=15 is the largest valid window. Serving's DFlash profile
+# (text_gen_profiles) runs k=5 on INT4 and k=7 on INT8, where a verification pass costs more.
+#
+# Qwen3.5-9B is a hybrid model (linear + full attention): on the paged pipeline every
 # schedulable sequence reserves a full linear-attention state from the KV pool, so
-# max_num_seqs stays 1. The stateful pipeline has no pool to cap; KV_CACHE_PRECISION is its
-# only lever on cache bytes.
+# max_num_seqs stays 1, and 17 linear-attention rows cover max_num_seqs + k + 1 through k=15;
+# they are kept on the baseline so schedulers match exactly.
 
 model:
   provider: openvino
@@ -113,16 +135,41 @@ accuracy:
     options:
       fact_sheet: {num_facts: 6}
 
+# max_num_batched_tokens is explicit (the SchedulerConfig default of 256 would chunk the
+# prefill); max_num_seqs: 1 keeps one linear-attention reservation per row; prefix caching
+# stays off so repeated prompts never reuse the warm-up's prefix. Every dflash_k* profile
+# shares paged_min's OpenVINO properties and scheduler, so k is the only variable. The draft
+# runs on the target's device (model.device).
 profiles:
   - name: paged_min
-    ov: &ov_qwen35
+    ov: &ov_qwen35_paged
       GPU_ENABLE_LARGE_ALLOCATIONS: "YES"
       KV_CACHE_PRECISION: f16
-    scheduler:
+    scheduler: &scheduler_qwen35
       max_num_batched_tokens: 65536
       max_num_seqs: 1
+      num_linear_attention_blocks: 17
       enable_prefix_caching: false
 
-  # No scheduler: one SDPA prefill over the whole context, KV cache as model state.
-  - name: stateful
-    ov: *ov_qwen35
+  - name: dflash_k3
+    ov: *ov_qwen35_paged
+    scheduler: *scheduler_qwen35
+    dflash:
+      model: &dflash_draft models/openvino/Qwen3.5-9B-DFlash/int4-lmhead
+      num_assistant_tokens: 3
+
+  - name: dflash_k5
+    ov: *ov_qwen35_paged
+    scheduler: *scheduler_qwen35
+    dflash: {model: *dflash_draft, num_assistant_tokens: 5}
+
+  - name: dflash_k7
+    ov: *ov_qwen35_paged
+    scheduler: *scheduler_qwen35
+    dflash: {model: *dflash_draft, num_assistant_tokens: 7}
+
+  - name: dflash_k15
+    ov: *ov_qwen35_paged
+    scheduler: *scheduler_qwen35
+    dflash: {model: *dflash_draft, num_assistant_tokens: 15}
+

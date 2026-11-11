@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
-"""The cross-model evaluation: its plan resolves through the benchmark's own settings, DFlash
-off/on share one invocation, and the Markdown report renders from results.json snapshots.
+"""The cross-model evaluation: its plan resolves through the benchmark's own settings, every
+profile of every config runs, speculative off/on share one invocation, and the Markdown report renders from results.json snapshots.
 Hardware-independent: benchmark invocations are replaced by fixtures."""
 
 import json
@@ -55,6 +55,14 @@ def _write_run(evaluation_dir: Path, model: str, suite: str, snapshot: dict) -> 
 
 
 class TestPlan(unittest.TestCase):
+    # By default every test case of every config runs.
+    EVERY_PROFILE = {
+        "qwen3-vl-8b": ["paged_min"],
+        "qwen3.5-9b": ["paged_min", "dflash_k3", "dflash_k5", "dflash_k7", "dflash_k15"],
+        "qwen3.6-35b-a3b": ["paged_min", "dflash_k3", "dflash_k5", "dflash_k7", "dflash_k15"],
+        "qwen3.8-27b": ["paged_min"],
+    }
+
     def test_every_model_and_suite_is_one_invocation_in_model_order(self):
         planned = evaluate.plan_invocations(evaluate.MODEL_KEYS, evaluate.SUITES)
         self.assertEqual([(i["model"], i["suite"]) for i in planned],
@@ -62,9 +70,7 @@ class TestPlan(unittest.TestCase):
         for invocation in planned:
             args = invocation["args"]
             self.assertEqual(args[args.index("--weight-format") + 1], "int4")
-            expected = (["paged_min", "dflash_k5", "dflash_k7"]
-                        if invocation["model"] == "qwen3.6-35b-a3b" else ["paged_min"])
-            self.assertEqual(invocation["profiles"], expected)
+            self.assertEqual(invocation["profiles"], self.EVERY_PROFILE[invocation["model"]])
 
     def test_every_invocation_resolves_through_the_benchmark_settings(self):
         """The same validation --list-profiles runs: configs, profiles and overrides agree."""
@@ -98,20 +104,34 @@ class TestPlan(unittest.TestCase):
         self.assertEqual(resolved["throughput_tasks"], ("code", "math", "chat", "summary_2s"))
         self.assertEqual(resolved["output_tokens"], 512)
 
-    def test_dflash_off_and_on_run_matched_in_one_invocation(self):
-        invocation = evaluate.plan_invocations(["qwen3.6-35b-a3b"], [evaluate.SUITE_THROUGHPUT],
-                                               windows=[3, 7])[0]
-        profiles = _resolve(invocation)["profiles"]
-        self.assertEqual([p["name"] for p in profiles], ["paged_min", "dflash_k3", "dflash_k7"])
-        self.assertEqual([p["mtp"]["enabled"] for p in profiles], [False, True, True])
-        for profile in profiles[1:]:
-            self.assertEqual((profile["ov"], profile["scheduler"]),
-                             (profiles[0]["ov"], profiles[0]["scheduler"]))
+    def test_speculative_off_and_on_run_matched_in_one_invocation(self):
+        for model, windows, expected, strategy in (
+                ("qwen3.6-35b-a3b", [3, 7], ["paged_min", "dflash_k3", "dflash_k7"], "dflash"),
+                ("qwen3.5-9b", [5, 15], ["paged_min", "dflash_k5", "dflash_k15"], "dflash")):
+            with self.subTest(model=model):
+                invocation = evaluate.plan_invocations([model], [evaluate.SUITE_THROUGHPUT],
+                                                       windows=windows)[0]
+                profiles = _resolve(invocation)["profiles"]
+                self.assertEqual([p["name"] for p in profiles], expected)
+                self.assertEqual([p["mtp"]["strategy"] for p in profiles],
+                                 [None] + [strategy] * len(windows))
+                self.assertEqual([p["mtp"]["num_assistant_tokens"] for p in profiles[1:]], windows)
+                for profile in profiles[1:]:
+                    self.assertEqual((profile["ov"], profile["scheduler"]),
+                                     (profiles[0]["ov"], profiles[0]["scheduler"]))
 
-    def test_an_unshipped_dflash_window_is_an_argument_error(self):
+    def test_a_window_filter_keeps_plain_models_and_shipped_windows_only(self):
+        planned = evaluate.plan_invocations(evaluate.MODEL_KEYS, [evaluate.SUITE_THROUGHPUT],
+                                            windows=[5])
+        self.assertEqual({i["model"]: i["profiles"] for i in planned}, {
+            "qwen3-vl-8b": ["paged_min"], "qwen3.5-9b": ["paged_min", "dflash_k5"],
+            "qwen3.6-35b-a3b": ["paged_min", "dflash_k5"], "qwen3.8-27b": ["paged_min"]})
+
+    def test_an_unshipped_window_is_an_argument_error(self):
         with self.assertRaisesRegex(evaluate.EvaluationError, r"k=\[4\]"):
             evaluate.plan_invocations(["qwen3.6-35b-a3b"], evaluate.SUITES, windows=[4])
-        self.assertEqual(evaluate.main(["--dflash-k", "4", "--list-profiles"]), evaluate.EXIT_CONFIG)
+        self.assertEqual(evaluate.main(["--models", "qwen3.8-27b", "--spec-k", "5",
+                                        "--list-profiles"]), evaluate.EXIT_CONFIG)
 
     def test_device_is_forwarded_only_when_given(self):
         default = evaluate.plan_invocations(["qwen3-vl-8b"], [evaluate.SUITE_CLASSROOM])[0]
@@ -162,7 +182,8 @@ class TestRunAndReport(unittest.TestCase):
         self.assertTrue(manifest["completed"])
         self.assertEqual([r["exit_code"] for r in manifest["runs"]], [0, 0, 1, 0])
         text = (self.root / evaluate.REPORT_NAME).read_text(encoding="utf-8")
-        self.assertIn("## DFlash speculative decoding: off vs on", text)
+        self.assertIn("## Speculative decoding: off vs on", text)
+        self.assertIn("| dFlash | 3 |", text)
         self.assertIn("| 2.00x |", text)  # 40 ms plain / 20 ms DFlash
         self.assertIn("| identical |", text)
         self.assertIn("## Accuracy", text)
@@ -189,7 +210,7 @@ class TestRunAndReport(unittest.TestCase):
             "evaluation_id": "x", "options": {},
             "runs": [{"model": "qwen3.6-35b-a3b", "suite": evaluate.SUITE_THROUGHPUT}]})
         text = (evaluate.write_report(self.root)).read_text(encoding="utf-8")
-        section = text[text.index("## DFlash against the published reference"):]
+        section = text[text.index("## Speculative decoding against the published reference"):]
         self.assertIn("### qwen3.6-35b-a3b, no transcript (task prompt only)", section)
         # k=7 is the measured column (22 / 10 ms), not k=3's 1.83x.
         self.assertIn("| code | HumanEval | 6.40 | 6.00 | 2.20x | 2.20x |", section)

@@ -116,12 +116,12 @@ class TestReservations(unittest.TestCase):
         draft = {"num_hidden_layers": 2, "num_key_value_heads": 4, "head_dim": 128}
         windowed = {**draft, "sliding_window": 4096}
         plain = estimate_cache(DENSE, 0, {}, 32000)["gib"]
-        full = estimate_cache(DENSE, 0, {}, 32000, draft_config=draft, dflash=True)["gib"]
-        capped = estimate_cache(DENSE, 0, {}, 32000, draft_config=windowed, dflash=True)["gib"]
+        full = estimate_cache(DENSE, 0, {}, 32000, draft_config=draft, speculative=True)["gib"]
+        capped = estimate_cache(DENSE, 0, {}, 32000, draft_config=windowed, speculative=True)["gib"]
         per_token = theoretical_kv_bytes_per_token(draft)
         self.assertAlmostEqual(full - plain, per_token * 32000 / GIB, places=6)
         self.assertAlmostEqual(capped - plain, per_token * 4096 / GIB, places=6)
-        self.assertIsNone(estimate_cache(DENSE, 0, {}, 32000, draft_config=None, dflash=True)["gib"])
+        self.assertIsNone(estimate_cache(DENSE, 0, {}, 32000, draft_config=None, speculative=True)["gib"])
 
     def test_draft_sliding_layers_are_counted_and_only_they_are_window_capped(self):
         # The shipped Qwen3.6 DFlash draft: five sliding-window layers and one full layer.
@@ -129,7 +129,7 @@ class TestReservations(unittest.TestCase):
                  "sliding_window": 4096,
                  "layer_types": ["sliding_attention"] * 5 + ["full_attention"]}
         per_layer = 2 * 8 * 128 * 2
-        detail = estimate_cache(DENSE, 0, {}, 8516, draft_config=draft, dflash=True)
+        detail = estimate_cache(DENSE, 0, {}, 8516, draft_config=draft, speculative=True)
         self.assertEqual(detail["speculative_bytes"], per_layer * (8516 + 5 * 4096))
         # Below the window every layer holds every token.
         self.assertEqual(sizing.draft_kv_bytes(draft, 1000), per_layer * 6 * 1000)
@@ -137,7 +137,7 @@ class TestReservations(unittest.TestCase):
                     {**draft, "layer_types": ["linear_attention"] * 5 + ["full_attention"]}):
             with self.subTest(layer_types=bad["layer_types"]):
                 self.assertIsNone(estimate_cache(DENSE, 0, {}, 8516, draft_config=bad,
-                                                 dflash=True)["gib"])
+                                                 speculative=True)["gib"])
 
     def test_expected_kv_keeps_the_reference_shape(self):
         kv = estimate_cache(HYBRID, FIXED, {"KV_CACHE_PRECISION": "f16"}, 160000)["gib"]
@@ -294,6 +294,52 @@ class TestCasePreflight(unittest.TestCase):
         with self.assertRaises(benchmark._Rejected) as caught:
             self._preflight(raw)
         self.assertEqual(caught.exception.category, "artifact")
+
+    def _eagle3_draft(self, **config):
+        """A VLM Eagle3 drafter IR as the serving recipe exports it."""
+        draft = _write_ir(self.root / "eagle3", {
+            "architectures": ["LlamaForCausalLMEagle3"], "target_model_type": "qwen3_vl",
+            "num_hidden_layers": 1, "num_key_value_heads": 8, "head_dim": 128, **config})
+        ports = "".join(
+            f'<layer type="Parameter" name="{name}"><output><port id="0">{"<dim/>" * rank}'
+            f'</port></output></layer>'
+            for name, rank in (("hidden_states", 3), ("inputs_embeds", 3), ("position_ids", 3)))
+        ports += "".join(f'<layer type="Result" name="r{i}" output_names="{name}"/>'
+                         for i, name in enumerate(("logits", "d2t")))
+        (draft / "openvino_model.xml").write_text(
+            f'<net><layers>{ports}</layers><rt_info><eagle3_mode value="True" /></rt_info></net>',
+            encoding="utf-8")
+        return draft
+
+    def _eagle3_raw(self, draft):
+        (self.model_dir / "config.json").write_text(
+            json.dumps({**DENSE, "model_type": "qwen3_vl"}), encoding="utf-8")
+        raw = _raw()
+        raw["profiles"][0]["eagle3"] = {"model": str(draft), "num_assistant_tokens": 4}
+        return raw
+
+    def test_eagle3_uses_the_ordinary_target_and_counts_the_draft_kv(self):
+        from components.vlm.text_gen_prepare import eagle3_ir_interface
+
+        draft = self._eagle3_draft()
+        self.assertEqual(eagle3_ir_interface(draft / "openvino_model.xml")[0]["position_ids"], 3)
+        # No hidden-state rt_info on the target: that is a DFlash requirement only.
+        _, _, prepared = self._preflight(self._eagle3_raw(draft))
+        self.assertEqual(prepared["mtp"]["strategy"], "eagle3")
+        self.assertEqual(prepared["draft_dir"], draft)
+        self.assertGreater(prepared["estimate"]["speculative_bytes"], 0)
+
+    def test_an_eagle3_drafter_for_another_model_is_rejected(self):
+        with self.assertRaises(benchmark._Rejected) as caught:
+            self._preflight(self._eagle3_raw(self._eagle3_draft(target_model_type="llama")))
+        self.assertEqual(caught.exception.category, "artifact")
+        self.assertIn("different model", caught.exception.message)
+
+    def test_a_missing_eagle3_drafter_is_missing_ir(self):
+        with self.assertRaises(benchmark._Rejected) as caught:
+            self._preflight(self._eagle3_raw(self.root / "absent"))
+        self.assertEqual(caught.exception.category, "missing_ir")
+        self.assertIn("eagle3", caught.exception.message)
 
 
 class TestIrReads(unittest.TestCase):
@@ -452,27 +498,40 @@ class TestShippedConfigs(unittest.TestCase):
         cpu = self._load("config_qwen3.6_35b.yaml", "--device", "CPU")
         self.assertEqual(cpu["device"], "CPU")
 
-    def test_qwen38_config_is_one_plain_paged_baseline(self):
-        for label in self.WEIGHTS["config_qwen3.8_27b.yaml"]:
-            with self.subTest(weights=label):
-                resolved = self._load("config_qwen3.8_27b.yaml", "--weight-format", label)
-                self.assertEqual(resolved["weight_format"], label)
-                self.assertEqual([(p["name"], p["pipeline_mode"], p["mtp"]["enabled"])
-                                  for p in resolved["profiles"]],
-                                 [("paged_min", settings.PIPELINE_PAGED, False)])
+    def test_qwen38_and_qwen3_vl_8b_configs_are_one_plain_paged_baseline(self):
+        for name in ("config_qwen3.8_27b.yaml", "config_qwen3_8b.yaml"):
+            for label in self.WEIGHTS[name]:
+                with self.subTest(config=name, weights=label):
+                    resolved = self._load(name, "--weight-format", label)
+                    self.assertEqual(resolved["weight_format"], label)
+                    self.assertEqual([(p["name"], p["pipeline_mode"], p["mtp"]["enabled"])
+                                      for p in resolved["profiles"]],
+                                     [("paged_min", settings.PIPELINE_PAGED, False)])
 
-    def test_qwen35_config_is_plain_only(self):
-        resolved = self._load("config_qwen3.5_9b.yaml")
-        self.assertTrue(all(not p["mtp"]["enabled"] for p in resolved["profiles"]))
-        self.assertEqual([p["pipeline_mode"] for p in resolved["profiles"]],
-                         [settings.PIPELINE_PAGED, settings.PIPELINE_STATEFUL])
+    def test_qwen35_matrix_and_matched_dflash_sweep(self):
+        """paged_min, then one DFlash profile per window, identical otherwise."""
+        profiles = self._load("config_qwen3.5_9b.yaml")["profiles"]
+        baseline = profiles[0]
+        windows = [3, 5, 7, 15]
+        self.assertEqual(baseline["name"], "paged_min")
+        self.assertFalse(baseline["mtp"]["enabled"])
+        self.assertEqual([p["name"] for p in profiles[1:]], [f"dflash_k{k}" for k in windows])
+        self.assertEqual([p["mtp"]["num_assistant_tokens"] for p in profiles[1:]], windows)
+        for profile in profiles:
+            self.assertEqual(profile["pipeline_mode"], settings.PIPELINE_PAGED)
+        for profile in profiles[1:]:
+            self.assertEqual(profile["mtp"]["strategy"], "dflash")
+            self.assertEqual(profile["mtp"]["model"], "models/openvino/Qwen3.5-9B-DFlash/int4-lmhead")
+            self.assertEqual(profile["ov"], baseline["ov"])
+            self.assertEqual(profile["scheduler"], baseline["scheduler"])
+            self.assertGreaterEqual(profile["scheduler"]["num_linear_attention_blocks"],
+                                    1 + profile["mtp"]["num_assistant_tokens"] + 1)
 
-    def test_qwen3_vl_8b_config_is_plain_and_reads_the_vlm_export(self):
+    def test_qwen3_vl_8b_config_reads_the_vlm_export(self):
         resolved = self._load("config_qwen3_8b.yaml")
         self.assertEqual(resolved["models"], ("Qwen3-VL-8B-Instruct",))
-        self.assertTrue(all(not p["mtp"]["enabled"] for p in resolved["profiles"]))
-        self.assertEqual([p["pipeline_mode"] for p in resolved["profiles"]],
-                         [settings.PIPELINE_PAGED, settings.PIPELINE_STATEFUL])
+        # The dense model has no linear-attention rows to reserve.
+        self.assertNotIn("num_linear_attention_blocks", resolved["profiles"][0]["scheduler"])
         # A dense model with its text architecture nested under text_config, as in the export.
         config = {"text_config": {"num_hidden_layers": 36, "num_key_value_heads": 8,
                                   "head_dim": 128}}

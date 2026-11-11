@@ -1,13 +1,15 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 #
-# Qwen3-VL-8B-Instruct (the application's default text_gen model), plain generation only:
-# paged attention versus the stateful pipeline. Text-only: the VLM export is driven through
+# Qwen3-VL-8B-Instruct (the application's default text_gen model) INT4: plain paged baseline
+# versus Eagle3 speculative decoding (k=3/4/5). Text-only: the VLM export is driven through
 # VLMPipeline with text prompts; image handling is not measured.
 #
 #   .\components\context_bench\run_benchmark.ps1 --config components/context_bench/config_qwen3_8b.yaml
 #   ... --list-profiles                       # the plan below; loads nothing
-#   ... --weight-format int8                  # the INT8 artifact, same profiles and steps
+#   ... --profiles paged_min eagle3_k4 --contexts 8000 --throughput-task chat
+#   ... --pipeline-config KV_CACHE_PRECISION=  # serving's Eagle3 KV setting (plugin default), every profile
+#   ... --weight-format int8 --profiles paged_min   # the INT8 artifact (Eagle3 is qualified on INT4)
 #   ... --accuracy
 #   ... --throughput-task classroom_summary --output-tokens 1024       # the app's own request
 #
@@ -17,17 +19,17 @@
 # CLI filters (--profiles, --contexts, --throughput-task) renumber the steps; --list-profiles
 # prints the exact plan, with its IDs, before anything loads.
 #
-# Throughput run (default): 14 cases, each 1 warm-up + 3 measured generations of up to 512
+# Throughput run (default): 28 cases, each 1 warm-up + 3 measured generations of up to 512
 # tokens (EOS respected), 30 s idle before each measured one.
 #
-#   Context           Task       | paged_min  stateful
-#   none (task only)  code       | c01        c02
-#   none (task only)  math       | c03        c04
-#   none (task only)  chat       | c05        c06
-#   8,000 tokens      code       | c07        c08
-#   8,000 tokens      math       | c09        c10
-#   8,000 tokens      chat       | c11        c12
-#   8,000 tokens      summary_2s | c13        c14
+#   Context           Task       | paged_min  eagle3_k3  eagle3_k4  eagle3_k5
+#   none (task only)  code       | c01        c02        c03        c04
+#   none (task only)  math       | c05        c06        c07        c08
+#   none (task only)  chat       | c09        c10        c11        c12
+#   8,000 tokens      code       | c13        c14        c15        c16
+#   8,000 tokens      math       | c17        c18        c19        c20
+#   8,000 tokens      chat       | c21        c22        c23        c24
+#   8,000 tokens      summary_2s | c25        c26        c27        c28
 #
 #   Context   none: the task prompt alone; 8,000 tokens: a synthetic classroom transcript,
 #             then the task, 8,000 rendered tokens in total.
@@ -35,29 +37,48 @@
 #             math       six worked physics/arithmetic/algebra problems (GSM8K-like)
 #             chat       eight open-ended assistant requests (MT-Bench-like)
 #             summary_2s two-sentence summary of the transcript (~45 tokens; transcript only)
-#   Profile   paged_min  continuous-batching (paged attention) pipeline, runtime-managed pool
-#             stateful   stateful pipeline: one SDPA prefill, KV cache as model state; the
-#                        construction serving uses for this model (no scheduler config)
+#   Profile   paged_min  no speculation: the matched baseline of every eagle3_k* case
+#             eagle3_kN  Eagle3 draft proposes N tokens per verification pass; otherwise
+#                        identical OpenVINO properties and scheduler, so k is the only variable
+# Each (context, task) row gets its own speed table, plus a speculative window sweep (AL, pass
+# cost, speedup per k).
 #
-# Accuracy run (--accuracy): 2 cases replace the throughput cases, one per profile:
+# Accuracy run (--accuracy): 4 cases replace the throughput cases, one per profile at each
+# context with a transcript (context 0 has nowhere to plant a fact):
 #
-#   Context       Task     | paged_min  stateful
-#   8,000 tokens  accuracy | c01        c02
+#   Context       Task     | paged_min  eagle3_k3  eagle3_k4  eagle3_k5
+#   8,000 tokens  accuracy | c01        c02        c03        c04
 #
 #   accuracy  1 warm-up + 32 probes (`accuracy` below): 28 RULER retrieval probes scored
 #             against planted ground truth, and 4 generation probes (summary, fact_sheet)
 #             scored against paged_min's answer to the identical prompt.
 #
 # Artifacts (prepared by the serving workflow, never downloaded here) are derived from
-# `models_base_path` and the weight format, so --weight-format selects the artifact:
+# `models_base_path` and the weight format, so --weight-format selects the target:
 #   models/openvino/Qwen3-VL-8B-Instruct/int4   (OpenVINO/Qwen3-VL-8B-Instruct-int4-ov)   default
 #   models/openvino/Qwen3-VL-8B-Instruct/int8   (OpenVINO/Qwen3-VL-8B-Instruct-int8-ov)   --weight-format int8
 # Results of both go under output_dir; each report's header names the weights it ran.
+# The Eagle3 draft comes from the same preparation: start the app once with models.text_gen
+# vlm_name: Qwen/Qwen3-VL-8B-Instruct, weight_format: int4, app.language: en and speculative
+# mode: auto (method auto or eagle3), and it exports
+#   draft   models/openvino/Qwen3-VL-8B-Instruct-eagle3/int4
+#           AQ-MedAI/Qwen3-VL-8B-Instruct-eagle3 (one Llama layer reading three target hidden
+#           states, 32k draft vocabulary) as a VLM Eagle3 IR, int4
+# Without the draft every eagle3_k* case ends `missing_ir` at preflight while paged_min runs.
+# Eagle3 uses the ordinary target as-is (the runtime taps its hidden states); preflight applies
+# serving's pair check (architecture, target model type, hidden size, vocabulary, the drafter's
+# inputs_embeds/3D position_ids interface and its eagle3_mode marker). Eagle3 needs
+# openvino-genai >= 2026.4 for a VLM target.
 #
-# No speculative profile: speculative decoding for this model requires its own qualified
-# profile. Qwen3-VL-8B is a dense full-attention model (36 layers, 8 KV heads), so the KV
-# estimate needs no linear-attention state and the Instruct chat template has no thinking
-# mode to disable.
+# Serving's Eagle3 profile (text_gen_profiles) runs k=4 within 1..8, qualified for English only
+# (its drafter predicts English; Chinese output accepts ~1.2 tokens per pass), with the plugin's
+# default KV precision -- f16 decoded 6.5K-token classroom prompts 10-25% slower -- and
+# GPU_QUEUE_PRIORITY MEDIUM, the plugin default this benchmark runs at. Every prompt here is
+# English. KV_CACHE_PRECISION stays f16 on all four profiles so the sweep matches the other
+# configs; --pipeline-config KV_CACHE_PRECISION= drops it from every profile at once.
+#
+# Qwen3-VL-8B is a dense full-attention model (36 layers, 8 KV heads), so the KV estimate needs
+# no linear-attention state and the Instruct chat template has no thinking mode to disable.
 
 model:
   provider: openvino
@@ -115,16 +136,16 @@ accuracy:
     options:
       fact_sheet: {num_facts: 6}
 
+# max_num_batched_tokens is explicit (the SchedulerConfig default of 256 would chunk the
+# prefill); prefix caching stays off so repeated prompts never reuse the warm-up's prefix.
+# Every eagle3_k* profile shares paged_min's OpenVINO properties and scheduler, so k is the
+# only variable. The draft runs on the target's device (model.device).
 profiles:
   - name: paged_min
     ov: &ov_qwen3_8b
       GPU_ENABLE_LARGE_ALLOCATIONS: "YES"
       KV_CACHE_PRECISION: f16
-    scheduler:
+    scheduler: &scheduler_qwen3_8b
       max_num_batched_tokens: 65536
       max_num_seqs: 1
       enable_prefix_caching: false
-
-  # No scheduler: one SDPA prefill over the whole context, KV cache as model state.
-  - name: stateful
-    ov: *ov_qwen3_8b

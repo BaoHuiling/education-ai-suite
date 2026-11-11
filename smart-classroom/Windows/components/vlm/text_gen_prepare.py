@@ -352,6 +352,12 @@ def _prepare_external_draft(plan: TextGenPlan) -> tuple:
                 "local drafters are validated, never downloaded"
             )
         _require_files(draft_dir, _DRAFT_IR_FILES, "local drafter IR")
+        unreadable = _unreadable_files(draft_dir, _DRAFT_IR_FILES)
+        if unreadable:
+            raise PreparationError(
+                f"local drafter IR {settings.describe()} is not readable by this user "
+                f"({', '.join(unreadable)}); grant read access to its files"
+            )
         return draft_dir, None
 
     repo = settings.draft_model
@@ -373,9 +379,11 @@ def _prepare_external_draft(plan: TextGenPlan) -> tuple:
 
 
 def _ready_revision(draft_dir: Path, pinned: Optional[str]) -> Optional[str]:
-    """Revision of a complete drafter export matching ``pinned`` (any if None)."""
+    """Revision of a complete, readable drafter export matching ``pinned`` (any if None)."""
     if not all((draft_dir / f).is_file() for f in _DRAFT_IR_FILES):
         return None
+    if _unreadable_files(draft_dir, _DRAFT_IR_FILES):
+        return None  # re-exported; _export_draft sets the unreadable one aside
     revision = _read_json(draft_dir / ".prepared.json").get("revision")
     return revision if revision and pinned in (None, revision) else None
 
@@ -435,6 +443,7 @@ def _export_draft(source_dir: Path, draft_dir: Path, settings: SpeculativeSettin
             f"drafter export of {repo} failed (exit {completed.returncode}); it needs "
             f"{needs} (pip install -r requirements.txt)"
         )
+    _inherit_parent_permissions(staging)
     source_cfg = _read_json(source_dir / "config.json")
     exported_cfg = _read_json(staging / "config.json")
     if "dflash_config" in source_cfg and "dflash_config" not in exported_cfg:
@@ -451,8 +460,50 @@ def _export_draft(source_dir: Path, draft_dir: Path, settings: SpeculativeSettin
         "files": _file_sizes(staging),
     })
     if draft_dir.exists():
-        _set_aside(draft_dir, "superseded")
+        unreadable = _unreadable_files(draft_dir, _DRAFT_IR_FILES)
+        if unreadable:
+            logger.warning(
+                "Drafter export %s is not readable by this user (%s), typically because it "
+                "was exported from an elevated session; replacing it",
+                _rel(draft_dir), ", ".join(unreadable))
+        _set_aside(draft_dir, "unreadable" if unreadable else "superseded")
     staging.replace(draft_dir)
+
+
+def _inherit_parent_permissions(directory: Path) -> None:
+    """Rewrite each exported file as a new one, so it takes the folder's permissions.
+
+    optimum exports a quantized model to a ``tempfile.mkdtemp()`` directory and
+    moves the files out; a same-volume move keeps the private ACL Python gives
+    that directory on Windows (SYSTEM, Administrators, owner). Exported from an
+    elevated session the owner is the Administrators group, so a later
+    non-elevated start could not read the drafter. A file created here inherits
+    the models directory's permissions instead: plain file I/O as the current
+    user, no ACL is edited. Peak extra disk is one file.
+    """
+    if os.name != "nt":
+        return
+    for path in sorted(p for p in directory.rglob("*") if p.is_file()):
+        fresh = path.with_name(path.name + ".inherit")
+        try:
+            shutil.copyfile(path, fresh)
+            os.replace(fresh, path)
+        finally:
+            fresh.unlink(missing_ok=True)
+
+
+def _unreadable_files(directory: Path, names) -> list:
+    """Names in ``directory`` that exist but this process may not open for reading."""
+    blocked = []
+    for name in names:
+        try:
+            with open(directory / name, "rb"):
+                pass
+        except FileNotFoundError:
+            continue
+        except PermissionError:
+            blocked.append(name)
+    return blocked
 
 
 def _eagle3_overlay() -> Path:

@@ -280,8 +280,8 @@ def _load_pipeline(model_dir: str, device: str, ov_config: dict,
 
     Returns ``(pipeline, accepts_tokenized_input)``. An empty `scheduler_config` selects
     the stateful pipeline and no SchedulerConfig is instantiated; any key selects paged
-    attention. A plain profile passes no draft; DFlash passes its external draft directory
-    to ``ov_genai.draft_model``.
+    attention. A plain profile passes no draft; DFlash and Eagle3 pass their external draft
+    directory to ``ov_genai.draft_model``.
     """
     import openvino_genai as ov_genai
 
@@ -327,7 +327,7 @@ def prepare_pipeline_input(pipe, prompt: str, accepts_tokenized_input: bool):
 
 
 def generation_config(output_tokens: int, mtp: dict | None = None):
-    """A fresh greedy request for one generate call (plain or DFlash).
+    """A fresh greedy request for one generate call (plain or speculative).
 
     Fresh per call: the model's generation_config.json may enable sampling, and reusing a
     pipeline-owned config risks retaining fields from an earlier request. The pipeline's own

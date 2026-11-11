@@ -237,7 +237,8 @@ def test_target_download_is_retried_but_a_local_export_is_not(tmp_path, monkeypa
     assert len(attempts) == 1
 
 
-def test_successful_export_sets_the_previous_drafter_aside(tmp_path, monkeypatch):
+def _fake_export(monkeypatch):
+    """subprocess.run writing a minimal export; returns the dirs whose ACLs were reset."""
     def run(cmd, env=None, check=False):
         staging = Path(cmd[-1])
         staging.mkdir(parents=True)
@@ -245,17 +246,90 @@ def test_successful_export_sets_the_previous_drafter_aside(tmp_path, monkeypatch
             (staging / name).write_text("{}", encoding="utf-8")
         return SimpleNamespace(returncode=0)
 
+    reset = []
     monkeypatch.setattr(prep.subprocess, "run", run)
-    settings = resolve_plan(SimpleNamespace(
+    monkeypatch.setattr(prep, "_inherit_parent_permissions", reset.append)
+    return reset
+
+
+def _dflash_settings():
+    return resolve_plan(SimpleNamespace(
         vlm_name="Qwen/Qwen3.6-35B-A3B", weight_format="int4", device="GPU",
         speculative={"mode": "auto"})).speculative
+
+
+def test_successful_export_sets_the_previous_drafter_aside(tmp_path, monkeypatch):
+    reset = _fake_export(monkeypatch)
     source = _write_draft(tmp_path / "src")
     draft_dir = _write_draft(tmp_path / "int4", prepared=COMMIT)
-    prep._export_draft(source, draft_dir, settings, "z-lab/x", OTHER)
+    prep._export_draft(source, draft_dir, _dflash_settings(), "z-lab/x", OTHER)
     assert json.loads((draft_dir / ".prepared.json").read_text())["revision"] == OTHER
     assert "dflash_config" in json.loads((draft_dir / "config.json").read_text())
+    # The exporter's private temp-dir ACL is replaced by the inherited one.
+    assert reset == [tmp_path / "int4.partial"]
     # The superseded drafter is moved aside, not deleted (rollback).
     assert any(p.name.startswith("int4.superseded-") for p in tmp_path.iterdir())
+
+
+def test_an_unreadable_drafter_is_set_aside_as_such(tmp_path, monkeypatch):
+    _fake_export(monkeypatch)
+    source = _write_draft(tmp_path / "src")
+    draft_dir = _write_draft(tmp_path / "int4", prepared=COMMIT)
+    monkeypatch.setattr(prep, "_unreadable_files",
+                        lambda d, names: ["config.json"] if d == draft_dir else [])
+    prep._export_draft(source, draft_dir, _dflash_settings(), "z-lab/x", COMMIT)
+    assert any(p.name.startswith("int4.unreadable-") for p in tmp_path.iterdir())
+
+
+def test_an_unreadable_drafter_export_is_rebuilt(env, monkeypatch):
+    """Exported from an elevated session, the IR exists but a normal start cannot read it."""
+    plan = _plan(env, name="Qwen/Qwen3.5-9B", rt_info=prep.DFLASH_TARGET_RT_INFO_KEY,
+                 mode="on", method="dflash")
+    pin = plan.speculative.draft_revision
+    draft_dir = _write_draft(plan.speculative.draft_dir(), prepared=pin)
+    blocked = {draft_dir}
+    monkeypatch.setattr(prep, "_unreadable_files",
+                        lambda d, names: ["config.json"] if d in blocked else [])
+
+    def export(source_dir, out, settings, repo, revision):
+        env.exports.append((repo, revision))
+        blocked.discard(out)
+        _write_draft(out, prepared=revision)
+
+    monkeypatch.setattr(prep, "_export_draft", export)
+    result = prep.prepare(plan, genai_version=GENAI)
+    assert env.exports == [("z-lab/Qwen3.5-9B-DFlash", pin)]
+    assert result.speculative.draft_dir.name.startswith("int4")
+
+
+def test_unreadable_files_skips_missing_and_reports_denied(tmp_path, monkeypatch):
+    draft = _write_draft(tmp_path / "d")
+    assert prep._unreadable_files(draft, ("config.json", "absent.json")) == []
+    real_open = open
+
+    def denying_open(path, *args, **kwargs):
+        if Path(path).name == "config.json":
+            raise PermissionError(13, "Access is denied")
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr("builtins.open", denying_open)
+    assert prep._unreadable_files(draft, prep._DRAFT_IR_FILES) == ["config.json"]
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows ACLs")
+def test_exported_files_are_rewritten_as_new_files(tmp_path):
+    """A new file inherits the folder's permissions; content stays byte-identical."""
+    (tmp_path / "sub").mkdir()
+    files = {tmp_path / "openvino_model.bin": bytes(range(256)) * 64,
+             tmp_path / "sub" / "config.json": b"{}"}
+    for path, data in files.items():
+        path.write_bytes(data)
+    before = {path: path.stat().st_ino for path in files}
+    prep._inherit_parent_permissions(tmp_path)
+    for path, data in files.items():
+        assert path.read_bytes() == data
+        assert path.stat().st_ino != before[path]
+    assert not list(tmp_path.rglob("*.inherit"))
 
 
 def test_drafter_export_command_runs_no_repository_code(tmp_path, monkeypatch):
@@ -328,6 +402,14 @@ def test_local_drafter_is_validated_never_downloaded(env, tmp_path):
     plan = _plan(env, mode="on", draft_source="local", draft_model=str(local))
     result = prep.prepare(plan, genai_version=GENAI)
     assert result.speculative.draft_dir == local and env.downloads == []
+
+
+def test_an_unreadable_local_drafter_is_a_clear_error(env, tmp_path, monkeypatch):
+    local = _write_draft(tmp_path / "my-draft")
+    monkeypatch.setattr(prep, "_unreadable_files", lambda d, names: ["config.json"])
+    plan = _plan(env, mode="on", draft_source="local", draft_model=str(local))
+    with pytest.raises(prep.PreparationError, match="not readable by this user"):
+        prep.prepare(plan, genai_version=GENAI)
 
 
 # --- Eagle3 ----------------------------------------------------------------------

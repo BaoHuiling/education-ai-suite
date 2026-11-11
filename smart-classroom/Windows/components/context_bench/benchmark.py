@@ -5,8 +5,8 @@
 Answers, per (model, precision, device, context, task, profile):
 
   * can this machine process the context within the configured memory budgets, and
-  * which runtime profile -- KV precision, stateful vs paged pipeline, scheduler, DFlash
-    speculative decoding and its window -- gives the best measured latency;
+  * which runtime profile -- KV precision, stateful vs paged pipeline, scheduler, DFlash or
+    Eagle3 speculative decoding and its window -- gives the best measured latency;
 
 and, with ``--accuracy``, how a profile affects synthetic retrieval accuracy and generation
 fidelity relative to a baseline profile. It never loads the classroom application, starts
@@ -41,6 +41,7 @@ import platform
 import subprocess
 import sys
 import traceback
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from components.context_bench import accuracy, evidence, metrics, report, scoring, trial_runner
@@ -213,6 +214,53 @@ def _token_budget(planned: dict, settings, mtp: dict) -> int | None:
     return tokens
 
 
+# Where the serving preparation writes each strategy's drafter IR.
+_DRAFT_LOCATIONS = {
+    "dflash": "models/openvino/<name>-DFlash/<weight_format>, its own-head copy beside it "
+              "in <weight_format>-lmhead",
+    "eagle3": "models/openvino/<drafter repo name>/int4, e.g. Qwen3-VL-8B-Instruct-eagle3",
+}
+
+
+def _preflight_dflash(model_dir: Path, draft_dir: Path, tokens: int) -> None:
+    """The serving preparation's DFlash pair check plus the window and target metadata."""
+    # Layer ids, target depth and vocabulary. k=1 never trips its block-size check, which is
+    # applied below as `unsupported`.
+    from components.vlm.text_gen_prepare import CompatibilityError, validate_dflash_pair
+
+    try:
+        validate_dflash_pair(model_dir, draft_dir, 1)
+    except CompatibilityError as exc:
+        raise _Rejected("artifact", str(exc)) from exc
+    block_size = trial_runner.dflash_block_size(draft_dir)
+    if block_size and tokens > block_size - 1:
+        raise _Rejected("unsupported", (
+            f"num_assistant_tokens={tokens} exceeds the draft's block_size {block_size} minus "
+            f"the seed token (max {block_size - 1})"
+        ))
+    target_xml = trial_runner.language_model_ir(str(model_dir))
+    has_metadata = trial_runner.has_model_rt_info(target_xml, trial_runner.DFLASH_TARGET_RT_INFO_KEY)
+    if has_metadata is False:  # None: unreadable XML, left to the runtime to judge
+        hint = trial_runner.DFLASH_METADATA_HINT
+        derived = model_dir.with_name(model_dir.name + "-dflash")
+        if derived.is_dir():
+            hint += (f" A derived target already exists at "
+                     f"{evidence.PathRedactor(SC_ROOT).redact(derived)}.")
+        raise _Rejected("missing_ir", hint)
+
+
+def _preflight_eagle3(model_dir: Path, draft_dir: Path) -> None:
+    """The serving preparation's Eagle3 pair check: architecture, target model type, hidden
+    size and vocabulary, and the VLM drafter IR interface. The runtime taps the target's
+    hidden states itself, so the ordinary target is used as-is."""
+    from components.vlm.text_gen_prepare import CompatibilityError, validate_eagle3_pair
+
+    try:
+        validate_eagle3_pair(model_dir, draft_dir)
+    except (CompatibilityError, ET.ParseError, OSError) as exc:
+        raise _Rejected("artifact", str(exc)) from exc
+
+
 def _preflight_case(planned: dict, settings, static: dict) -> dict:
     """Artifact, speculative and cache checks for one case; raises `_Rejected`."""
     profile = planned["profile"]
@@ -229,33 +277,14 @@ def _preflight_case(planned: dict, settings, static: dict) -> dict:
         missing = check_draft_layout(draft_dir)
         if missing:
             raise _Rejected("missing_ir", (
-                f"DFlash draft IR is incomplete (missing {', '.join(missing)}); the serving "
-                "workflow exports it to models/openvino/<name>-DFlash/<weight_format>"
+                f"{mtp['strategy']} draft IR is incomplete (missing {', '.join(missing)}); the "
+                f"serving workflow exports it ({_DRAFT_LOCATIONS[mtp['strategy']]})"
             ))
-        # The serving preparation's pair check: layer ids, target depth and vocabulary. k=1
-        # never trips its block-size check, which is applied below as `unsupported`.
-        from components.vlm.text_gen_prepare import CompatibilityError, validate_dflash_pair
-
-        try:
-            validate_dflash_pair(model_dir, draft_dir, 1)
-        except CompatibilityError as exc:
-            raise _Rejected("artifact", str(exc)) from exc
+        if mtp["strategy"] == "eagle3":
+            _preflight_eagle3(model_dir, draft_dir)
+        else:
+            _preflight_dflash(model_dir, draft_dir, mtp["num_assistant_tokens"])
         draft_config = load_model_config(draft_dir)
-        block_size = trial_runner.dflash_block_size(draft_dir)
-        if block_size and mtp["num_assistant_tokens"] > block_size - 1:
-            raise _Rejected("unsupported", (
-                f"num_assistant_tokens={mtp['num_assistant_tokens']} exceeds the draft's "
-                f"block_size {block_size} minus the seed token (max {block_size - 1})"
-            ))
-        target_xml = trial_runner.language_model_ir(str(model_dir))
-        has_metadata = trial_runner.has_model_rt_info(target_xml, trial_runner.DFLASH_TARGET_RT_INFO_KEY)
-        if has_metadata is False:  # None: unreadable XML, left to the runtime to judge
-            hint = trial_runner.DFLASH_METADATA_HINT
-            derived = model_dir.with_name(model_dir.name + "-dflash")
-            if derived.is_dir():
-                hint += (f" A derived target already exists at "
-                         f"{evidence.PathRedactor(SC_ROOT).redact(derived)}.")
-            raise _Rejected("missing_ir", hint)
         prepared["draft_weight_precision"] = ir_weight_precision(draft_dir, ("openvino_model.xml",))
         prepared["draft_weight_gb"] = weight_disk_gb(draft_dir)
 
@@ -267,7 +296,7 @@ def _preflight_case(planned: dict, settings, static: dict) -> dict:
     estimate = estimate_cache(
         static["model_config"], static["fixed_state_bytes"], ov,
         _token_budget(planned, settings, mtp), state_rows=state_rows(scheduler),
-        draft_config=draft_config, dflash=bool(mtp.get("enabled")),
+        draft_config=draft_config, speculative=bool(mtp.get("enabled")),
     )
     prepared.update({"estimate": estimate, "ceiling_gb": None})
     if pool == POOL_FIXED:
@@ -289,7 +318,7 @@ def _preflight_case(planned: dict, settings, static: dict) -> dict:
             ))
         if mtp.get("enabled"):
             raise _Rejected("cache_unknown", (
-                "cache_size: auto has no qualified pool factor for dflash; set "
+                f"cache_size: auto has no qualified pool factor for {mtp['strategy']}; set "
                 "an explicit cache_size or omit it for a runtime-managed pool"
             ))
         sized = auto_cache_size_gb(estimate["gib"], static["weight_disk_gb"] + prepared["draft_weight_gb"],

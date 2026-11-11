@@ -494,9 +494,13 @@ def format_iteration(record: dict) -> str:
     ) + format_mtp(record)
 
 
+_STRATEGY_LABELS = {"dflash": "dFlash", "eagle3": "Eagle3"}
+
+
 def strategy_label(record: dict) -> str:
-    """Display name of a record's speculative-decoding strategy (DFlash is the only one)."""
-    return "dFlash"
+    """Display name of a record's speculative-decoding strategy."""
+    strategy = record.get("speculative_strategy")
+    return _STRATEGY_LABELS.get(strategy, str(strategy or "speculative"))
 
 
 def format_mtp(record: dict) -> str:

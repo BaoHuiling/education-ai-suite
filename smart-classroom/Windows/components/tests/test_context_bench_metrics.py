@@ -533,6 +533,15 @@ class TestSettingsValidation(unittest.TestCase):
             (lambda p: p.update(dflash={"num_assistant_tokens": 7}), "dflash.model"),
             (lambda p: (p.update(dflash={"model": "d", "num_assistant_tokens": 7}),
                         p["scheduler"].update(num_linear_attention_blocks=8)), "num_linear_attention_blocks=8"),
+            # Eagle3 shares the section schema; a profile speculates with one strategy only.
+            (lambda p: p.update(eagle3={"model": "d", "num_assistant_tokens": 0}), "eagle3.num_assistant_tokens"),
+            (lambda p: p.update(eagle3=["d"]), "eagle3 must be a mapping"),
+            (lambda p: p.update(eagle3={"num_assistant_tokens": 4}), "eagle3.model"),
+            (lambda p: (p.update(eagle3={"model": "d", "num_assistant_tokens": 4}), p.pop("scheduler")),
+             "enables eagle3 on the stateful pipeline"),
+            (lambda p: p.update(dflash={"model": "d", "num_assistant_tokens": 3},
+                                eagle3={"model": "e", "num_assistant_tokens": 3}),
+             "at most one strategy"),
         ]
         for mutate, message in cases:
             raw = _raw()
@@ -548,6 +557,16 @@ class TestSettingsValidation(unittest.TestCase):
         self.assertEqual(dflash["mtp"], {"enabled": True, "strategy": "dflash", "model": "models/d",
                                          "num_assistant_tokens": 7})
         self.assertEqual(disabled["mtp"], dict(settings.SPECULATIVE_OFF))
+
+    def test_eagle3_section_resolves_to_its_own_strategy(self):
+        raw = _raw()
+        raw["profiles"][1].pop("dflash", None)
+        raw["profiles"][1]["eagle3"] = {"model": "models/e", "num_assistant_tokens": 4}
+        _, eagle3 = self._load(raw)["profiles"]
+        self.assertEqual(eagle3["mtp"], {"enabled": True, "strategy": "eagle3", "model": "models/e",
+                                         "num_assistant_tokens": 4})
+        self.assertEqual(metrics.strategy_label({"speculative_strategy": "eagle3"}), "Eagle3")
+        self.assertEqual(metrics.strategy_label({"speculative_strategy": "dflash"}), "dFlash")
 
     def test_profile_filter_and_empty_matrix(self):
         with self.assertRaisesRegex(settings.ConfigError, "unknown profile"):
