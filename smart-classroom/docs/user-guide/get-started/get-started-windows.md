@@ -157,7 +157,7 @@ Use the start script for subsequent runs, or after modifying `config.yaml`:
 
 - `-Electron` - Shortcut for `.\start-desktop-app.ps1`; see [Desktop App](#desktop-app)
 - `-Silent` - Unattended mode for CI/Ansible (skips all prompts, auto-restarts services)
-- `-NoElevate` - Skip administrator privilege elevation (use when already running as administrator)
+- `-NoElevate` - Never show a UAC prompt. The services always run as the current user; only enabling Windows long paths needs administrator privileges, and the script requests them for that change alone (never in `-Silent` mode)
 - `-NoWindowsTerminal` - Use Invoke-WmiMethod instead of Windows Terminal (for remote sessions/Ansible)
 
 ```powershell

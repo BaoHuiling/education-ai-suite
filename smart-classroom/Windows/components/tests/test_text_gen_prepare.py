@@ -8,8 +8,11 @@ IR files are tiny synthetic XML so derivation runs for real.
 """
 
 import dataclasses
+import importlib.util
 import json
 import os
+import subprocess
+import sys
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -238,7 +241,7 @@ def test_target_download_is_retried_but_a_local_export_is_not(tmp_path, monkeypa
 
 
 def _fake_export(monkeypatch):
-    """subprocess.run writing a minimal export; returns the dirs whose ACLs were reset."""
+    """subprocess.run writing a minimal export."""
     def run(cmd, env=None, check=False):
         staging = Path(cmd[-1])
         staging.mkdir(parents=True)
@@ -246,10 +249,7 @@ def _fake_export(monkeypatch):
             (staging / name).write_text("{}", encoding="utf-8")
         return SimpleNamespace(returncode=0)
 
-    reset = []
     monkeypatch.setattr(prep.subprocess, "run", run)
-    monkeypatch.setattr(prep, "_inherit_parent_permissions", reset.append)
-    return reset
 
 
 def _dflash_settings():
@@ -259,14 +259,17 @@ def _dflash_settings():
 
 
 def test_successful_export_sets_the_previous_drafter_aside(tmp_path, monkeypatch):
-    reset = _fake_export(monkeypatch)
+    _fake_export(monkeypatch)
     source = _write_draft(tmp_path / "src")
     draft_dir = _write_draft(tmp_path / "int4", prepared=COMMIT)
+    interrupted = tmp_path / f"int4.partial{prep._EXPORT_TMP_SUFFIX}0123abcd"
+    interrupted.mkdir()
+    (interrupted / "openvino_model.bin").write_bytes(b"x")
     prep._export_draft(source, draft_dir, _dflash_settings(), "z-lab/x", OTHER)
     assert json.loads((draft_dir / ".prepared.json").read_text())["revision"] == OTHER
     assert "dflash_config" in json.loads((draft_dir / "config.json").read_text())
-    # The exporter's private temp-dir ACL is replaced by the inherited one.
-    assert reset == [tmp_path / "int4.partial"]
+    # An interrupted export's temp dir beside the output is cleared.
+    assert not interrupted.exists()
     # The superseded drafter is moved aside, not deleted (rollback).
     assert any(p.name.startswith("int4.superseded-") for p in tmp_path.iterdir())
 
@@ -316,20 +319,119 @@ def test_unreadable_files_skips_missing_and_reports_denied(tmp_path, monkeypatch
     assert prep._unreadable_files(draft, prep._DRAFT_IR_FILES) == ["config.json"]
 
 
-@pytest.mark.skipif(os.name != "nt", reason="Windows ACLs")
-def test_exported_files_are_rewritten_as_new_files(tmp_path):
-    """A new file inherits the folder's permissions; content stays byte-identical."""
-    (tmp_path / "sub").mkdir()
-    files = {tmp_path / "openvino_model.bin": bytes(range(256)) * 64,
-             tmp_path / "sub" / "config.json": b"{}"}
-    for path, data in files.items():
-        path.write_bytes(data)
-    before = {path: path.stat().st_ino for path in files}
-    prep._inherit_parent_permissions(tmp_path)
-    for path, data in files.items():
-        assert path.read_bytes() == data
-        assert path.stat().st_ino != before[path]
-    assert not list(tmp_path.rglob("*.inherit"))
+def _deny_reading(monkeypatch, denied: Path):
+    real_read_text = Path.read_text
+
+    def read_text(self, *args, **kwargs):
+        if self == denied:
+            raise PermissionError(13, "Access is denied", str(self))
+        return real_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+
+
+def test_read_json_takes_missing_or_malformed_as_empty_but_not_unreadable(tmp_path, monkeypatch):
+    assert prep._read_json(tmp_path / "absent.json") == {}
+    (tmp_path / "list.json").write_text("[1]", encoding="utf-8")
+    (tmp_path / "bad.json").write_text("{", encoding="utf-8")
+    assert prep._read_json(tmp_path / "list.json") == prep._read_json(tmp_path / "bad.json") == {}
+    denied = tmp_path / "config.json"
+    denied.write_text('{"dflash_config": {}}', encoding="utf-8")
+    _deny_reading(monkeypatch, denied)
+    with pytest.raises(prep.PreparationError, match="config.json is not readable") as caught:
+        prep._read_json(denied)
+    assert not isinstance(caught.value, prep.CompatibilityError)
+    assert str(tmp_path) not in str(caught.value)  # root-relative, never a user's path
+    assert prep._read_json(denied, lenient=True) == {}
+
+
+def test_an_unreadable_drafter_config_is_not_reported_as_an_incompatible_drafter(env, monkeypatch):
+    """Read as {}, it once failed even `auto` with "must declare target_layer_ids"."""
+    def plan(mode):
+        return _plan(env, name="Qwen/Qwen3.5-9B", rt_info=prep.DFLASH_TARGET_RT_INFO_KEY,
+                     mode=mode, method="dflash")
+
+    pin = plan("auto").speculative.draft_revision
+    draft_dir = _write_draft(plan("auto").speculative.draft_dir(), prepared=pin)
+    _deny_reading(monkeypatch, draft_dir / "config.json")
+    result = prep.prepare(plan("auto"), genai_version=GENAI)
+    assert result.speculative is None
+    assert "config.json is not readable by this user" in result.speculative_error
+    with pytest.raises(prep.PreparationError, match="not readable") as caught:
+        prep.prepare(plan("on"), genai_version=GENAI)
+    assert not isinstance(caught.value, prep.CompatibilityError)
+
+
+def test_both_export_scripts_patch_the_temp_dir_before_optimum_runs():
+    for script in (prep._DFLASH_EXPORT, prep._EAGLE3_EXPORT):
+        assert prep._EXPORT_TMP_PATCH in script
+        assert (script.index(prep._EXPORT_TMP_PATCH)
+                < script.index("from optimum.commands.optimum_cli import main"))
+
+
+# optimum-intel's TemporaryDirectory as of 2.2.0: it calls the module-level mkdtemp.
+_OPTIMUM_UTILS_STUB = """\
+from tempfile import TemporaryDirectory as OrigTemporaryDirectory
+from tempfile import mkdtemp
+class TemporaryDirectory(OrigTemporaryDirectory):
+    def __init__(self, suffix=None, prefix=None, dir=None):
+        self.name = mkdtemp(suffix, prefix, dir)
+    def cleanup(self):
+        import shutil
+        shutil.rmtree(self.name)
+"""
+_USERS_SID = "S-1-5-32-545"
+
+
+def test_the_export_temp_dir_sits_beside_the_output_and_inherits_its_permissions(tmp_path):
+    """optimum moves each exported file out of its temp dir; the move keeps the dir's ACL."""
+    stub = tmp_path / "stub" / "optimum" / "intel" / "openvino"
+    stub.mkdir(parents=True)
+    for package in (stub.parents[1], stub.parent, stub):
+        (package / "__init__.py").write_text("", encoding="utf-8")
+    (stub / "utils.py").write_text(_OPTIMUM_UTILS_STUB, encoding="utf-8")
+    models = tmp_path / "models"
+    models.mkdir()
+    if os.name == "nt":
+        # pytest's own temp root is created with mode 0o700, so the whole tree
+        # already carries mkdtemp's private ACL. An inheritable grant on the models
+        # dir (BUILTIN\Users, by SID) is what only an inherited ACL can carry.
+        subprocess.run(["icacls", str(models), "/grant", f"*{_USERS_SID}:(OI)(CI)(RX)"],
+                       capture_output=True, check=True)
+    out = models / "int4.partial"
+    out.mkdir()
+    script =(f"import sys\nsys.path.insert(0, {str(tmp_path / 'stub')!r})\n"
+              + prep._EXPORT_TMP_PATCH
+              + "tmp = _ov_utils.TemporaryDirectory()\n"
+              "print(tmp.name)\n"
+              "open(os.path.join(tmp.name, 'config.json'), 'w').close()\n"
+              "os.replace(os.path.join(tmp.name, 'config.json'), "
+              "os.path.join(sys.argv[-1], 'config.json'))\n"
+              "tmp.cleanup()\n")
+    completed = subprocess.run([sys.executable, "-I", "-c", script, str(out)],
+                               capture_output=True, text=True, check=True)
+    temp_dir = Path(completed.stdout.strip())
+    assert temp_dir.parent == out.parent
+    assert temp_dir.name.startswith("int4.partial" + prep._EXPORT_TMP_SUFFIX)
+    if os.name == "nt":
+        # Moved out of a mkdtemp() dir the file would keep its private ACL, without
+        # the grant. /findsid names the file only when the SID is found.
+        exported = out / "config.json"
+        found = subprocess.run(["icacls", str(exported), "/findsid", f"*{_USERS_SID}"],
+                               capture_output=True, text=True, check=True).stdout
+        assert str(exported) in found, found
+
+
+def test_installed_optimum_still_takes_its_temp_dir_from_the_patched_mkdtemp():
+    spec = importlib.util.find_spec("optimum")
+    if spec is None or not spec.submodule_search_locations:
+        pytest.skip("optimum-intel is not installed")
+    root = Path(next(iter(spec.submodule_search_locations)))
+    utils = (root / "intel" / "openvino" / "utils.py").read_text(encoding="utf-8")
+    cli = (root / "commands" / "export" / "openvino.py").read_text(encoding="utf-8")
+    assert "from tempfile import mkdtemp" in utils
+    assert "self.name = mkdtemp(" in utils
+    assert "from ...intel.openvino.utils import TemporaryDirectory" in cli
 
 
 def test_drafter_export_command_runs_no_repository_code(tmp_path, monkeypatch):
