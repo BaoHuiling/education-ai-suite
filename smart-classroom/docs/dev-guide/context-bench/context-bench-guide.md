@@ -67,7 +67,7 @@ files. Missing files are reported per case as `missing_ir` with a hint.
 | `config_qwen3.6_35b.yaml` (default) | Qwen3.6-35B-A3B INT4, `models/openvino/Qwen3.6-35B-A3B/int4` | `paged_min`, `dflash_k3/5/7/15` (draft `models/openvino/Qwen3.6-35B-A3B-DFlash/int4-lmhead`) | 35 cases: contexts 0 and 8000; `code`, `math`, `chat`, `summary_2s`; 512-token ceiling; 30 s gap. `--accuracy`: 5 cases |
 | `config_qwen3.8_27b.yaml` | Qwen3.8-27B INT4 (`--weight-format int8` for INT8), `models/openvino/Qwen3.8-27B/<weight_format>` | `paged_min` (plain only) | 7 cases: same contexts, tasks, ceiling and gap. `--accuracy`: 1 case |
 | `config_qwen3.5_9b.yaml` | Qwen3.5-9B INT4 (`--weight-format int8` for INT8), `models/openvino/Qwen3.5-9B/<weight_format>` | `paged_min`, `dflash_k3/5/7/15` (draft `models/openvino/Qwen3.5-9B-DFlash/int4-lmhead`) | 35 cases: same contexts, tasks, ceiling and gap. `--accuracy`: 5 cases |
-| `config_qwen3_8b.yaml` | Qwen3-VL-8B-Instruct INT4 (`--weight-format int8` for INT8), `models/openvino/Qwen3-VL-8B-Instruct/<weight_format>` | `paged_min`, `eagle3_k3/4/5` (draft `models/openvino/Qwen3-VL-8B-Instruct-eagle3/int4`) | 28 cases: same contexts, tasks, ceiling and gap. `--accuracy`: 4 cases |
+| `config_qwen3_8b.yaml` | Qwen3-VL-8B-Instruct INT4 (`--weight-format int8` for INT8), `models/openvino/Qwen3-VL-8B-Instruct/<weight_format>` | `paged_min` (plain only) | 7 cases: same contexts, tasks, ceiling and gap. `--accuracy`: 1 case |
 
 One config per model: the weight formats differ only in the artifact, so `--weight-format`
 selects it (the path is derived) rather than a second, otherwise identical file. All four share
@@ -76,9 +76,8 @@ the core settings of `config_qwen3.6_35b.yaml` -- INT4 weights on GPU, contexts 
 iterations, a 30 s iteration gap, the timeout and memory budgets, and an identical accuracy
 section that matches the reference configuration -- so a default run of each is directly
 comparable; a test keeps them aligned. Only the model, its output directory and its profiles
-differ: DFlash profiles (`dflash_k*`) exist in the Qwen3.6 and Qwen3.5 configs, Eagle3
-profiles (`eagle3_k*`) in the Qwen3-VL config, and `model_dirs` and `speculative_reference`
-only in the Qwen3.6 config. Every speculative profile shares its config's `paged_min` OpenVINO
+differ: DFlash profiles (`dflash_k*`) exist only in the Qwen3.6 and Qwen3.5 configs, and
+`model_dirs` and `speculative_reference` only in the Qwen3.6 config. Every speculative profile shares its config's `paged_min` OpenVINO
 properties and scheduler, so the window k is the only variable.
 `config_qwen3_8b.yaml` benchmarks the application's default `text_gen` model through its VLM
 export (`openvino_language_model.xml`, so `VLMPipeline`) with text prompts only.
@@ -136,19 +135,19 @@ profile columns differ.
 `config_qwen3_8b.yaml`:
 
 ```text
-  Context           Task       | paged_min  eagle3_k3  eagle3_k4  eagle3_k5
-  none (task only)  code       | c01        c02        c03        c04
-  none (task only)  math       | c05        c06        c07        c08
-  none (task only)  chat       | c09        c10        c11        c12
-  8,000 tokens      code       | c13        c14        c15        c16
-  8,000 tokens      math       | c17        c18        c19        c20
-  8,000 tokens      chat       | c21        c22        c23        c24
-  8,000 tokens      summary_2s | c25        c26        c27        c28
+  Context           Task       | paged_min
+  none (task only)  code       | c01
+  none (task only)  math       | c02
+  none (task only)  chat       | c03
+  8,000 tokens      code       | c04
+  8,000 tokens      math       | c05
+  8,000 tokens      chat       | c06
+  8,000 tokens      summary_2s | c07
 ```
 
 With `--accuracy` the throughput cases are replaced by one accuracy case per profile at every
 context with a transcript (context 0 has nowhere to plant a fact): `8,000 tokens | accuracy`,
-`c01` ... one per profile (5, 1, 5 and 4 cases). Each runs 1 warm-up and 32 probes: 28 RULER
+`c01` ... one per profile (5, 1, 5 and 1 cases). Each runs 1 warm-up and 32 probes: 28 RULER
 retrieval probes scored against planted ground truth and 4 generation probes scored against
 the baseline profile's answer to the identical prompt.
 
@@ -173,8 +172,9 @@ mismatch is flagged.
 
 Speculative decoding is benchmarked only where serving has a profile for it
 (`components/vlm/text_gen_profiles.py`): DFlash on Qwen3.6-35B-A3B and Qwen3.5-9B with the
-z-lab drafters, Eagle3 on Qwen3-VL-8B-Instruct with the AQ-MedAI drafter. The Qwen3.8 config
-is plain only.
+z-lab drafters. The Qwen3.8 and Qwen3-VL-8B configs are plain only; serving's Eagle3 profile
+for Qwen3-VL-8B-Instruct can still be measured by adding `eagle3` profiles (see
+[Eagle3 artifacts](#eagle3-artifacts)).
 
 ### DFlash artifacts
 
@@ -203,15 +203,15 @@ serving runs.
 Start the application once with `models.text_gen.vlm_name: Qwen/Qwen3-VL-8B-Instruct`,
 `weight_format: int4`, `app.language: en` and `speculative: {mode: auto}` (method `auto` or
 `eagle3`); the serving preparation exports the pinned `AQ-MedAI/Qwen3-VL-8B-Instruct-eagle3`
-drafter to `models/openvino/Qwen3-VL-8B-Instruct-eagle3/int4`, the `eagle3.model` of the
-config. Eagle3 runs on the ordinary target (the runtime taps its hidden states), so nothing is
+drafter to `models/openvino/Qwen3-VL-8B-Instruct-eagle3/int4`, the `eagle3.model` to use
+in a profile (`config_qwen3_8b.yaml` ships none). Eagle3 runs on the ordinary target (the runtime taps its hidden states), so nothing is
 derived from it. Preflight applies serving's pair check -- an Eagle3 architecture trained for
 the target's `model_type`, matching hidden size and vocabulary, the VLM drafter interface
 (`hidden_states`, `inputs_embeds`, 3D `position_ids` in; `logits`, `d2t` out) and the
 `eagle3_mode` marker -- and reports a mismatch as an `artifact` case error. Eagle3 on a VLM
 target needs openvino-genai >= 2026.4. Serving's profile keeps the plugin's default KV
-precision; the config keeps `KV_CACHE_PRECISION: f16` on all four profiles like the other
-configs, and `--pipeline-config KV_CACHE_PRECISION=` removes it from every profile at once.
+precision; `config_qwen3_8b.yaml` keeps `KV_CACHE_PRECISION: f16` like the other configs,
+and `--pipeline-config KV_CACHE_PRECISION=` removes it from every profile at once.
 
 ## Cross-model evaluation
 
@@ -229,7 +229,7 @@ the code speedup read 1.72x instead of 1.82x. `--iteration-gap 0` measures that 
 
 | Model key | Config | Profiles |
 | --- | --- | --- |
-| `qwen3-vl-8b` | `config_qwen3_8b.yaml` | `paged_min` (Eagle3 off), `eagle3_k3`, `eagle3_k4`, `eagle3_k5` (Eagle3 on) |
+| `qwen3-vl-8b` | `config_qwen3_8b.yaml` | `paged_min` |
 | `qwen3.5-9b` | `config_qwen3.5_9b.yaml` | `paged_min` (DFlash off), `dflash_k3`, `dflash_k5`, `dflash_k7`, `dflash_k15` (DFlash on) |
 | `qwen3.6-35b-a3b` | `config_qwen3.6_35b.yaml` | `paged_min` (DFlash off), `dflash_k3`, `dflash_k5`, `dflash_k7`, `dflash_k15` (DFlash on) |
 | `qwen3.8-27b` | `config_qwen3.8_27b.yaml` | `paged_min` |
@@ -263,7 +263,7 @@ the code speedup read 1.72x instead of 1.82x. `--iteration-gap 0` measures that 
 | --- | --- |
 | `--models K ...` | Model keys from the table above (default: all four) |
 | `--suites S ...` | `throughput`, `classroom`, `accuracy` (default: all three) |
-| `--spec-k K ...` | Run only the speculative (DFlash/Eagle3) profiles with these windows, plus every plain profile; each K must be shipped by at least one selected model (DFlash 3, 5, 7, 15; Eagle3 3, 4, 5). Default: every profile |
+| `--spec-k K ...` | Run only the speculative (DFlash/Eagle3) profiles with these windows, plus every plain profile; each K must be shipped by at least one selected model (DFlash 3, 5, 7, 15). Default: every profile |
 | `--weight-format` | Weights of every model (default `int4`); selects the derived artifact directory |
 | `--device` | Override every config's device (`CPU`, `GPU`, `GPU.1`) |
 | `--iteration-gap S` | Untimed idle before each measured generation, every suite (default 30 s for `throughput`/`classroom`, 0 for `accuracy` and `--quick`; 0 = sustained load) |
