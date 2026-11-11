@@ -16,7 +16,7 @@ For details, refer to the [Install Guide](https://docs.openedgeplatform.intel.co
 > [!NOTE]
 > DL Streamer 2026.2.0 is the latest verified version. Also update your [NPU driver](./get-started/system-requirements.md#software-and-hardware-requirements) to the latest version for compatibility.
 
-**Run your shell with administrator privileges before starting the application**
+Installing DL Streamer and the NPU driver needs administrator privileges. Start the application itself from a normal (non-administrator) shell.
 
 ### C. Clone Repository
 
@@ -291,7 +291,7 @@ services are still coming up.
 
 - **Proxy**: If behind a proxy, ensure `HTTP_PROXY` and `HTTPS_PROXY` environment variables are configured.
 - **Model Downloads**: Stable access to `huggingface.co` is required for downloading pre-trained models.
-- **Windows Long Paths**: Move the project to a shallow directory (e.g., `C:\User\CS`) or enable long paths:
+- **Windows Long Paths**: Move the project to a shallow directory (e.g., `C:\User\CS`) or enable long paths once from an administrator PowerShell:
 
   ```PowerShell
   New-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\FileSystem" `

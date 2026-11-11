@@ -61,15 +61,16 @@ Usage: ./start-smart-classroom.ps1 [-SkipProxy] [-Restart] [-Silent] [-NoElevate
 Options:
     -SkipProxy           Skip proxy configuration prompts
     -Restart             Kill existing services and restart (no prompt)
-    -Silent              Unattended mode - auto-restart, skip all prompts
-    -NoElevate           Skip auto-elevation to Administrator (Windows)
+    -Silent              Unattended mode - auto-restart, skip all prompts (UAC included)
+    -NoElevate           Never show a UAC prompt; enabling long paths is skipped if it needs one
     -NoWindowsTerminal   Launch through WMI instead of Windows Terminal (for remote sessions)
     -Electron            Shortcut for ./start-desktop-app.ps1 - launches the desktop app, which
                          manages the Python services itself. Never elevates.
     -Help                Show this help message
 
-Note: without -Electron the script starts every service itself and requests
-      Administrator privileges. -Electron never elevates.
+Note: the services run as the current user, never as Administrator. Only
+      enabling Windows long paths needs Administrator; when it is off, a UAC
+      prompt asks for that one change (not with -Silent or -NoElevate).
 
 Services Launched (in order):
     1. Backend (port 8000)     - Main Python pipeline service; runs in this terminal, or a detached logged process with -NoWindowsTerminal (with paddleocr if OCR enabled)
@@ -85,8 +86,7 @@ Services Launched (in order):
 # DESKTOP APP MODE (-Electron)
 # ============================================================================
 # The Electron app supervises the Python services itself, so -Electron just
-# delegates. Kept before the elevation block on purpose: the desktop app must
-# not run as Administrator.
+# delegates.
 if ($Electron) {
     $ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Definition }
     & (Join-Path $ScriptDir "start-desktop-app.ps1")
@@ -94,57 +94,13 @@ if ($Electron) {
 }
 
 # ============================================================================
-# AUTO-ELEVATE TO ADMINISTRATOR
+# PRIVILEGES
 # ============================================================================
-if (-not $NoElevate) {
-    $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-
-    if (-not $isAdmin) {
-        Write-Host "Requesting Administrator privileges..." -ForegroundColor Yellow
-
-        $relaunchArgs = @()
-        if ($SkipProxy) { $relaunchArgs += "-SkipProxy" }
-        if ($Restart) { $relaunchArgs += "-Restart" }
-        if ($Help) { $relaunchArgs += "-Help" }
-        if ($Silent) { $relaunchArgs += "-Silent" }
-        if ($NoWindowsTerminal) { $relaunchArgs += "-NoWindowsTerminal" }
-        # No -Electron: desktop-app mode exits above and never elevates.
-        $relaunchArgs += "-NoElevate"  # Prevent infinite elevation loop
-
-        # Encoded rather than -File "<path>": wt treats ';' as its own delimiter
-        # and mangles nested quotes.
-        $relaunchCommand = "& '" + $PSCommandPath.Replace("'", "''") + "' " + ($relaunchArgs -join ' ')
-        $relaunchEncoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($relaunchCommand))
-        $psArgs = "-NoExit -ExecutionPolicy Bypass -EncodedCommand $relaunchEncoded"
-
-        $wtCmd = if ($NoWindowsTerminal) { $null } else { Get-Command wt.exe -ErrorAction SilentlyContinue }
-
-        $elevated = $false
-        if ($wtCmd) {
-            # '-w SmartClassroom' also makes the Frontend tab join this window.
-            try {
-                Start-Process $wtCmd.Source -Verb RunAs -ArgumentList "-w SmartClassroom new-tab --title `"Smart Classroom`" powershell.exe $psArgs"
-                $elevated = $true
-            } catch {
-                Write-Host "  Windows Terminal launch failed; falling back to powershell.exe..." -ForegroundColor DarkYellow
-            }
-        }
-
-        if (-not $elevated) {
-            try {
-                Start-Process powershell -Verb RunAs -ArgumentList $psArgs
-                $elevated = $true
-            } catch {
-                Write-Host "Failed to elevate. Please run as Administrator manually." -ForegroundColor Red
-                Write-Host "Right-click PowerShell -> Run as Administrator" -ForegroundColor Yellow
-                exit 1
-            }
-        }
-
-        Write-Host "Elevated window launched. You can close this window." -ForegroundColor Green
-        exit 0
-    }
-}
+# The services run as the current user and never elevate, like the desktop app:
+# what they create (exported models, caches, logs) must stay readable by a normal
+# start. The one step that needs Administrator, enabling Windows long paths,
+# asks for that change alone with its own UAC prompt (step 2), never with
+# -Silent or -NoElevate.
 
 # ============================================================================
 # CTRL+C HANDLER - Stop services on script exit
@@ -354,13 +310,21 @@ function Stop-ServiceOnPort {
         $connections = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue
         if ($connections) {
             Write-Host "  Stopping $ServiceName on port $Port..." -ForegroundColor Yellow
-            $procIds = $connections | Select-Object -ExpandProperty OwningProcess -Unique
+            # PID 0/4 own TIME_WAIT and kernel connections; nothing to stop.
+            $procIds = $connections | Select-Object -ExpandProperty OwningProcess -Unique | Where-Object { $_ -gt 4 }
             foreach ($procId in $procIds) {
                 try {
-                    Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
+                    Stop-Process -Id $procId -Force -ErrorAction Stop
                     Write-Host "    Killed process $procId" -ForegroundColor Gray
                 } catch {
-                    Write-Host "    Could not kill process $procId" -ForegroundColor Yellow
+                    $win32 = $_.Exception.InnerException
+                    if ($win32 -is [System.ComponentModel.Win32Exception] -and $win32.NativeErrorCode -eq 5) {
+                        # Typically left by an earlier start that ran as Administrator.
+                        Write-Host "    Could not stop process $procId (access denied): it runs as Administrator." -ForegroundColor Yellow
+                        Write-Host "    Close the window that started it, or stop it from an Administrator prompt." -ForegroundColor Yellow
+                    } elseif (Get-Process -Id $procId -ErrorAction SilentlyContinue) {
+                        Write-Host "    Could not stop process ${procId}: $($_.Exception.Message)" -ForegroundColor Yellow
+                    }
                 }
             }
             Start-Sleep -Seconds 2
@@ -914,28 +878,42 @@ Write-Host "[2/4] SYSTEM CONFIGURATION" -ForegroundColor Green
 Write-Host "--------------------------" -ForegroundColor Green
 
 if ($IsWindowsOS) {
-    Write-Host "  Enabling Windows Long Paths..." -ForegroundColor Gray
-    
-    try {
-        $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-        
-        if ($isAdmin) {
-            $regPath = "HKLM:\System\CurrentControlSet\Control\FileSystem"
-            $currentValue = Get-ItemProperty -Path $regPath -Name "LongPathsEnabled" -ErrorAction SilentlyContinue
-            
-            if ($currentValue.LongPathsEnabled -ne 1) {
-                New-ItemProperty -Path $regPath -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force | Out-Null
-                Write-Host "  Long paths enabled successfully" -ForegroundColor Green
-            } else {
-                Write-Host "  Long paths already enabled" -ForegroundColor Gray
-            }
-        } else {
-            Write-Host "  Skipped long paths (requires Administrator)" -ForegroundColor Yellow
+    Write-Host "  Checking Windows Long Paths..." -ForegroundColor Gray
+
+    # Reading the key needs no privileges; only setting it does. As in the
+    # desktop app's Setup screen, Administrator is requested for this one
+    # change, never for the services.
+    $regPath = "HKLM:\System\CurrentControlSet\Control\FileSystem"
+    $longPathsEnabled = { (Get-ItemProperty -Path $regPath -Name "LongPathsEnabled" -ErrorAction SilentlyContinue).LongPathsEnabled -eq 1 }
+
+    if (& $longPathsEnabled) {
+        Write-Host "  Long paths already enabled" -ForegroundColor Gray
+    } elseif ($isAdmin) {
+        try {
+            New-ItemProperty -Path $regPath -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force | Out-Null
+            Write-Host "  Long paths enabled successfully" -ForegroundColor Green
+        } catch {
+            Write-Host "  Warning: Could not modify registry - $($_.Exception.Message)" -ForegroundColor Yellow
         }
-    } catch {
-        Write-Host "  Warning: Could not modify registry - $($_.Exception.Message)" -ForegroundColor Yellow
+    } elseif ($Silent -or $NoElevate) {
+        Write-Host "  Long paths are disabled; enabling them needs Administrator, which -Silent/-NoElevate never requests." -ForegroundColor Yellow
+        Write-Host "  Model downloads with deep paths can fail. Enable them once from an Administrator prompt." -ForegroundColor Yellow
+    } else {
+        Write-Host "  Requesting Administrator privileges to enable long paths..." -ForegroundColor Yellow
+        try {
+            Start-Process -FilePath "reg.exe" -Verb RunAs -Wait -WindowStyle Hidden -ArgumentList @(
+                'add', 'HKLM\System\CurrentControlSet\Control\FileSystem',
+                '/v', 'LongPathsEnabled', '/t', 'REG_DWORD', '/d', '1', '/f')
+        } catch {
+            # Declined UAC prompt: reported by the check below.
+        }
+        if (& $longPathsEnabled) {
+            Write-Host "  Long paths enabled successfully" -ForegroundColor Green
+        } else {
+            Write-Host "  Long paths are still disabled (the prompt may have been declined); model downloads with deep paths can fail." -ForegroundColor Yellow
+        }
     }
-    
+
     Write-Host "  Setting execution policy to Bypass..." -ForegroundColor Gray
     Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force -ErrorAction SilentlyContinue
     Write-Host "  Execution policy set" -ForegroundColor Gray
@@ -1547,7 +1525,10 @@ $frontendStartCommand
     $frontendEncoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($frontendScript))
 
     if ($wtExists) {
-        Start-Process wt -ArgumentList "-w SmartClassroom new-tab --title $frontendTitle powershell -NoExit -EncodedCommand $frontendEncoded"
+        # A tab beside the backend when this script runs in Windows Terminal
+        # (-w 0: the current window), otherwise a window of its own.
+        $wtWindow = if ($env:WT_SESSION) { "0" } else { "SmartClassroom" }
+        Start-Process wt -ArgumentList "-w $wtWindow new-tab --title $frontendTitle powershell -NoExit -EncodedCommand $frontendEncoded"
     } else {
         Invoke-WmiMethod -Path win32_process -Name create -ArgumentList "powershell.exe -ExecutionPolicy Bypass -EncodedCommand $frontendEncoded" | Out-Null
     }
