@@ -60,6 +60,9 @@ models:
     front_pose_model: yolov8m-pose # yolov8m-pose/yolo11m-pose/yolo26m-pose
     back_pose_model: yolov8s-pose # yolov8s-pose/yolo11s-pose/yolo26s-pose
     threshold: 0.5 # confidence threshold for YOLO detections
+    front_threshold: 0.3 # front pose detection threshold (counting needs the recall)
+    front_input_size: 1920x1088 # front pose model input WxH; full resolution keeps back-row students detectable
+    front_inference_interval: 3 # infer the front pose model every Nth frame (15 fps cap -> 5 fps); gvatrack carries boxes in between
 
   embedding:
     name: "BAAI/bge-large-en-v1.5"
@@ -149,15 +152,15 @@ va_pipeline:
   stream_protocol: webrtc # webrtc or hls
 
   pose_statistics:
-    min_frames_for_transition: 3            # frames to confirm raise-hand for identified students
-    min_frames_for_transition_unid: 15      # frames to confirm raise-hand for unidentified students
-    absence_threshold: 90                   # forget student after unseen for N frames (90 ≈ 3s)
-    min_stand_frames: 10                    # frames a student must be seen before counting stand-up (10 ≈ 0.3s)
+    raise_confirm_sec: 0.2                  # seconds a raise-hand change must hold, for identified (standing) students
+    raise_confirm_sec_unid: 0.2             # seconds a raise-hand change must hold, for unidentified students
+    stand_confirm_sec: 2.0                  # seconds a standing student's id must persist before counting stand-up
+    absence_sec: 6.0                        # forget a standing student after unseen for N seconds
     center_dist_threshold: 0.1              # how close two bounding boxes must be to count as same person (0~1)
     unidentified_max: 50                    # max unidentified students to track
-    stale_unidentified_threshold: 30        # remove unidentified student after unseen for N frames
+    stale_unidentified_sec: 2.0             # remove unidentified student after unseen for N seconds
     count_bucket_sec: 60                    # student_count: time bucket length in seconds
-    count_percentile: 90                    # student_count: per-bucket percentile of per-frame counts (missed detections only lower a count)
+    count_percentile: 50                    # student_count: per-bucket percentile of per-frame counts
 
 board_ocr:            # on/off lives in features.board_ocr; these are tuning knobs
   frame_rate: "1/3"    # frame/seconds

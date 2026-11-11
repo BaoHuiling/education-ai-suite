@@ -28,9 +28,16 @@ struct _GstPostureDetect {
     // Internal state
     guint frame_count;
     GstVideoInfo *info;
-    
-    // Inference interval tracking
-    guint inference_interval;
+
+    // Posture of each tracked object id at its last inferred frame, re-applied
+    // on the frames gvadetect skips (inference-interval > 1) where an upstream
+    // gvatrack only carries the box forward. Owned; HeldPostures in the .cpp.
+    void *held_postures;
+
+    // Head heights of the people seen on recent inferred frames, by box
+    // position: the seated baseline the stand rule compares a head against.
+    // Owned; SeatHistory in the .cpp.
+    void *seat_history;
 };
 
 struct _GstPostureDetectClass {

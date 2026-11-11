@@ -151,16 +151,25 @@ class VideoAnalyticsPipelineService:
         self._reports_generated = False   # guard: fire at most once per service instance
         self._any_pipeline_ran  = False   # guard: don't fire before any pipeline was launched
 
+        va = getattr(config.models, "va", None)
+        # Front pose detection; None/1 keep the model's own input size, the
+        # caller's threshold and inference on every frame.
+        self.front_threshold = getattr(va, "front_threshold", None)
+        self.front_input_size = getattr(va, "front_input_size", None)
+        self.front_inference_interval = int(getattr(va, "front_inference_interval", 1) or 1)
+
         ps = getattr(config.va_pipeline, "pose_statistics", None)
-        self.min_frames_for_transition = getattr(ps, "min_frames_for_transition", 3) if ps else 3
-        self.min_frames_for_transition_unid = getattr(ps, "min_frames_for_transition_unid", 15) if ps else 15
-        self.absence_threshold = getattr(ps, "absence_threshold", 90) if ps else 90
-        self.min_stand_frames = getattr(ps, "min_stand_frames", 10) if ps else 10
+        # Durations in seconds, measured on frame timestamps, so they hold
+        # whatever rate the pose model is inferred at.
+        self.raise_confirm_sec = getattr(ps, "raise_confirm_sec", 0.2) if ps else 0.2
+        self.raise_confirm_sec_unid = getattr(ps, "raise_confirm_sec_unid", 0.2) if ps else 0.2
+        self.stand_confirm_sec = getattr(ps, "stand_confirm_sec", 2.0) if ps else 2.0
+        self.absence_sec = getattr(ps, "absence_sec", 6.0) if ps else 6.0
+        self.stale_unidentified_sec = getattr(ps, "stale_unidentified_sec", 2.0) if ps else 2.0
         self.center_dist_threshold = getattr(ps, "center_dist_threshold", 0.1) if ps else 0.1
         self.unidentified_max = getattr(ps, "unidentified_max", 50) if ps else 50
-        self.stale_unidentified_threshold = getattr(ps, "stale_unidentified_threshold", 30) if ps else 30
         self.count_bucket_sec = getattr(ps, "count_bucket_sec", 60) if ps else 60
-        self.count_percentile = getattr(ps, "count_percentile", 90) if ps else 90
+        self.count_percentile = getattr(ps, "count_percentile", 50) if ps else 50
 
         # Upper bound on the framerate the pipeline runs inference at. Protects against high-framerate cameras.
         self.max_input_framerate = MAX_INPUT_FRAMERATE
@@ -942,6 +951,30 @@ class VideoAnalyticsPipelineService:
                     pass
             return False
 
+    def _get_front_detect_extra_elements(self) -> List[str]:
+        """gvadetect properties (and a following gvatrack) for the front pose
+        model's input size and inference interval.
+
+        Back-row students are only tens of pixels tall, so the model runs at
+        front_input_size (no downscale) instead of its native input. To pay
+        for that it infers every front_inference_interval-th frame; gvatrack
+        carries the boxes over the skipped frames and gvaposturedetect holds
+        each tracked person's posture, so the stream keeps its boxes and labels
+        while statistics read the inferred frames only.
+        """
+        elements = []
+        if self.front_input_size:
+            width, _, height = str(self.front_input_size).lower().partition("x")
+            elements += ["reshape=true", f"reshape-width={int(width)}", f"reshape-height={int(height)}"]
+        if self.front_inference_interval > 1:
+            elements += [
+                f"inference-interval={self.front_inference_interval}",
+                "!",
+                "gvatrack",
+                "tracking-type=short-term-imageless",
+            ]
+        return elements
+
     def _build_pipeline_front(
         self, source: str, options: PipelineOptions, input_type: str
     ) -> List[str]:
@@ -961,8 +994,9 @@ class VideoAnalyticsPipelineService:
             *self._get_preprocess_backend_elements(options),
             "batch-size=1",
             "model-instance-id=yolo-0",
-            f"threshold={options.threshold}",
+            f"threshold={self.front_threshold or options.threshold}",
             "inference-region=0",
+            *self._get_front_detect_extra_elements(),
             "!",
             "gvaposturedetect",
             "!",
@@ -1752,6 +1786,10 @@ class VideoAnalyticsPipelineService:
                 new_frames += 1
 
                 objects = frame.get("objects", [])
+                # Frames gvadetect skipped carry tracked boxes with held
+                # postures, for display only; statistics use inferred frames.
+                if any(obj.get("posture_frame", {}).get("label_id") == 0 for obj in objects):
+                    continue
                 valid_objects = [
                     obj for obj in objects
                     if obj.get("detection", {}).get("bounding_box", {}).get("x_max", 0) > 0
@@ -1763,7 +1801,7 @@ class VideoAnalyticsPipelineService:
                     previous_state, int(seconds // self.count_bucket_sec), len(valid_objects)
                 )
 
-                self._process_frame(frame_idx, valid_objects, previous_state)
+                self._process_frame(seconds, valid_objects, previous_state)
 
             previous_state["processed_lines"] = len(all_lines)
             previous_state["total_frames"] = frame_base + new_frames
@@ -1779,31 +1817,48 @@ class VideoAnalyticsPipelineService:
                 "stand_reid": [],
             }, previous_state
 
-    def _process_frame(self, frame_idx: int, valid_objects: List, state: Dict):
-        """Process a single frame, updating tracking state in-place.
+    def _process_frame(self, now: float, valid_objects: List, state: Dict):
+        """Process a single inferred frame at time `now` (seconds), updating
+        tracking state in-place. All durations are in seconds, so they hold
+        whatever rate the pose model runs at.
 
-        Improvements vs original _process_frames_incremental:
-        - ABSENCE_THRESHOLD raised 15 → 90 frames (~3s) to suppress ReID tracking noise
-        - MIN_STAND_FRAMES=10: stand counted only after ID persists ≥10 consecutive frames
-          (filters 81.7% of noise: ghost 1-2f=66% + very-short 3-5f=15.7%)
-        - Re-entry while already raising immediately counts as a raise event (no missed raises)
-        - Unidentified objects matched by bbox center distance instead of IoU (faster, more robust)
-        - unidentified_objects list capped at 50 entries to bound O(N) scan cost
+        - A raise transition is confirmed once the new state has held for
+          raise_confirm_sec (raise_confirm_sec_unid for students without a
+          ReID id, whose matching is noisier)
+        - A stand is counted once a ReID id has persisted stand_confirm_sec
+          (filters ghost ids that live for a frame or two)
+        - Re-entry while already raising immediately counts as a raise event
+        - Unidentified objects are matched by bbox center distance
+        - A student unseen for absence_sec is forgotten; re-appearance counts
+          as a new stand-up
         """
-        MIN_FRAMES_FOR_TRANSITION = self.min_frames_for_transition
-        MIN_FRAMES_FOR_TRANSITION_UNID = self.min_frames_for_transition_unid
-        ABSENCE_THRESHOLD = self.absence_threshold
-        MIN_STAND_FRAMES = self.min_stand_frames
-        CENTER_DIST_THRESHOLD = self.center_dist_threshold
-        UNIDENTIFIED_MAX = self.unidentified_max
-
         student_states = state["student_states"]
         student_stand_counts = state["student_stand_counts"]
         student_raise_counts = state["student_raise_counts"]
+
+        # Timestamps restart with a restarted pipeline (e.g. a live source
+        # reconnecting); nothing tracked before carries over.
+        if now < state.get("last_time", now):
+            student_states.clear()
+            state["unidentified_objects"] = []
+        state["last_time"] = now
         unidentified_objects = state["unidentified_objects"]
 
         seen_student_ids = set()
         matched_unidentified = set()
+
+        def update_raise(st, is_raising, confirm_sec):
+            """Advance one raise state machine; True when a raise is confirmed."""
+            if is_raising == st["is_raising"]:
+                st["raise_since"] = None
+                return False
+            if st["raise_since"] is None:
+                st["raise_since"] = now
+            if now - st["raise_since"] < confirm_sec:
+                return False
+            st["is_raising"] = is_raising
+            st["raise_since"] = None
+            return is_raising
 
         for obj in valid_objects:
             detection = obj.get("detection", {})
@@ -1824,31 +1879,22 @@ class VideoAnalyticsPipelineService:
                     if is_raising:
                         student_raise_counts[student_id] += 1
                     student_states[student_id] = {
-                        "last_seen_frame": frame_idx,
+                        "first_seen": now,
+                        "last_seen": now,
                         "is_raising": is_raising,
-                        "raise_buffer": 0,
-                        "continuous_frames": 1,
+                        "raise_since": None,
                         "stand_confirmed": False,
                     }
                 else:
                     st = student_states[student_id]
-                    st["last_seen_frame"] = frame_idx
-                    st["continuous_frames"] += 1
+                    st["last_seen"] = now
 
-                    # Confirm stand once ID has persisted MIN_STAND_FRAMES consecutive frames
-                    if not st["stand_confirmed"] and st["continuous_frames"] >= MIN_STAND_FRAMES:
+                    if not st["stand_confirmed"] and now - st["first_seen"] >= self.stand_confirm_sec:
                         student_stand_counts[student_id] = student_stand_counts.get(student_id, 0) + 1
                         st["stand_confirmed"] = True
 
-                    if is_raising != st["is_raising"]:
-                        st["raise_buffer"] += 1
-                        if st["raise_buffer"] >= MIN_FRAMES_FOR_TRANSITION:
-                            if is_raising:
-                                student_raise_counts[student_id] += 1
-                            st["is_raising"] = is_raising
-                            st["raise_buffer"] = 0
-                    else:
-                        st["raise_buffer"] = 0
+                    if update_raise(st, is_raising, self.raise_confirm_sec):
+                        student_raise_counts[student_id] += 1
 
             else:
                 # Unidentified object: match by bbox center distance
@@ -1856,7 +1902,7 @@ class VideoAnalyticsPipelineService:
                 cy = (bbox.get("y_min", 0) + bbox.get("y_max", 0)) / 2
 
                 best_match_idx = -1
-                best_dist = CENTER_DIST_THRESHOLD
+                best_dist = self.center_dist_threshold
 
                 for idx, unid_obj in enumerate(unidentified_objects):
                     if idx in matched_unidentified:
@@ -1871,38 +1917,29 @@ class VideoAnalyticsPipelineService:
                     unid_obj = unidentified_objects[best_match_idx]
                     matched_unidentified.add(best_match_idx)
                     unid_obj["center"] = (cx, cy)
-
-                    if is_raising != unid_obj["is_raising"]:
-                        unid_obj["raise_buffer"] += 1
-                        if unid_obj["raise_buffer"] >= MIN_FRAMES_FOR_TRANSITION_UNID:
-                            if is_raising:
-                                unid_obj["raise_count"] += 1
-                                state["total_raise_count_no_id"] += 1
-                            unid_obj["is_raising"] = is_raising
-                            unid_obj["raise_buffer"] = 0
-                    else:
-                        unid_obj["raise_buffer"] = 0
-
-                    unid_obj["last_seen_frame"] = frame_idx
-                elif len(unidentified_objects) < UNIDENTIFIED_MAX:
+                    if update_raise(unid_obj, is_raising, self.raise_confirm_sec_unid):
+                        unid_obj["raise_count"] += 1
+                        state["total_raise_count_no_id"] += 1
+                    unid_obj["last_seen"] = now
+                elif len(unidentified_objects) < self.unidentified_max:
                     unidentified_objects.append({
                         "center": (cx, cy),
                         "is_raising": is_raising,
-                        "raise_buffer": 0,
+                        "raise_since": None,
                         "raise_count": 0,
-                        "last_seen_frame": frame_idx,
+                        "last_seen": now,
                     })
 
         # Remove stale unidentified objects
         state["unidentified_objects"] = [
             obj for obj in unidentified_objects
-            if frame_idx - obj["last_seen_frame"] < self.stale_unidentified_threshold
+            if now - obj["last_seen"] < self.stale_unidentified_sec
         ]
 
         # Remove students absent too long — re-appearance will count as a new stand-up
         for student_id in list(student_states.keys()):
             if student_id not in seen_student_ids:
-                if frame_idx - student_states[student_id]["last_seen_frame"] >= ABSENCE_THRESHOLD:
+                if now - student_states[student_id]["last_seen"] >= self.absence_sec:
                     del student_states[student_id]
 
     @staticmethod
@@ -1927,11 +1964,11 @@ class VideoAnalyticsPipelineService:
     def _calculate_stats(self, state: Dict) -> Dict:
         """Calculate current statistics from accumulated state.
 
-        student_count: missed detections (occlusion, small or turned students)
-        only ever lower a frame's count, so each time bucket takes a high
-        percentile of its per-frame counts, and the class value is the median
-        over buckets, which ignores minutes of settling in or leaving. The
-        bucket still filling is used only until the first one completes.
+        student_count: each time bucket takes a percentile (count_percentile)
+        of its per-frame counts, which rides out frames with a student
+        momentarily missed or double-detected, and the class value is the
+        median over buckets, which ignores minutes of settling in or leaving.
+        The bucket still filling is used only until the first one completes.
         """
         if state["total_frames"] == 0:
             return {
