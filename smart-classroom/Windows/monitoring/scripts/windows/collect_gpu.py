@@ -7,6 +7,7 @@ from collections import defaultdict
 import threading
 import logging
 from datetime import datetime
+from monitoring.scripts.windows.collect_npu import get_npu_luids
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -52,7 +53,7 @@ def get_gpu_memory_total():
         return None, None, None
 
 
-def get_gpu_utilization():
+def get_gpu_utilization(excluded_luids=()):
     query = win32pdh.OpenQuery()
     counters = []
 
@@ -61,6 +62,8 @@ def get_gpu_utilization():
                     "engtype_VideoProcessing", "engtype_Copy", "engtype_Compute"]
 
     for inst in instances:
+        if any(luid in inst.lower() for luid in excluded_luids):
+            continue
         for engine_type in engine_types:
             if re.search(engine_type, inst, re.IGNORECASE):
                 try:
@@ -91,6 +94,14 @@ def start_gpu_monitoring(interval_seconds, stop_event, output_dir=None):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir, exist_ok=True)
 
+    # The NPU's engines are listed under "GPU Engine" too (as engtype_Compute);
+    # keep them out of the GPU totals. They are reported by collect_npu.
+    try:
+        npu_luids = get_npu_luids()
+    except Exception as e:
+        logger.warning(f"NPU detection failed, GPU totals may include NPU: {e}")
+        npu_luids = set()
+
     gpu_file = os.path.join(output_dir, "gpu_metrics.csv")
     mode = 'a' if os.path.exists(gpu_file) else 'w'
     try:
@@ -110,7 +121,7 @@ def start_gpu_monitoring(interval_seconds, stop_event, output_dir=None):
                 timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
                 try:
                     total, dedicated, shared = get_gpu_memory_total()
-                    engine_totals = get_gpu_utilization()
+                    engine_totals = get_gpu_utilization(npu_luids)
 
                     if total is not None:
                         writer.writerow([

@@ -34,4 +34,3 @@ extraResources:
       - '!**/.env'
       - '!**/venv_convert/**'
       - '!**/.pytest_cache/**'
-      - '!**/monitoring/tools/socwatch_windows_v2026.0/**'

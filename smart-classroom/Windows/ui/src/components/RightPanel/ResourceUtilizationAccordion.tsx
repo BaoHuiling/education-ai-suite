@@ -21,6 +21,9 @@ interface GPUMetricConfig {
 
 type GPUMetricsConfig = Record<GPUMetricKey, GPUMetricConfig>;
 
+// Memory rows from /metrics are [timestamp, total_gb, available_gb, used_gb, usage_percent].
+const MEMORY_USAGE_PERCENT_INDEX = 4;
+
 interface ResourceUtilizationAccordionProps {
   activeScreen?: 'main' | 'content-search' | 'grading';
 }
@@ -108,7 +111,8 @@ const ResourceUtilizationAccordion: React.FC<ResourceUtilizationAccordionProps> 
     return { labels, datasets };
   };
 
-  const createSimpleChartData = (data: any[], label: string, color: string) => {
+  // valueIndex: column of the backend row ([timestamp, ...values]) to plot.
+  const createSimpleChartData = (data: any[], label: string, color: string, valueIndex = 1) => {
     if (!data || data.length === 0) return { labels: [], datasets: [] };
 
     const labels = data.map((item: any) => item[0] ? new Date(item[0]).toLocaleTimeString() : '');
@@ -117,7 +121,7 @@ const ResourceUtilizationAccordion: React.FC<ResourceUtilizationAccordionProps> 
       labels,
       datasets: [{
         label,
-        data: data.map((item: any) => item[1] || 0),
+        data: data.map((item: any) => item[valueIndex] || 0),
         borderColor: color,
         backgroundColor: color.replace('1)', '0.2)'),
         fill: false,
@@ -210,13 +214,12 @@ const ResourceUtilizationAccordion: React.FC<ResourceUtilizationAccordionProps> 
       y: {
         beginAtZero: true,
         min: 0,
-        max: 500, 
+        // No hard max: SoC package power is typically 5-60 W
         title: {
           display: true,
           text: 'Watts'
         },
         ticks: {
-          stepSize: 100,
           callback: function(value: any) {
             return value ;
           }
@@ -295,7 +298,7 @@ const ResourceUtilizationAccordion: React.FC<ResourceUtilizationAccordionProps> 
               <div style={{ height: '200px' }}>
                 {resourceData.memory && resourceData.memory.length > 0 ? (
                   <Line 
-                    data={createSimpleChartData(resourceData.memory, 'Memory %', 'rgba(54, 162, 235, 1)')} 
+                    data={createSimpleChartData(resourceData.memory, 'Memory %', 'rgba(54, 162, 235, 1)', MEMORY_USAGE_PERCENT_INDEX)} 
                     options={percentageChartOptions} 
                   />
                 ) : (
