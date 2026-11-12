@@ -19,8 +19,32 @@ const { LogStore } = require('./services/log-store.cjs');
 const { ServiceManager } = require('./services/process-manager.cjs');
 const { SetupRunner } = require('./services/setup-runner.cjs');
 const winEnv = require('./services/win-env.cjs');
+const { resetToShippedDefaults } = require('./services/config-reset.cjs');
 
-servicePaths.ensureUserData();
+const configResets = [];
+if (servicePaths.ensureUserData()) {
+  const targets = [
+    { label: 'config.yaml', userFile: servicePaths.configFile(), defaultFile: servicePaths.bundledConfigFile() },
+    {
+      label: 'grading-config.yaml',
+      userFile: servicePaths.gradingConfigFile(),
+      defaultFile: servicePaths.bundledGradingConfigFile(),
+    },
+  ];
+  for (const target of targets) {
+    const result = resetToShippedDefaults({
+      ...target,
+      stampFile: servicePaths.shippedConfigStampFile(target.label),
+      backupDir: servicePaths.configBackupDir(),
+    });
+    if (result.status === 'reset') {
+      console.info(`[config] ${target.userFile} reset to the shipped defaults; previous copy: ${result.backup}`);
+      configResets.push({ file: target.userFile, backup: result.backup });
+    } else if (result.status === 'failed') {
+      console.warn(`[config] could not check ${target.userFile} against the shipped defaults: ${result.error}`);
+    }
+  }
+}
 
 // Height (px) of the custom title bar strip. Matches the TopPanel so the
 // native Window Controls Overlay buttons align with the app header.
@@ -201,6 +225,28 @@ async function resolveStartUrl() {
   return `http://127.0.0.1:${serverHandle.port}`;
 }
 
+function reportConfigResets(win) {
+  if (!configResets.length) return;
+  const resets = configResets.splice(0);
+  dialog
+    .showMessageBox(win, {
+      type: 'info',
+      title: 'Smart Classroom',
+      message: 'Settings were reset to the defaults of this version.',
+      detail:
+        'This version ships new default settings, so your previous configuration was replaced. ' +
+        'Review your settings, including the Hugging Face token, under Configuration.\n\n' +
+        `Your previous files were saved as:\n${resets.map((reset) => reset.backup).join('\n')}`,
+      buttons: ['OK', 'Show previous files'],
+      defaultId: 0,
+      cancelId: 0,
+    })
+    .then(({ response }) => {
+      if (response === 1) shell.showItemInFolder(resets[0].backup);
+    })
+    .catch(() => { });
+}
+
 async function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -280,6 +326,7 @@ async function createWindow() {
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
+    reportConfigResets(mainWindow);
   });
   mainWindow.on('closed', () => {
     mainWindow = null;

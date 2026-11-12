@@ -14,11 +14,12 @@ win:
     - nsis
 nsis:
   oneClick: false
-  allowToChangeInstallationDirectory: true
+  allowToChangeInstallationDirectory: false
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: Smart Classroom
   artifactName: SmartClassroom-${version}-setup.exe
+  include: build/installer.nsh
 extraResources:
   - from: ..
     to: backend

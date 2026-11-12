@@ -96,6 +96,16 @@ const paths = {
   venvPython,
   layoutServiceDir,
   configFile,
+  bundledConfigFile: () => path.join(home(), 'config.yaml'),
+  gradingConfigFile: () => {
+    const data = userDataDir();
+    return data ? path.join(data, 'grading', 'config.yaml') : null;
+  },
+  bundledGradingConfigFile: () => path.join(home(), 'components', 'grading', 'config.yaml'),
+  shippedConfigStampFile: (name) => {
+    const data = userDataDir();
+    return data ? path.join(data, 'state', `${name}.sha256`) : null;
+  },
   proxyConfigFile: () => {
     const d = userDataDir();
     return d ? path.join(d, '.proxy-config') : path.join(home(), '.proxy-config');
