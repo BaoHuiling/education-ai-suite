@@ -166,6 +166,8 @@ class TestPackageLocation(unittest.TestCase):
                          "'smartclassroom'", "-m components.context_bench.benchmark",
                          "$LASTEXITCODE", "exit $ExitCode", "Push-Location", "Resolve-CallerPath"):
             self.assertIn(required, text)
+        self.assertIn("start-desktop-app.ps1", text)
+        # DEPRECATED(webui): drop after 2027.0.0, with setup-smart-classroom.ps1.
         self.assertIn("setup-smart-classroom.ps1", text)
         self.assertIn("-Scope Process", text)
 

@@ -100,6 +100,7 @@ const UploadFilesModal: React.FC<UploadFilesModalProps> = ({ isOpen, onClose, fe
     (boardCameraPath !== null && !boardVideoFullPath);
   // Hide the manual base-directory field in Electron once every selected video
   // has a resolved absolute path; keep showing it otherwise (web / fallback).
+  // DEPRECATED(webui): drop `!isElectron ||` after 2027.0.0; the fallback stays.
   const showBaseDirectory = !isElectron || videoMissingFullPath;
 
   const constructFilePath = (fileName: string): string => {

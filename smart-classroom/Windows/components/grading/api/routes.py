@@ -56,6 +56,9 @@ def create_router(language: str) -> APIRouter:
     async def list_rubrics() -> RubricListResponse:
         return RubricListResponse(**list_rubrics_impl())
 
+    # DEPRECATED(webui): only the browser UI's DirectoryPicker calls this; the
+    # desktop app uses the native folder dialog. Remove after 2027.0.0, with
+    # list_directory and FsListResponse.
     @router.get("/fs/list", response_model=FsListResponse)
     async def list_fs(path: str | None = Query(default=None)) -> FsListResponse:
         try:

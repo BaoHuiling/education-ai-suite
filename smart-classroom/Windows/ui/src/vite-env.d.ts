@@ -2,6 +2,8 @@
 
 // Bridge exposed by the Electron preload (electron/preload.cjs). Optional so the
 // plain web app (where it is undefined) still type-checks. Always feature-detect.
+// DEPRECATED(webui): once the browser UI is removed after 2027.0.0 this is always
+// defined, and the feature checks (isElectron, is*ManagerAvailable) can go.
 interface ElectronAPI {
   isElectron: boolean;
   version: string;

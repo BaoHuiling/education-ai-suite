@@ -4,12 +4,13 @@
 > Use **Windows PowerShell** (not Command Prompt/CMD) for all steps in this guide.
 > PowerShell scripts (`.ps1` files) will not execute in CMD — they will only open as text files.
 
-There are two ways to run Smart Classroom. Both use the same services, models, and
-configurations.
+Smart Classroom runs as a desktop app. The older PowerShell scripts with the browser UI
+are deprecated and will be removed after release 2027.0.0. Both use the same services,
+models, and configurations.
 
-| | [Desktop app](#desktop-app) (recommended) | [PowerShell scripts](#alternative-powershell-scripts-and-the-browser-ui) |
+| | [Desktop app](#desktop-app) (default) | [PowerShell scripts](#deprecated-powershell-scripts-and-the-browser-ui) (deprecated) |
 | :--- | :--- | :--- |
-| Commands to run | `.\start-desktop-app.ps1` | `.\setup-smart-classroom.ps1`, then `.\start-smart-classroom.ps1` |
+| Commands to run | `.\start-desktop-app.ps1` (or `.\start-smart-classroom.ps1`) | `.\setup-smart-classroom.ps1`, then `.\start-smart-classroom.ps1 -WebUI` |
 | Prerequisites and installs | **Setup** screen, one item at a time | One scripted pass through everything |
 | Settings | **Configuration** screen | Console prompts, then editing `config.yaml` by hand |
 | Services | **Services** screen: start, stop, restart, live logs | Separate console windows |
@@ -50,7 +51,7 @@ The desktop app covers setup, configuration, and running the services in one win
 
 The script asks for your proxy settings, installs Node.js through winget if it is
 missing, builds the UI, and hands over. The app then supervises the Python services
-itself.
+itself. `.\start-smart-classroom.ps1` without `-WebUI` launches the app the same way.
 
 **Optional parameters:**
 
@@ -107,10 +108,15 @@ The backend starts automatically once setup is complete, unless you passed
 
 ---
 
-## Alternative: PowerShell Scripts and the Browser UI
+## Deprecated: PowerShell Scripts and the Browser UI
 
-Use this path for unattended installs or when you want the services in visible console
-windows.
+> [!WARNING]
+> This path is deprecated and will be removed after release 2027.0.0. Use the
+  [Desktop App](#desktop-app) instead. `setup-smart-classroom.ps1` and
+  `start-smart-classroom.ps1 -WebUI` print a deprecation notice when they run.
+
+Use this path only for unattended installs or when you want the services in visible
+console windows.
 
 ### Step 1: Run the Setup Script (First-Time Only)
 
@@ -120,7 +126,7 @@ windows.
 
 > [!NOTE]
 > If all prerequisites are already installed (FFmpeg, DL Streamer, Python
-  dependencies), you can skip setup and go straight to `.\start-smart-classroom.ps1`.
+  dependencies), you can skip setup and go straight to `.\start-smart-classroom.ps1 -WebUI`.
 
 The setup script will:
 
@@ -147,23 +153,27 @@ The setup script will:
 
 ### Step 2: Start the Services
 
-Use the start script for subsequent runs, or after modifying `config.yaml`:
+Use the start script with `-WebUI` for subsequent runs, or after modifying `config.yaml`.
+Without `-WebUI` it launches the [Desktop App](#desktop-app) instead.
 
 ```powershell
-.\start-smart-classroom.ps1
+.\start-smart-classroom.ps1 -WebUI
 ```
 
-**Optional parameters:**
+**Optional parameters (with `-WebUI`):**
 
-- `-Electron` - Shortcut for `.\start-desktop-app.ps1`; see [Desktop App](#desktop-app)
+- `-Restart` - Kill existing services and restart without prompting
 - `-Silent` - Unattended mode for CI/Ansible (skips all prompts, auto-restarts services)
 - `-NoElevate` - Never show a UAC prompt. The services always run as the current user; only enabling Windows long paths needs administrator privileges, and the script requests them for that change alone (never in `-Silent` mode)
 - `-NoWindowsTerminal` - Use Invoke-WmiMethod instead of Windows Terminal (for remote sessions/Ansible)
 
 ```powershell
 # Example: Automated deployment
-.\start-smart-classroom.ps1 -Silent -NoElevate -NoWindowsTerminal
+.\start-smart-classroom.ps1 -WebUI -Silent -NoElevate -NoWindowsTerminal
 ```
+
+`-Restart` and `-NoWindowsTerminal` are rejected without `-WebUI`, so an existing
+unattended command fails with a clear message rather than opening a desktop window.
 
 The startup script performs:
 
@@ -221,11 +231,11 @@ The Advanced Setup Guide covers:
 | Content Search | 9011 | <http://localhost:9011/api/v1/system/health> (200 only when ChromaDB, file ingest, and video preprocess are ready too; 503 while any is starting) |
 | Layout Detection | 9902 | <http://localhost:9902/health> |
 | Grading | 9012 | <http://localhost:9012/api/v1/health> |
-| Frontend | 5173 | <http://localhost:5173> |
+| Frontend (deprecated browser UI) | 5173 | <http://localhost:5173> |
 
 > [!NOTE]
 > Layout Detection and Grading services only start when `grading.enabled: true` in `config.yaml`.
-> The desktop app is its own frontend and does not use port 5173.
+> The desktop app is its own frontend and does not use port 5173 (except `-Dev`, which runs the Vite dev server there).
 
 ---
 

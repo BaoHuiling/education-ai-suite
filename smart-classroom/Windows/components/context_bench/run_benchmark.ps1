@@ -14,9 +14,11 @@
 #   .\components\context_bench\run_benchmark.ps1 --config components/context_bench/config_qwen3.8_27b.yaml
 #   .\components\context_bench\run_benchmark.ps1 --profiles paged_min dflash_k7 --contexts 8000 --warmup 0 --iterations 1
 #
-# The venv (<app root>/../smartclassroom) is not created here: setup-smart-classroom.ps1
-# creates it with the application's requirements.txt, which pins everything the benchmark
-# needs. If PowerShell blocks local scripts, relax the policy for this process only:
+# The venv (<app root>/../smartclassroom) is not created here: the desktop app's Setup
+# screen (start-desktop-app.ps1) or setup-smart-classroom.ps1 creates it with the
+# application's requirements.txt, which pins everything the benchmark needs.
+# DEPRECATED(webui): drop the setup-smart-classroom.ps1 mentions after 2027.0.0.
+# If PowerShell blocks local scripts, relax the policy for this process only:
 #   Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
 
 Set-StrictMode -Version 3.0
@@ -33,7 +35,8 @@ $VenvPython = Join-Path $VenvPath 'Scripts\python.exe'
 
 if (-not (Test-Path -LiteralPath $VenvPython -PathType Leaf)) {
     Write-Host "Backend venv not found at $VenvPath." -ForegroundColor Red
-    Write-Host "Prepare it first: $(Join-Path $SmartClassroomRoot 'setup-smart-classroom.ps1')" -ForegroundColor Yellow
+    Write-Host "Prepare it first from the desktop app's Setup screen: $(Join-Path $SmartClassroomRoot 'start-desktop-app.ps1')" -ForegroundColor Yellow
+    Write-Host "  (or the deprecated $(Join-Path $SmartClassroomRoot 'setup-smart-classroom.ps1'))" -ForegroundColor Yellow
     exit 2
 }
 

@@ -11,7 +11,8 @@ On either system, setting up Smart Classroom takes the same four stages:
 1. Check that your machine meets the [System Requirements](./get-started/system-requirements.md).
 2. Clone the repository.
 3. Configure features, models, and (optionally) speaker diarization in `config.yaml`.
-4. Run the setup and start the services, then open the UI at <http://localhost:5173>.
+4. Run the setup and start the services, then open the UI: the desktop app on Windows,
+   <http://localhost:5173> on Linux.
 
 ## Choose Your Operating System
 
@@ -21,11 +22,11 @@ On either system, setting up Smart Classroom takes the same four stages:
 <!--hide_directive :::{tab-item} hide_directive--> Windows
 <!--hide_directive :sync: windows hide_directive-->
 
-Native installation with PowerShell. Choose between the desktop app (recommended) and
-PowerShell scripts with the browser UI.
+Native installation with PowerShell, run as a desktop app. The PowerShell scripts with
+the browser UI are deprecated and will be removed after release 2027.0.0.
 
 - **OS**: Windows 11
-- **Run with**: `.\start-desktop-app.ps1` or `.\setup-smart-classroom.ps1`
+- **Run with**: `.\start-desktop-app.ps1` (or `.\start-smart-classroom.ps1`)
 
 Continue with [Get Started on Windows](./get-started/get-started-windows.md).
 
