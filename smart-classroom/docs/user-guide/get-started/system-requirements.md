@@ -86,8 +86,8 @@ For pipeline architecture and processing stages, see [How It Works](../how-it-wo
 | **YOLOv8s-pose** (default) | OpenVINO™ IR | Back pipeline | Lightweight person detection + pose estimation |
 | **YOLO11m/s-pose** | OpenVINO™ IR | Front / Back pipeline | Alternative pose model |
 | **YOLO26m/s-pose** | OpenVINO™ IR | Front / Back pipeline | Alternative pose model |
-| **ResNet-18** | OpenVINO™ IR | Front, Back, Content | Activity/action classification |
-| **MobileNet-V2** | OpenVINO™ IR | Front pipeline | Lightweight classification |
+| **ResNet-18** | OpenVINO™ IR | Content pipeline (front and back pipelines on Linux only) | Content frame classification |
+| **MobileNet-V2** | OpenVINO™ IR | Front pipeline (Linux only) | Lightweight classification |
 | **Person-ReID-retail-0288** | OpenVINO™ IR | Front pipeline | Person re-identification and tracking |
 
 - All models run in OpenVINO™ Intermediate Representation (IR) format

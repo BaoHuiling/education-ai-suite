@@ -1759,6 +1759,8 @@ export interface GradingFsListing {
 // Browse server-side directories for the target-path picker. path=undefined
 // returns the roots (Windows drive letters). Returned directory paths are real,
 // server-visible absolute paths usable as a task's paper_path.
+// DEPRECATED(webui): only the browser UI's DirectoryPicker calls this; remove
+// after 2027.0.0.
 export async function gradingListDir(path?: string): Promise<GradingFsListing> {
   const q = path ? `?path=${encodeURIComponent(path)}` : '';
   return gradingFetch(`/fs/list${q}`);

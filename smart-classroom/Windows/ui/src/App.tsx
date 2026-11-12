@@ -201,6 +201,7 @@ const App: React.FC = () => {
       );
     }
 
+    // DEPRECATED(webui): browser-only dead end, remove after 2027.0.0.
     return (
       <div className="app-error">
         <div className="error-content">

@@ -39,7 +39,9 @@ $VenvPython = Join-Path $VenvPath 'Scripts\python.exe'
 
 if (-not (Test-Path -LiteralPath $VenvPython -PathType Leaf)) {
     Write-Host "Backend venv not found at $VenvPath." -ForegroundColor Red
-    Write-Host "Prepare it first: $(Join-Path $SmartClassroomRoot 'setup-smart-classroom.ps1')" -ForegroundColor Yellow
+    Write-Host "Prepare it first from the desktop app's Setup screen: $(Join-Path $SmartClassroomRoot 'start-desktop-app.ps1')" -ForegroundColor Yellow
+    # DEPRECATED(webui): drop this line after 2027.0.0.
+    Write-Host "  (or the deprecated $(Join-Path $SmartClassroomRoot 'setup-smart-classroom.ps1'))" -ForegroundColor Yellow
     exit 2
 }
 

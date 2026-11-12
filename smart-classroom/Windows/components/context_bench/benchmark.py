@@ -91,6 +91,8 @@ EXIT_INTERRUPTED = 130
 
 _BACKEND_VENV_PYTHON = SC_ROOT.parent / "smartclassroom" / "Scripts" / "python.exe"
 _LAUNCHER_SCRIPT = TOOL_DIR / "run_benchmark.ps1"
+_DESKTOP_APP_SCRIPT = SC_ROOT / "start-desktop-app.ps1"
+# DEPRECATED(webui): setup-smart-classroom.ps1 is removed after 2027.0.0.
 _SETUP_SCRIPT = SC_ROOT / "setup-smart-classroom.ps1"
 _REQUIRED_MODULES = ("openvino", "openvino_genai", "transformers", "jinja2", "psutil")
 _RUNTIME_PACKAGES = ("openvino", "openvino-genai", "openvino-tokenizers", "transformers",
@@ -128,7 +130,8 @@ def _preflight_environment_check() -> None:
         "The OpenVINO stack lives in the backend venv (<app root>/../smartclassroom), "
         "not the interpreter on PATH. Use the launcher, which runs that venv's Python:",
         f"  {redactor.redact(_LAUNCHER_SCRIPT)} <same arguments>",
-        f"or prepare the venv first with {redactor.redact(_SETUP_SCRIPT)}",
+        f"or prepare the venv first from the Setup screen of {redactor.redact(_DESKTOP_APP_SCRIPT)}",
+        f"(or the deprecated {redactor.redact(_SETUP_SCRIPT)})",
         "(--list-profiles checks the run matrix without any of these packages.)",
     ]
     raise DependencyError("\n".join(lines))

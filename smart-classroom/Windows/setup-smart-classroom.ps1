@@ -1,4 +1,7 @@
 #!/usr/bin/env pwsh
+# DEPRECATED(webui): this script belongs to the browser UI path and will be
+# removed after 2027.0.0. The desktop app's Setup screen (start-desktop-app.ps1)
+# replaces it.
 param(
     [switch]$Help,
     [switch]$NoElevate,
@@ -107,6 +110,9 @@ if ($Help) {
     Write-Host @"
 Smart Classroom Setup Script
 
+DEPRECATED: this script will be removed after 2027.0.0. Run ./start-desktop-app.ps1
+and use the desktop app's Setup screen instead.
+
 Usage: ./setup-smart-classroom.ps1 [-Help] [-NoElevate] [-Silent] [-NoWindowsTerminal]
 
 Options:
@@ -150,6 +156,9 @@ Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "   SMART CLASSROOM SETUP SCRIPT" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "DEPRECATED: this script will be removed after 2027.0.0." -ForegroundColor Yellow
+Write-Host "Run .\start-desktop-app.ps1 and use the desktop app's Setup screen instead." -ForegroundColor Yellow
 Write-Host ""
 
 # ============================================================================
@@ -2302,10 +2311,11 @@ Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "Smart Classroom setup has finished successfully." -ForegroundColor Green
 Write-Host ""
-Write-Host "To start the services, run:" -ForegroundColor Yellow
-Write-Host "  .\start-smart-classroom.ps1" -ForegroundColor Cyan
+Write-Host "To start the desktop app, run:" -ForegroundColor Yellow
+Write-Host "  .\start-desktop-app.ps1" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "Or with options:" -ForegroundColor Gray
-Write-Host "  .\start-smart-classroom.ps1 -SkipProxy       # Skip proxy configuration" -ForegroundColor Gray
-Write-Host "  .\start-smart-classroom.ps1 -Restart         # Force restart all services" -ForegroundColor Gray
+Write-Host "Deprecated browser UI (removed after 2027.0.0):" -ForegroundColor Gray
+Write-Host "  .\start-smart-classroom.ps1 -WebUI                # Services in console windows, UI in a browser" -ForegroundColor Gray
+Write-Host "  .\start-smart-classroom.ps1 -WebUI -SkipProxy     # Skip proxy configuration" -ForegroundColor Gray
+Write-Host "  .\start-smart-classroom.ps1 -WebUI -Restart       # Force restart all services" -ForegroundColor Gray
 Write-Host ""

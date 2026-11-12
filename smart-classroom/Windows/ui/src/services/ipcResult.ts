@@ -5,6 +5,7 @@ import type { IpcResult } from '../types/services';
 
 /** Unwraps the { ok, data } | { ok, error } envelope used by every Electron IPC handler. */
 export async function unwrap<T>(call: Promise<IpcResult<T>> | undefined): Promise<T> {
+  // DEPRECATED(webui): only reachable in the browser UI, remove after 2027.0.0.
   if (!call) throw new Error('This feature is only available in the desktop app.');
   const result = await call;
   // The code rides along on the Error so a `catch` gets both without the caller
