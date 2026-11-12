@@ -138,7 +138,6 @@ This script will:
   2. Check system requirements (OS, RAM, Python, Node.js, etc.)
   3. Check application dependencies (FFmpeg, DL Streamer)
   4. Configure smart-classroom settings (features, language, upload limits, document OCR)
-  5. Launch the startup script
 
 "@ -ForegroundColor Cyan
     exit 0
