@@ -346,6 +346,38 @@ python grading_service.py
 > Open a new Command Prompt / terminal window for the frontend.
 > The backend and Content Search terminals stay busy serving requests.
 
+The UI runs as a Windows desktop app. It connects to the backend services started in
+the previous steps, so those must be running.
+
+```bash
+cd <path-to>\education-ai-suite\smart-classroom\Windows\ui
+npm install
+
+# Build the UI and open the desktop window.
+npm run electron:preview
+
+# Development: opens the desktop window and starts the dev server on 5173 (hot reload)
+npm run electron:dev
+
+# Package a Windows installer:
+#   release\SmartClassroom-<version>-setup.exe
+npm run electron:build
+```
+
+> [!NOTE]
+> The Electron runtime binary is fetched lazily the **first time Electron runs**
+  (`npm run electron:dev` / `electron:preview`). Behind a proxy, the first launch
+  needs the proxy variables `ELECTRON_GET_USE_PROXY=true` and
+  `GLOBAL_AGENT_HTTPS_PROXY=<proxy>` in addition to the usual
+  `HTTP_PROXY` / `HTTPS_PROXY`. The `npm run electron:build` downloads
+  its own copy via electron-builder and honors the standard `HTTPS_PROXY`.
+
+### Deprecated: Browser UI
+
+> [!WARNING]
+> The browser UI is deprecated and will be removed after release 2027.0.0. Use the
+  desktop app above instead.
+
 ```bash
 cd <path-to>\education-ai-suite\smart-classroom\Windows\ui
 npm install
@@ -358,56 +390,29 @@ npm run dev -- --host 127.0.0.1 --port 5173
   authentication. Binding it to `0.0.0.0` exposes those backends, including
   their file read and write APIs, to every device on the network.
 
-### Optional: Run as an Electron Desktop App
-
-The UI can run as a Windows desktop app instead of a browser tab.
-This is an additive layer: it connects to the same backend services,
-so those must be running as in the previous steps.
-
-```bash
-cd <path-to>\education-ai-suite\smart-classroom\Windows\ui
-npm install
-
-# Development: opens the desktop window and starts the dev server on 5173
-npm run electron:dev
-
-# Production preview: builds the UI and runs the packaged launch path, no dev server.
-npm run electron:preview
-
-# Package a standalone Windows portable executable:
-#   release\SmartClassroom-<version>-portable.exe
-npm run electron:build
-```
-
-> [!NOTE]
-> The Electron runtime binary is fetched lazily the **first time Electron runs**
-  (`npm run electron:dev` / `electron:preview`). Behind a proxy, the first launch
-  needs the proxy variables `ELECTRON_GET_USE_PROXY=true` and
-  `GLOBAL_AGENT_HTTPS_PROXY=<proxy>` in addition to the usual
-  `HTTP_PROXY` / `HTTPS_PROXY`. The `npm run electron:build` downloads
-  its own copy via electron-builder and honors the standard `HTTPS_PROXY`.
-
 ## Step 7: Access the UI
 
-After starting the frontend, you can open the Smart Classroom UI in a browser
-(or, if you used `npm run electron:dev`, in the Electron desktop window
-that opens automatically):
+The desktop window opens automatically after `npm run electron:preview` or
+`npm run electron:dev`.
+
+With the deprecated browser UI, open one of these in a browser:
 
 - `http://localhost:5173`
 - `http://127.0.0.1:5173`
 
-The UI is only reachable from the machine running the services. If you changed
-the port, adjust the URL accordingly.
+The browser UI is only reachable from the machine running the services. If you
+changed the port, adjust the URL accordingly.
 
 ## Troubleshooting
 
 - **Frontend not opening:**
-  Ensure you ran `npm run dev` in a second terminal after starting `python main.py`.
+  Ensure you ran `npm run electron:preview` (or the deprecated `npm run dev`) in a
+  second terminal after starting `python main.py`.
 
 - **Backend not ready:**
   Wait until Uvicorn shows **"Application startup complete"** and is listening on port **8000**.
 
-- **Nothing at http://localhost:5173:**
+- **Nothing at http://localhost:5173 (deprecated browser UI):**
   Check that the frontend terminal shows the Vite server running and no port conflict.
 
 - **Auto reload not happening:**
@@ -458,7 +463,7 @@ the port, adjust the URL accordingly.
 
 ### Known Issues
 
-- **Manual Video File Path Input**: In a web browser, you must manually specify the path to video files from your local system in the base directory input. Using the Electron desktop app is recommended for seamless operation.
+- **Manual Video File Path Input**: In the deprecated browser UI, you must manually specify the path to video files from your local system in the base directory input. The desktop app resolves the paths itself.
 - **Live Video Monitoring Timeout**: Live video monitoring sessions stop automatically after 45 minutes unless you reload the page to start a new session.
 - **Stream End Notification**: When video streaming ends, a "Stream not found" message appears on the screen, indicating that the stream has concluded.
 - **Do Not Reload During Active Streaming**: Do not reload the page while the stream is active. Reloading terminates the session, and you lose the current stream. Wait until the "Stream not found" notification appears before reloading.

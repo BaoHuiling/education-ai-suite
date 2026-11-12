@@ -459,6 +459,8 @@ const UploadSection: React.FC<UploadSectionProps> = ({ disabled, active }) => {
   // Web: the hidden file input, as before.
   const handleBrowse = async () => {
     const pickFiles = window.electronAPI?.pickFiles;
+    // DEPRECATED(webui): browser-only fallback (with the hidden file input and
+    // handleFileChange), remove after 2027.0.0. Drag-drop keeps the File path.
     if (!pickFiles) {
       fileInputRef.current?.click();
       return;

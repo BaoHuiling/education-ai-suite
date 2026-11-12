@@ -6,7 +6,9 @@ param(
     [switch]$NoElevate,
     [switch]$Silent,
     [switch]$NoWindowsTerminal,
-    [switch]$Electron
+    [switch]$Electron,
+    # DEPRECATED(webui): browser UI mode, remove after 2027.0.0.
+    [switch]$WebUI
 )
 
 # ============================================================================
@@ -56,23 +58,30 @@ if ($Help) {
     Write-Host @"
 Smart Classroom Startup Script
 
-Usage: ./start-smart-classroom.ps1 [-SkipProxy] [-Restart] [-Silent] [-NoElevate] [-NoWindowsTerminal] [-Electron] [-Help]
+Usage: ./start-smart-classroom.ps1 [-SkipProxy] [-Silent] [-Help]
+       ./start-smart-classroom.ps1 -WebUI [-SkipProxy] [-Restart] [-Silent] [-NoElevate] [-NoWindowsTerminal]
+
+By default this launches the desktop app (same as ./start-desktop-app.ps1),
+which manages the Python services itself and never elevates.
 
 Options:
     -SkipProxy           Skip proxy configuration prompts
-    -Restart             Kill existing services and restart (no prompt)
-    -Silent              Unattended mode - auto-restart, skip all prompts (UAC included)
-    -NoElevate           Never show a UAC prompt; enabling long paths is skipped if it needs one
-    -NoWindowsTerminal   Launch through WMI instead of Windows Terminal (for remote sessions)
-    -Electron            Shortcut for ./start-desktop-app.ps1 - launches the desktop app, which
-                         manages the Python services itself. Never elevates.
+    -Silent              Unattended mode - skip all prompts (with -WebUI: UAC included, auto-restart)
+    -Electron            Accepted for compatibility; the desktop app is now the default
     -Help                Show this help message
 
-Note: the services run as the current user, never as Administrator. Only
-      enabling Windows long paths needs Administrator; when it is off, a UAC
-      prompt asks for that one change (not with -Silent or -NoElevate).
+DEPRECATED - browser UI, to be removed after 2027.0.0:
+    -WebUI               Start the services in console windows and serve the UI
+                         in a browser at http://localhost:5173
+    -Restart             Kill existing services and restart (no prompt)
+    -NoElevate           Never show a UAC prompt; enabling long paths is skipped if it needs one
+    -NoWindowsTerminal   Launch through WMI instead of Windows Terminal (for remote sessions)
 
-Services Launched (in order):
+    With -WebUI the services run as the current user, never as Administrator.
+    Only enabling Windows long paths needs Administrator; when it is off, a UAC
+    prompt asks for that one change (not with -Silent or -NoElevate).
+
+    Services launched with -WebUI (in order):
     1. Backend (port 8000)     - Main Python pipeline service; runs in this terminal, or a detached logged process with -NoWindowsTerminal (with paddleocr if OCR enabled)
     2. Content Search (9011)   - RAG, video summarization, semantic search
     3. Grading (9902 + 9012)   - Layout detection + VLM grading service (if grading.enabled)
@@ -83,15 +92,49 @@ Services Launched (in order):
 }
 
 # ============================================================================
-# DESKTOP APP MODE (-Electron)
+# DESKTOP APP MODE (default)
 # ============================================================================
-# The Electron app supervises the Python services itself, so -Electron just
+# The Electron app supervises the Python services itself, so the default just
 # delegates.
-if ($Electron) {
+if ($WebUI -and $Electron) {
+    Write-Host "ERROR: -WebUI and -Electron cannot be combined." -ForegroundColor Red
+    exit 1
+}
+
+if (-not $WebUI) {
+    # These only make sense when this script runs the services. Fail instead of
+    # opening a desktop window that an unattended or remote caller cannot use.
+    $webOnly = @()
+    if ($Restart) { $webOnly += "-Restart" }
+    if ($NoWindowsTerminal) { $webOnly += "-NoWindowsTerminal" }
+    if ($webOnly) {
+        Write-Host "ERROR: $($webOnly -join ', ') only applies to the deprecated browser UI." -ForegroundColor Red
+        Write-Host "The desktop app is now the default. Add -WebUI to keep the old behavior" -ForegroundColor Yellow
+        Write-Host "until it is removed after 2027.0.0, or run ./start-desktop-app.ps1." -ForegroundColor Yellow
+        exit 1
+    }
+
     $ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Definition }
-    & (Join-Path $ScriptDir "start-desktop-app.ps1")
+    # The desktop app never elevates, so -NoElevate needs no forwarding.
+    $desktopArgs = @{}
+    if ($Silent -or $SkipProxy) { $desktopArgs['Silent'] = $true }
+    & (Join-Path $ScriptDir "start-desktop-app.ps1") @desktopArgs
     exit $LASTEXITCODE
 }
+
+# ============================================================================
+# DEPRECATED(webui): BROWSER UI MODE (-WebUI) - remove after 2027.0.0
+# ============================================================================
+# Everything below this banner runs only with -WebUI. When it is removed, this
+# script reduces to the delegation above (or is dropped for start-desktop-app.ps1).
+Write-Host ""
+Write-Host "========================================" -ForegroundColor Yellow
+Write-Host "  DEPRECATED: the browser UI (-WebUI)" -ForegroundColor Yellow
+Write-Host "========================================" -ForegroundColor Yellow
+Write-Host "The browser UI and PowerShell-managed services will be removed after" -ForegroundColor Yellow
+Write-Host "2027.0.0. Use the desktop app instead: ./start-desktop-app.ps1" -ForegroundColor Yellow
+Write-Host "(or ./start-smart-classroom.ps1 without -WebUI)." -ForegroundColor Yellow
+Write-Host ""
 
 # ============================================================================
 # PRIVILEGES
@@ -1570,6 +1613,9 @@ if ($contentSearchEnabled) {
 Write-Host "  3. Frontend       -> http://localhost:5173  [HEALTHY]" -ForegroundColor White
 Write-Host ""
 Write-Host "Open in browser: http://localhost:5173" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "DEPRECATED: the browser UI will be removed after 2027.0.0." -ForegroundColor Yellow
+Write-Host "Use the desktop app instead: ./start-desktop-app.ps1" -ForegroundColor Yellow
 Write-Host ""
 
 if ($Silent) {

@@ -86,6 +86,7 @@ const NewTaskForm: React.FC<NewTaskFormProps> = ({ onTaskCreated }) => {
   // by the server. On the web, fall back to the in-app picker that browses the
   // server's filesystem over the API.
   const handleBrowse = async () => {
+    // DEPRECATED(webui): browser-only fallback, remove after 2027.0.0.
     if (!window.electronAPI?.pickDirectory) {
       setPickerOpen(true);
       return;
@@ -197,6 +198,7 @@ const NewTaskForm: React.FC<NewTaskFormProps> = ({ onTaskCreated }) => {
           </button>
         </div>
       </div>
+      {/* DEPRECATED(webui): browser-only hint, remove after 2027.0.0. */}
       {!isElectron && (
         <div className="grading-form-hint">
           {t('grading.form.pathHint', 'A path visible to the server, not a browser upload.')}
@@ -205,6 +207,8 @@ const NewTaskForm: React.FC<NewTaskFormProps> = ({ onTaskCreated }) => {
 
       {error && <div className="grading-error">{error}</div>}
 
+      {/* DEPRECATED(webui): browser-only server-side picker (DirectoryPicker,
+          gradingListDir), remove after 2027.0.0. */}
       {pickerOpen && (
         <DirectoryPicker
           initialPath={paperPath || getLastDir()}

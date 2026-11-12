@@ -5,6 +5,8 @@ import { gradingListDir } from '../../services/api';
 import type { GradingFsEntry } from '../../services/api';
 import GradingModal from './GradingModal';
 
+// DEPRECATED(webui): only the browser UI opens this picker (Electron uses the
+// native folder dialog). Remove after 2027.0.0, with gradingListDir in api.ts.
 interface DirectoryPickerProps {
   initialPath?: string;
   onSelect: (path: string) => void;
