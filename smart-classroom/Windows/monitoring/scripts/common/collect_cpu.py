@@ -21,10 +21,11 @@ def start_cpu_monitoring(interval_seconds, stop_event, output_dir=None):
             if mode=='w':
                 writer.writerow(['timestamp', 'total_cpu_utilization'])
                 f.flush()
-            while not stop_event.is_set():
+            psutil.cpu_times_percent(interval=None)
+            while not stop_event.wait(interval_seconds):
                 timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
                 try:
-                    cpu_times_percent = psutil.cpu_times_percent(interval=0)
+                    cpu_times_percent = psutil.cpu_times_percent(interval=None)
                     total_cpu_utilization = 100.0 - cpu_times_percent.idle                
                     writer.writerow([
                         timestamp,
@@ -34,7 +35,6 @@ def start_cpu_monitoring(interval_seconds, stop_event, output_dir=None):
                 except Exception as e:
                     logger.error(f"Error: CPU monitoring error: {e}")
                     writer.writerow([timestamp, 0.0])
-                stop_event.wait(interval_seconds)
     except KeyboardInterrupt:
         logger.info("CPU monitoring stopped by user.")
     except Exception as e:
