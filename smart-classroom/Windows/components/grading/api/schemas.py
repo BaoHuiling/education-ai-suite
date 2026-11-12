@@ -169,6 +169,7 @@ class TaskSummaryJsonResponse(BaseModel):
     student_count: int = 0
 
 
+# DEPRECATED(webui): response models for GET /fs/list, remove after 2027.0.0.
 class FsEntry(BaseModel):
     name: str
     path: str

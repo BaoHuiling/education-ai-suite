@@ -16,7 +16,7 @@ Every route below is prefixed with `/api/v1`.
 | GET | `/api/v1/health` | Service health incl. backend dependencies |
 | GET | `/api/v1/grading/config` | Read effective grading config |
 | PUT | `/api/v1/grading/config` | Update grading config |
-| GET | `/api/v1/fs/list` | List a directory on disk |
+| GET | `/api/v1/fs/list` | List a directory on disk (deprecated) |
 | GET | `/api/v1/rubrics` | List rubric files |
 | POST | `/api/v1/rubrics/upload` | Upload a rubric file |
 | GET | `/api/v1/rubrics/{filename}/content` | Read a rubric's content |
@@ -108,6 +108,10 @@ the GET response (excluding the read-only `vlm_model` / `ocr_model` /
 ## File system
 
 ### GET `/api/v1/fs/list`
+
+> [!WARNING]
+> Deprecated: only the browser UI uses this endpoint, and it will be removed after
+  release 2027.0.0. The desktop app picks `paper_path` with the native folder dialog.
 
 List a directory for picking `paper_path` in the UI.
 

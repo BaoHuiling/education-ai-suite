@@ -166,6 +166,8 @@ def list_rubrics() -> dict[str, Any]:
     return {"total": len(rubrics), "rubrics": rubrics}
 
 
+# DEPRECATED(webui): _windows_drives, list_directory and _scan_dir back GET /fs/list,
+# which only the browser UI uses. Remove after 2027.0.0.
 def _windows_drives() -> list[dict[str, Any]]:
     """Enumerate available Windows drive roots (C:\\, D:\\, ...) as directory entries."""
     import string
