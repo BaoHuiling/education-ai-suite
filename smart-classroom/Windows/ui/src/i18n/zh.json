@@ -200,6 +200,18 @@
         "summary": "推理框架与模型不匹配",
         "message": "{{provider}} 推理框架只能运行 {{family}} 模型，但当前 ASR 模型为“{{model}}”。请选择 {{family}} 模型或更换推理框架。"
       },
+      "vlmWeightFormat": {
+        "summary": "未测试的权重格式",
+        "message": "{{model}} 仅在权重格式 {{available}} 下测试过；{{format}} 没有预转换的 IR。请选择 {{available}}。"
+      },
+      "speculativeNone": {
+        "summary": "没有已测试的投机解码",
+        "message": "{{model}} 没有已测试的投机解码方法。请将投机解码模式设为 off。"
+      },
+      "speculativeUntested": {
+        "summary": "未测试的投机解码",
+        "message": "投机解码方法 {{method}} 未针对 {{model}} {{format}}（app.language {{language}}）测试。已测试：{{supported}}。请选择已测试的方法，或将模式设为 off。"
+      },
       "diarizationToken": {
         "summary": "需要 Hugging Face 令牌",
         "message": "说话人分离模型尚未下载，下载需要 Hugging Face 令牌。请填写令牌或关闭说话人分离。"
@@ -404,7 +416,7 @@
         },
         "vlm_name": {
           "label": "VLM 模型",
-          "help": "列表中的选项以预转换的 OpenVINO IR 形式下载；其他模型会在首次运行时转换。"
+          "help": "这些模型以预转换的 OpenVINO IR 形式下载。"
         },
         "device": {
           "label": "文本生成（VLM）设备"
@@ -422,7 +434,7 @@
           },
           "method": {
             "label": "投机解码方法",
-            "help": "auto 选用针对该 VLM 模型调优的方法。模式为 off 时忽略。"
+            "help": "已测试：Qwen3-VL-8B-Instruct int4 eagle3（仅英文）；Qwen3.5-9B int4/int8 dflash 或 mtp；Qwen3.6-35B-A3B int4 dflash；Qwen3.8-27B 无。auto 选用已测试的方法。模式为 off 时忽略。"
           }
         }
       },
