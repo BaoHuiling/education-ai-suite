@@ -4,13 +4,18 @@ import "../../assets/css/RightPanel.css";
 import { useTranslation } from "react-i18next";
 import { useAppSelector } from "../../redux/hooks";
 import { getConfigurationMetrics, getPlatformInfo, getCsSystemConfig } from "../../services/api";
+import { isConfigManagerAvailable } from "../../services/configManager";
 
 interface Props {
   activeScreen: 'main' | 'content-search' | 'grading';
+  /** Opens Settings → Configuration on one field (config path). */
+  onOpenConfig?: (path: string) => void;
 }
 
-const ConfigurationMetricsAccordion: React.FC<Props> = ({ activeScreen }) => {
+const ConfigurationMetricsAccordion: React.FC<Props> = ({ activeScreen, onOpenConfig }) => {
   const { t } = useTranslation();
+  // Settings → Configuration only exists in the Electron app.
+  const canChange = !!onOpenConfig && isConfigManagerAvailable();
   const sessionId = useAppSelector((state) => state.ui.sessionId);
   const summaryDone = useAppSelector(
     (state) => !state.ui.aiProcessing && state.ui.summaryEnabled && !state.ui.summaryLoading
@@ -60,6 +65,23 @@ const ConfigurationMetricsAccordion: React.FC<Props> = ({ activeScreen }) => {
     }
   }, [summaryDone, sessionId]);
 
+  const renderModelRow = (label: string, value: string | undefined, configPath: string) => (
+    <p className="config-model-row">
+      <span><strong>{label}:</strong> {value || "-"}</span>
+      {canChange && (
+        <button
+          type="button"
+          className="config-change-btn"
+          title={t("accordion.changeInSettings", "Change in Settings → Configuration")}
+          aria-label={t("accordion.changeModelAria", { name: label, defaultValue: "Change {{name}} model" })}
+          onClick={() => onOpenConfig?.(configPath)}
+        >
+          {t("accordion.change", "Change")}
+        </button>
+      )}
+    </p>
+  );
+
   return (
     <Accordion title={t("accordion.configuration")}>
       <div className="accordion-subtitle">
@@ -92,8 +114,8 @@ const ConfigurationMetricsAccordion: React.FC<Props> = ({ activeScreen }) => {
             </>
           ) : (
             <>
-              <p><strong>{t("accordion.llm") || "LLM"}:</strong> {platformData?.summarizer_model || "-"}</p>
-              <p><strong>{t("accordion.asr") || "ASR"}:</strong> {platformData?.asr_model || "-"}</p>
+              {renderModelRow(t("accordion.llm") || "LLM", platformData?.summarizer_model, "models.text_gen.vlm_name")}
+              {renderModelRow(t("accordion.asr") || "ASR", platformData?.asr_model, "models.asr.name")}
 
               {/* Performance metrics — main screen only */}
               <h3>{t("accordion.performanceMetrics") || "Performance Metrics"}</h3>
