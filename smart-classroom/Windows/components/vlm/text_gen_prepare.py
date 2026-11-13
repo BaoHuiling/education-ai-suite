@@ -4,7 +4,7 @@
 """Prepare the ``text_gen`` target and speculative artifacts before serving.
 
 The model owner calls :func:`prepare` when it loads the warm VLM, so every
-startup path (``start-smart-classroom.ps1``, the desktop app, ``python main.py``)
+startup path (the desktop app, ``python main.py``)
 prepares the same way: the first start downloads or converts what is missing,
 later starts only validate. Request handlers never download or convert.
 

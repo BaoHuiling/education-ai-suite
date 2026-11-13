@@ -9,10 +9,10 @@ system has its own guide.
 On either system, setting up Smart Classroom takes the same four stages:
 
 1. Check that your machine meets the [System Requirements](./get-started/system-requirements.md).
-2. Clone the repository.
+2. Get the application: on Windows, download the installer; on Linux, clone the repository.
 3. Configure features, models, and (optionally) speaker diarization in `config.yaml`.
-4. Run the setup and start the services, then open the UI: the desktop app on Windows,
-   <http://localhost:5173> on Linux.
+4. Install the prerequisites and start the services: on Windows, from the desktop app;
+   on Linux, with `setup.sh`, then open the UI at <http://localhost:5173>.
 
 ## Choose Your Operating System
 
@@ -22,11 +22,12 @@ On either system, setting up Smart Classroom takes the same four stages:
 <!--hide_directive :::{tab-item} hide_directive--> Windows
 <!--hide_directive :sync: windows hide_directive-->
 
-Native installation with PowerShell, run as a desktop app. The PowerShell scripts with
-the browser UI are deprecated and will be removed after release 2027.0.0.
+Desktop app installed from `SmartClassroom-<version>-setup.exe`, available on the
+[Releases page](https://github.com/open-edge-platform/education-ai-suite/releases).
+The app installs the prerequisites, edits the configuration, and runs the services.
 
 - **OS**: Windows 11
-- **Run with**: `.\start-desktop-app.ps1` (or `.\start-smart-classroom.ps1`)
+- **Run with**: the **Smart Classroom** desktop app
 
 Continue with [Get Started on Windows](./get-started/get-started-windows.md).
 
@@ -61,15 +62,17 @@ For the steps to apply the token, see the guide for your operating system, or th
 
 ### Network Requirements
 
-- **Proxy**: If you are behind a proxy, configure `HTTP_PROXY`, `HTTPS_PROXY`, and
-  `NO_PROXY` for your shell. On Linux, also configure them for Docker.
+- **Proxy**: If you are behind a proxy, configure `HTTP_PROXY` and `HTTPS_PROXY`. On
+  Windows, set them on the desktop app's **Configuration** screen. On Linux, configure
+  them, and `NO_PROXY`, for your shell and for Docker.
 - **Model downloads**: Stable access to `huggingface.co` is required to download
   pre-trained models.
 
 ## Learn More
 
 - [System Requirements](./get-started/system-requirements.md): Hardware, software, supported models, and weight formats.
-- [Advanced Setup Guide](./advanced-setup-guide.md): Manual step-by-step setup.
+- [Advanced Setup Guide](./advanced-setup-guide.md): Windows configuration reference, troubleshooting, and uninstall.
+- [Build the Installer from Source](./get-started/build-from-source-windows.md): Build the Windows installer yourself.
 - [Application Flow](./application-flow.md): End-to-end application flow.
 - [Content Search Flow](./content-search-flow.md): The flow of the content search functionality.
 
@@ -78,6 +81,7 @@ For the steps to apply the token, see the guide for your operating system, or th
 :hidden:
 
 Start on Windows <./get-started/get-started-windows>
+Build the Installer from Source <./get-started/build-from-source-windows>
 Start on Linux <./get-started/get-started-linux>
 ./get-started/system-requirements
 

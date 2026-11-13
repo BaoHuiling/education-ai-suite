@@ -103,11 +103,11 @@ if __name__ == "__main__":
         """Records running stages as interrupted the moment a stop signal arrives.
 
         The lifespan shutdown runs only after open connections close (up to
-        timeout_graceful_shutdown), and a second Ctrl+C skips it. Meanwhile
-        start-smart-classroom.ps1 force-kills the backend within a second of
-        Ctrl+C, so VA, which runs as long as its videos, was left with no
-        record. On a thread: a signal handler interrupts the main thread,
-        which may hold the locks close_open_stages() takes.
+        timeout_graceful_shutdown), a second Ctrl+C skips it, and whatever
+        launched the backend may kill it before then. VA, which runs as long
+        as its videos, would be left with no record. On a thread: a signal
+        handler interrupts the main thread, which may hold the locks
+        close_open_stages() takes.
         """
 
         def handle_exit(self, sig, frame):

@@ -17,8 +17,8 @@ This page lists the hardware, software, and platform requirements, and the suppo
 - **GPU/Accelerator**: Intel® iGPU (Intel® Core™ Ultra Series 1, Intel® Arc™ GPU, or higher) for summarization acceleration
 - **NPU**: Intel® NPU (Intel® Core™ Ultra Series 1 or higher) for Video pipelines
 - **NPU Driver**: Download and install the latest version from [Intel NPU Driver Download Page](https://www.intel.com/content/www/us/en/download/794734/intel-npu-driver-windows.html)
-- **Python**: 3.12
-- **Node.js**: v18+ (for frontend)
+- **Python**: 3.12 (the desktop app's **Setup** screen can install it)
+- **Node.js**: Not needed; the desktop app bundles its own. Building the installer from source needs Node.js 20.19+ or 22.12+
 
 <!--hide_directive ::: hide_directive-->
 

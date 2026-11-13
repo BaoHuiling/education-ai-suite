@@ -174,8 +174,9 @@ def _environment() -> dict:
 def _preparation_hint(model: str, model_dir: Path, missing: list, redact) -> str:
     return (
         f"{model}: IR at {redact(model_dir)} is incomplete (missing {', '.join(missing)}). "
-        "Prepare it with the serving preparation workflow (start-smart-classroom.ps1, which "
-        "places IR under models/openvino/<name>/<weight_format>) or an explicit export, then "
+        "Prepare it with the serving preparation workflow (start the backend once, for example "
+        "with python main.py, which places IR under models/openvino/<name>/<weight_format>) or "
+        "an explicit export, then "
         "point model.model_dirs at it. The benchmark never downloads, exports or repairs files."
     )
 

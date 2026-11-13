@@ -39,8 +39,8 @@ A stage still running when the backend shuts down (VA above all, which lasts
 as long as its videos) is recorded as `interrupted`, with error class
 `Shutdown` and the time it had run up to the stop signal. It is recorded the
 moment Ctrl+C (or Ctrl+Break) reaches the backend, before the server waits
-for open connections to close, because `start-smart-classroom.ps1`
-force-kills the backend within a second of Ctrl+C. A kill with no signal
+for open connections to close, because a second Ctrl+C skips that wait and
+whatever launched the backend may kill it before the wait ends. A kill with no signal
 before it (`taskkill /F` alone, which the desktop app's service manager uses)
 leaves no time for that. The report then still shows each VA pipeline from
 its runner log.
