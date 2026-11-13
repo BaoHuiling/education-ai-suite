@@ -33,5 +33,7 @@ extraResources:
       - '!**/__pycache__/**'
       - '!**/*.py[cod]'
       - '!**/.env'
+      - '!**/.proxy-config'
+      - '!**/models/**'
       - '!**/venv_convert/**'
       - '!**/.pytest_cache/**'

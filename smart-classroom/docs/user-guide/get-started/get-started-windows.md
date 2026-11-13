@@ -1,80 +1,80 @@
 # Get Started on Windows
 
-> [!IMPORTANT]
-> Use **Windows PowerShell** (not Command Prompt/CMD) for all steps in this guide.
-> PowerShell scripts (`.ps1` files) will not execute in CMD — they will only open as text files.
+Smart Classroom for Windows is distributed as a desktop application installer. The
+app checks and installs the prerequisites, edits the configuration, and starts and
+stops the backend services, all from one window.
 
-Smart Classroom runs as a desktop app. The older PowerShell scripts with the browser UI
-are deprecated and will be removed after release 2027.0.0. Both use the same services,
-models, and configurations.
+> [!NOTE]
+> To build the installer yourself, see
+> [Build the Installer from Source](./build-from-source-windows.md).
 
-| | [Desktop app](#desktop-app) (default) | [PowerShell scripts](#deprecated-powershell-scripts-and-the-browser-ui) (deprecated) |
-| :--- | :--- | :--- |
-| Commands to run | `.\start-desktop-app.ps1` (or `.\start-smart-classroom.ps1`) | `.\setup-smart-classroom.ps1`, then `.\start-smart-classroom.ps1 -WebUI` |
-| Prerequisites and installs | **Setup** screen, one item at a time | One scripted pass through everything |
-| Settings | **Configuration** screen | Console prompts, then editing `config.yaml` by hand |
-| Services | **Services** screen: start, stop, restart, live logs | Separate console windows |
-| Where the UI runs | Its own desktop window | Browser at <http://localhost:5173> |
+## Step 1: Download the Installer
 
-Whichever you pick, start by cloning the repository.
+1. Check that your machine meets the [System Requirements](./system-requirements.md).
+2. Open the [Releases page](https://github.com/open-edge-platform/education-ai-suite/releases)
+   of the repository.
+3. Under **Assets** of the release you want, download
+   `SmartClassroom-<version>-setup.exe`.
 
-## Clone the Repository
+> [!NOTE]
+> The app checks the Intel GPU and NPU drivers but does not install them. Install or
+> update the [NPU driver](./system-requirements.md#software-and-hardware-requirements)
+> from an administrator account before you start.
 
-Go to the target directory of your choice and clone the suite.
-If you want to clone a specific release branch, replace `main` with the desired tag.
-To learn more about partial cloning, see the [Repository Cloning guide](https://docs.openedgeplatform.intel.com/dev/OEP-articles/contribution-guide.html#repository-cloning-partial-cloning).
+## Step 2: Install the App
 
-```bash
-git clone --filter=blob:none --sparse --branch main https://github.com/open-edge-platform/education-ai-suite.git
-cd education-ai-suite
-git sparse-checkout set smart-classroom/Windows
-cd smart-classroom/Windows
-```
+Run `SmartClassroom-<version>-setup.exe` and follow the installer:
 
-> [!TIP]
-> Also want the Flutter + RAG companion app? It's a separate, lighter-weight
-> demo under `utils/flutter` at the repository root rather than under
-> `smart-classroom/Windows`, so the sparse checkout above does not include
-> it. See [Optional: Flutter + RAG Companion App](#optional-flutter--rag-companion-app) below.
+1. **Choose Installation Options**: install for **Anyone who uses this computer**
+   (requires administrator approval) or **Only for me**.
+2. **Choose Install Location**: shows where the app will be installed. The folder
+   follows the option chosen on the previous page and cannot be changed:
+   `%LOCALAPPDATA%\Programs\Smart Classroom` for **Only for me**, and
+   `C:\Program Files\Smart Classroom` for **Anyone who uses this computer**.
+3. **Finish**: the installer adds a **Smart Classroom** shortcut to the desktop and the
+   Start menu, and can launch the app right away.
 
----
+![Installer: Choose Installation Options](../_assets/windows-installer-install-mode.png)<!--hide_directive{w=400px}hide_directive-->
 
-## Desktop App
+![Installer: Choose Install Location](../_assets/windows-installer-install-location.png)<!--hide_directive{w=400px}hide_directive-->
 
-The desktop app covers setup, configuration, and running the services in one window.
+The installed program folder is not modified while the app runs. Settings, models,
+the Python environment, sessions, and logs are stored separately for each Windows
+user, also when the app is installed for everyone; see
+[Where Your Data Is Stored](#where-your-data-is-stored).
 
-### Step 1: Launch the App
+## Step 3: Complete the Setup Screen
 
-```powershell
-.\start-desktop-app.ps1
-```
+Launch **Smart Classroom** from the desktop or the Start menu. While anything still
+needs doing, the app opens on the **Get started** screen, which lists what is missing.
+The menu button at the top left switches between screens.
 
-The script asks for your proxy settings, installs Node.js through winget if it is
-missing, builds the UI, and hands over. The app then supervises the Python services
-itself. `.\start-smart-classroom.ps1` without `-WebUI` launches the app the same way.
+![Get started screen on first launch](../_assets/windows-app-get-started.png)<!--hide_directive{w=700px}hide_directive-->
 
-**Optional parameters:**
-
-- `-Dev` — Run the Vite dev server with hot reload
-- `-NoAutoStart` — Open the app without starting the backend automatically
-- `-SkipNodeInstall` — Fail instead of installing Node.js when it is missing
-- `-Silent` — Skip the proxy prompts and use the saved `.proxy-config`
-
-### Step 2: Work Through the Setup Screen
-
-**Get started** opens first and lists what is still missing. Follow its links, or open
-**Setup** directly, and work down the list:
+Follow the links on **Get started**, or open **Setup** directly, and work down the list:
 
 | Section | Covers |
 | :--- | :--- |
 | **System and drivers** | Operating system, processor, memory, free disk space, Intel GPU and NPU drivers, Windows long paths |
-| **Software and environment** | Python 3.12, Node.js, FFmpeg, DL Streamer, the Python environment, and the grading conversion environment and layout detection model |
+| **Software and environment** | Python 3.12, Node.js (bundled with the app), FFmpeg, DL Streamer, the Python environment, and the grading conversion environment and layout detection model |
 
 Each row shows what was found and what it blocks. Rows the app can fix have a button:
-**Install** for Python, FFmpeg, and Deep Learning Streamer (DL Streamer), **Create** for the Python environment,
-**Prepare** for the layout detection model. **Fix _n_ items** at the top runs everything
-outstanding in order. Progress appears in the **Output** pane below, and **Copy
-diagnostics** puts the whole list on the clipboard for a bug report.
+
+- **Install** for Python, FFmpeg, and Deep Learning Streamer (DL Streamer)
+- **Create** for the Python environment and the grading conversion environment
+- **Prepare** for the layout detection model
+- **Enable** for Windows long paths (shows an administrator prompt)
+
+**Fix _n_ items** at the top runs everything outstanding in order. Progress appears in
+the **Output** pane below, and **Copy diagnostics** puts the whole list on the
+clipboard for a bug report.
+
+![Setup screen](../_assets/windows-app-setup.png)<!--hide_directive{w=700px}hide_directive-->
+
+> [!IMPORTANT]
+> If you are behind a proxy, set `HTTP_PROXY` and `HTTPS_PROXY` on the **Get started**
+> or **Configuration** screen before you run the Setup actions. The installs and model
+> downloads use these values.
 
 > [!NOTE]
 > Creating the Python environment downloads several gigabytes, and preparing
@@ -82,11 +82,14 @@ diagnostics** puts the whole list on the clipboard for a bug report.
 
 The backend cannot start until the Python environment exists.
 
-### Step 3: Review the Settings
+## Step 4: Review the Settings
 
 **Get started** shows the settings most people change. The **Configuration** screen has
-the full list from `config.yaml` and `.proxy-config`, grouped and searchable. Saving a
-change while the services are running offers a restart.
+the full list from `config.yaml` and `.proxy-config`, grouped and searchable.
+**Show file** opens the file the screen writes to. For what each setting does, see
+[Configure the Application](../advanced-setup-guide.md#configure-the-application).
+
+![Configuration screen](../_assets/windows-app-configuration.png)<!--hide_directive{w=700px}hide_directive-->
 
 > [!NOTE]
 > Speaker diarization (identifying who is speaking) is optional and requires a
@@ -94,198 +97,97 @@ change while the services are running offers a restart.
   diarization is enabled without a token; set it under **Configuration**, or see
   [Speaker Diarization Setup](../advanced-setup-guide.md#f-speaker-diarization-setup-optional).
 
-### Step 4: Use the App
+## Step 5: Start the Backend
 
-The backend starts automatically once setup is complete, unless you passed
-`-NoAutoStart`.
+The backend does not start on its own. Start it in either of these ways:
+
+- Select **Start backend** on the **Get started** screen.
+- Open **Services** and select **Start** on the backend row.
+
+![Services screen with live logs](../_assets/windows-app-services.png)<!--hide_directive{w=700px}hide_directive-->
+
+The **Services** screen shows the backend and every service it starts, with their
+status and live logs. Use **Stop** and **Restart** there as needed. The first start
+downloads and prepares the AI models, so it takes longer than later starts.
+
+When you save a configuration change while the backend is running, the app offers
+**Restart backend** so the change takes effect.
+
+## Step 6: Use the App
+
+Once the backend is running, open **Home**, **Content Search**, or **Grading** from the
+menu.
 
 | Screen | What it does |
 | :--- | :--- |
-| **Get started** | Overview of what is ready, what is missing, and the settings most people change |
-| **Setup** | Prerequisite checks plus the Python environment and model preparation |
-| **Configuration** | Edit `config.yaml` and `.proxy-config` |
-| **Services** | Start / stop / restart the backend and watch live logs for it and every child service |
+| **Home** | Audio transcription, summary, mind map, video analytics, and class reports |
+| **Content Search** | Upload materials, search them, and ask questions about them |
+| **Grading** | Grade exam papers against a rubric |
 
----
+For a walkthrough of each feature, see [Application Flow](../application-flow.md),
+[Content Search Flow](../content-search-flow.md), and [Grading Flow](../grading-flow.md).
 
-## Deprecated: PowerShell Scripts and the Browser UI
+## Update to a New Version
 
-> [!WARNING]
-> This path is deprecated and will be removed after release 2027.0.0. Use the
-  [Desktop App](#desktop-app) instead. `setup-smart-classroom.ps1` and
-  `start-smart-classroom.ps1 -WebUI` print a deprecation notice when they run.
+1. Stop the backend on the **Services** screen and close the app.
+2. Download and run the newer `SmartClassroom-<version>-setup.exe`. It installs over
+   the existing version in the same folder; you do not need to uninstall first.
+3. Launch the app and open **Setup**. If the **Python environment** row shows
+   **Outdated**, select **Upgrade** to match the new release's requirements.
 
-Use this path only for unattended installs or when you want the services in visible
-console windows.
+Models, the Python environments, sessions, and content search data are kept across
+updates. Your settings are kept too, unless the new version ships different default
+settings:
 
-### Step 1: Run the Setup Script (First-Time Only)
+- On the first start after such an update, `config.yaml` and the grading
+  configuration are reset to the new defaults, and a message tells you so.
+- The previous files are saved in `logs\config-backups` as `pre-update.*.bak`.
+  Re-enter the settings you had changed, including the Hugging Face token, on the
+  **Configuration** screen.
+- Proxy settings (`.proxy-config`) are not reset.
 
-```powershell
-.\setup-smart-classroom.ps1
-```
+## Where Your Data Is Stored
 
-> [!NOTE]
-> If all prerequisites are already installed (FFmpeg, DL Streamer, Python
-  dependencies), you can skip setup and go straight to `.\start-smart-classroom.ps1 -WebUI`.
+Everything the app writes is under `%LOCALAPPDATA%\SmartClassroom\` of the Windows user
+running it:
 
-The setup script will:
-
-1. **[1] Check System Requirements**
-   - OS version, CPU, RAM, storage
-   - Python and Node.js versions
-
-2. **[2] Application Dependency Check**
-   - FFmpeg (auto-install if missing)
-   - DL Streamer: auto-download and run the installer [`dlstreamer-2026.1.0-win64.exe`](../advanced-setup-guide.md#b-install-dl-streamer)
-
-3. **[3] Configure Settings**
-   - [3.1] Feature Configuration (enable/disable individual application features)
-   - [3.2] Language & ASR Configuration (provider, model, device)
-   - [3.3] Upload Size Limits
-   - [3.4] OCR Configuration
-   - [3.5] Board OCR Configuration
-   - [3.6] Grading Configuration (enable/disable Smart Grading)
-
-> [!NOTE]
-> Speaker diarization (identifying who is speaking) is optional and requires a one-time
-  Hugging Face access token setup if enabled — see
-  [Speaker Diarization Setup](../advanced-setup-guide.md#f-speaker-diarization-setup-optional).
-
-### Step 2: Start the Services
-
-Use the start script with `-WebUI` for subsequent runs, or after modifying `config.yaml`.
-Without `-WebUI` it launches the [Desktop App](#desktop-app) instead.
-
-```powershell
-.\start-smart-classroom.ps1 -WebUI
-```
-
-**Optional parameters (with `-WebUI`):**
-
-- `-Restart` - Kill existing services and restart without prompting
-- `-Silent` - Unattended mode for CI/Ansible (skips all prompts, auto-restarts services)
-- `-NoElevate` - Never show a UAC prompt. The services always run as the current user; only enabling Windows long paths needs administrator privileges, and the script requests them for that change alone (never in `-Silent` mode)
-- `-NoWindowsTerminal` - Use Invoke-WmiMethod instead of Windows Terminal (for remote sessions/Ansible)
-
-```powershell
-# Example: Automated deployment
-.\start-smart-classroom.ps1 -WebUI -Silent -NoElevate -NoWindowsTerminal
-```
-
-`-Restart` and `-NoWindowsTerminal` are rejected without `-WebUI`, so an existing
-unattended command fails with a clear message rather than opening a desktop window.
-
-The startup script performs:
-
-- **Service Detection** - Checks running services
-- **Restart Options** - Restart, skip, or abort choices (auto in `-Silent` mode)
-- **Proxy Configuration** - Loads from `.proxy-config`
-- **Sequential Launch** - Backend -> Content Search -> Grading (if enabled) -> Frontend
-- **Graceful Shutdown** - `Q` to stop all, `E` to keep running (auto-exits in `-Silent` mode)
-
-### Step 3: Open the UI
-
-Once all services are running, open your browser:
-
-- <http://localhost:5173>
-
-The UI is only reachable from this machine.
-
----
-
-## Automated Setup - Troubleshooting
-
-If you encounter issues during automated setup, refer to the manual steps below:
-
-| Issue | Solution |
+| Path | Contents |
 | :--- | :--- |
-| `PSSecurityException` when running `.ps1` scripts | Run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` in PowerShell |
-| FFmpeg installation fails | See [Manual Step 1A](../advanced-setup-guide.md#a-install-ffmpeg-required-for-audio-processing) |
-| DL Streamer download fails | See [Manual Step 1B](../advanced-setup-guide.md#b-install-dl-streamer) |
-| Python dependencies fail | See [Manual Step 1D](../advanced-setup-guide.md#d-install-python-dependencies) |
-| Content Search fails | See [Manual Step 4](../advanced-setup-guide.md#step-4-set-up-content-search) |
-| Frontend fails to start | See [Manual Step 6](../advanced-setup-guide.md#step-6-bring-up-the-frontend) |
+| `config.yaml`, `.proxy-config` | Your settings, edited through the **Configuration** screen |
+| `smartclassroom\` | Python environment for the backend |
+| `venv_convert\` | Grading conversion environment |
+| `models\` | Downloaded and converted AI models |
+| `storage\` | Session recordings, transcripts, summaries, and reports |
+| `content_search\` | Uploaded materials and the content search vector database |
+| `grading\` | Grading configuration, uploaded rubrics, and grading results |
+| `logs\` | Service logs (**Open folder** on the **Services** screen opens them) and configuration backups, including the `pre-update.*.bak` files saved by updates |
+| `state\` | Records which shipped default settings your configuration came from |
+| `huggingface\`, `paddlex\`, `pip-cache\` | Download caches |
 
----
+## Automated Deployment
 
-## Manual Setup
+The installer accepts the standard silent-install options:
 
-**[Advanced Setup Guide](../advanced-setup-guide.md)**: Follow step-by-step instructions to set up the application.
+```powershell
+# Install silently for the current user
+.\SmartClassroom-<version>-setup.exe /S /currentuser
 
-The Advanced Setup Guide covers:
-
-- **Step 1:** Install Dependencies (FFmpeg, DL Streamer, Python, Content Search)
-- **Step 2:** Configuration of config.yaml settings, including the optional [Speaker Diarization Setup](../advanced-setup-guide.md#f-speaker-diarization-setup-optional)
-- **Steps 3-7:** Run Services and Access UI
-- **[Troubleshooting](../advanced-setup-guide.md#troubleshooting)** — solutions for common setup and runtime issues
-- **[Known Issues](../advanced-setup-guide.md#known-issues)** — current limitations and workarounds
-- **[Uninstall the Application](../advanced-setup-guide.md#uninstall-the-application)** — steps to cleanly remove the environment and models
-
----
-
-## Service Ports Reference
-
-| Service | Port | Health Check |
-| :--- | :--- | :--- |
-| Backend | 8000 | <http://localhost:8000/health> |
-| Content Search | 9011 | <http://localhost:9011/api/v1/system/health> (200 only when ChromaDB, file ingest, and video preprocess are ready too; 503 while any is starting) |
-| Layout Detection | 9902 | <http://localhost:9902/health> |
-| Grading | 9012 | <http://localhost:9012/api/v1/health> |
-| Frontend (deprecated browser UI) | 5173 | <http://localhost:5173> |
-
-> [!NOTE]
-> Layout Detection and Grading services only start when `grading.enabled: true` in `config.yaml`.
-> The desktop app is its own frontend and does not use port 5173 (except `-Dev`, which runs the Vite dev server there).
-
----
-
-## Optional: Flutter + RAG Companion App
-
-Separately from the Smart Classroom app above, the repository also ships a
-standalone **Flutter + RAG** demo app — a lightweight Content Search Q&A UI,
-independent of Smart Classroom's own frontend. It lives under `utils/flutter`
-at the repository root (not under `smart-classroom/Windows`), is Windows-only
-(PowerShell `setup.ps1`/`start.ps1`, no Linux equivalents), and the sparse
-checkout in [Clone the Repository](#clone-the-repository) does not pull it in
-by default.
-
-Its **Agentic/Coding Companion mode** (`/sc-setup`, `/sc-up`, `/sc-doctor`,
-`/sc-upload`, `/sc-qa`, `/sc-files`) is driven by skill `.md` files under
-`.github/skills`, plus the agent-instructions files every coding assistant
-starts from: `.github/copilot-instructions.md` (Copilot), `.cursor/rules/sc.mdc`
-(Cursor — itself just a router back to `.github/skills`), and the root-level
-`AGENTS.md`/`CLAUDE.md`. All of these are also outside `smart-classroom/Windows`,
-so bring `.github` and `.cursor` along too if you want that mode, not just
-`utils/flutter` on its own. `AGENTS.md`/`CLAUDE.md` need no extra step — cone-mode
-sparse checkout always keeps root-level files regardless of which directories
-you set.
-
-To get them too, add their paths to an existing sparse checkout (run from the
-`education-ai-suite` repository root):
-
-```bash
-git sparse-checkout add utils/flutter .github .cursor
+# Install silently for all users (run from an administrator PowerShell)
+.\SmartClassroom-<version>-setup.exe /S /allusers
 ```
 
-Or, if cloning fresh, set all four paths at once:
+The first-run work on the **Setup** screen is interactive and cannot be scripted.
 
-```bash
-git clone --filter=blob:none --sparse --branch main https://github.com/open-edge-platform/education-ai-suite.git
-cd education-ai-suite
-git sparse-checkout set smart-classroom/Windows utils/flutter .github .cursor
-```
+## Troubleshooting and Uninstall
 
-For setup, usage, and architecture, see:
-
-- [`utils/flutter/README.md`](../../../../utils/flutter/README.md) — main guide:
-  quick start, traditional UI mode, agentic/coding-companion mode,
-  architecture, and troubleshooting.
-- [`.github/skills/README.md`](../../../../.github/skills/README.md) — the skills
-  catalog (`/sc-setup`, `/sc-up`, `/sc-doctor`, `/sc-upload`, `/sc-qa`, `/sc-files`)
-  used by the app's Agentic/Coding Companion mode.
+See [Troubleshooting](../advanced-setup-guide.md#troubleshooting),
+[Known Issues](../advanced-setup-guide.md#known-issues), and
+[Uninstall the Application](../advanced-setup-guide.md#uninstall-the-application).
 
 ## Learn More
 
 - [System Requirements](./system-requirements.md): Hardware, software, supported models, and weight formats.
+- [Advanced Setup Guide](../advanced-setup-guide.md): Configuration reference, troubleshooting, and uninstall.
+- [Build the Installer from Source](./build-from-source-windows.md): Build `SmartClassroom-<version>-setup.exe` yourself.
 - [Application Flow](../application-flow.md): End-to-end application flow.
 - [Content Search Flow](../content-search-flow.md): The flow of the content search functionality.

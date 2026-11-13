@@ -5,7 +5,9 @@ to start Smart Classroom.
 
 ## Desktop app
 
-Launch the desktop app from the repo root of the component:
+End users install the desktop app with `SmartClassroom-<version>-setup.exe` from the
+[Releases page](https://github.com/open-edge-platform/education-ai-suite/releases).
+From a source checkout, launch it from the repo root of the component:
 
 ```powershell
 ..\start-desktop-app.ps1
@@ -17,7 +19,9 @@ The desktop app **supervises the Python services itself**: it starts and stops
 them, tails their logs, edits the configuration files and runs first-time setup.
 
 `start-desktop-app.ps1` bootstraps Node (installing it via `winget` when missing), rebuilds
-`dist/`, and hands over. It never requests Administrator privileges.
+`dist/`, and hands over. It never requests Administrator privileges. Unlike the
+installed app, it starts the backend automatically (`SC_AUTO_START_BACKEND=1`)
+unless you pass `-NoAutoStart`.
 
 | Screen | Backed by |
 |--------|-----------|

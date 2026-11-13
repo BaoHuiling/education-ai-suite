@@ -3,9 +3,10 @@
 This guide shows how to choose the text-generation model for Smart Classroom
 and how to turn on the optional DFlash accelerator.
 
-All settings are under `models.text_gen` in
-[config.yaml](../../../Windows/config.yaml). Restart the application after you
-change them.
+All settings are under `models.text_gen` in `config.yaml`. Edit them on the desktop
+app's **Configuration** screen under **Models and devices**, or select **Show file** to
+open `%LOCALAPPDATA%\SmartClassroom\config.yaml`. Restart the backend after you change
+them.
 
 ## Recommended Configuration
 
@@ -160,9 +161,8 @@ Set `mode: "off"` and restart. The prepared files stay on disk for later use.
 
 ## Model Files and Offline Use
 
-The application prepares the configured model at startup, whether you start it
-with [start-smart-classroom.ps1](../../../Windows/start-smart-classroom.ps1),
-the desktop app, or `python main.py`.
+The application prepares the configured model when the backend starts. The paths
+below are relative to `%LOCALAPPDATA%\SmartClassroom`.
 
 | Files | Location |
 | --- | --- |

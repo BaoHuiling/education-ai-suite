@@ -218,7 +218,7 @@ Tool definitions and selection are per-request API fields (`tools`, `tool_choice
 
 ## 5. Model Preparation
 
-The model owner prepares artifacts during model initialization, before reporting readiness. The shared preparation logic in `components/vlm/text_gen_prepare.py` is called from the VLM load path. As a result, [start-smart-classroom.ps1](../../../Windows/start-smart-classroom.ps1), the desktop application [start-desktop-app.ps1](../../../Windows/start-desktop-app.ps1), and `python main.py` use the same preparation process; none requires a separate launcher step or switch.
+The model owner prepares artifacts during model initialization, before reporting readiness. The shared preparation logic in `components/vlm/text_gen_prepare.py` is called from the VLM load path. As a result, the installed desktop app, the desktop application from source [start-desktop-app.ps1](../../../Windows/start-desktop-app.ps1), and `python main.py` use the same preparation process; none requires a separate launcher step or switch.
 
 On first start, the helper downloads or converts missing artifacts. On later starts, it reuses and validates existing artifacts, rebuilding derived artifacts when source hashes change. Dependent services wait for the model owner’s `/health` endpoint before using the model. Request handlers do not download or convert files.
 
