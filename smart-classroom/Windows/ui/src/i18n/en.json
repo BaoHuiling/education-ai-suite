@@ -327,6 +327,18 @@
       "npuUtilization": "NPU Utilization",
       "memoryUtilization": "Memory Utilization",
       "powerUtilization": "Power Utilization",
+      "perf": {
+        "memory": "Memory",
+        "power": "Power",
+        "average": "Avg",
+        "peak": "Peak",
+        "used": "Used",
+        "sharedMemory": "Shared mem",
+        "timeRange": "Time range",
+        "range1m": "1 min",
+        "range5m": "5 min",
+        "rangeSession": "Session"
+      },
       "transcriptsModel": "Transcripts Model",
       "summaryModel": "Summary",
       "classStatistics": "Class Engagement",

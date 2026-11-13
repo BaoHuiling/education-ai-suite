@@ -863,6 +863,18 @@
     "npuUtilization": "NPU 利用率",
     "memoryUtilization": "内存利用率",
     "powerUtilization": "功耗利用率",
+    "perf": {
+      "memory": "内存",
+      "power": "功耗",
+      "average": "平均",
+      "peak": "峰值",
+      "used": "已用",
+      "sharedMemory": "共享内存",
+      "timeRange": "时间范围",
+      "range1m": "1 分钟",
+      "range5m": "5 分钟",
+      "rangeSession": "整个会话"
+    },
     "transcriptsModel": "转录模型",
     "summaryModel": "摘要模型",
     "classStatistics": "课堂参与度",
