@@ -10,9 +10,10 @@ interface BodyProps {
   activeScreen: 'main' | 'content-search' | 'grading';
   featureGuard: FeatureGuard;
   hasMainFeatures: boolean;
+  onOpenConfig?: (path: string) => void;
 }
 
-const Body: React.FC<BodyProps> = ({ activeScreen, featureGuard, hasMainFeatures }) => {
+const Body: React.FC<BodyProps> = ({ activeScreen, featureGuard, hasMainFeatures, onOpenConfig }) => {
   const [isRightPanelCollapsed, setIsRightPanelCollapsed] = useState(false);
   const toggleRightPanel = () => setIsRightPanelCollapsed(!isRightPanelCollapsed);
   const { containerRef, panelRef, arrowLeft, arrowTransition } =
@@ -38,7 +39,7 @@ const Body: React.FC<BodyProps> = ({ activeScreen, featureGuard, hasMainFeatures
         ref={panelRef}
         style={{ flex: isRightPanelCollapsed ? 0 : 1 }}
       >
-        <RightPanel activeScreen={activeScreen} featureGuard={featureGuard} />
+        <RightPanel activeScreen={activeScreen} featureGuard={featureGuard} onOpenConfig={onOpenConfig} />
       </div>
       <div
         className={`arrow${isRightPanelCollapsed ? ' collapsed' : ''}`}

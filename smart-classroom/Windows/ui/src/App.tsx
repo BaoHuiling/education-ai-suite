@@ -263,7 +263,8 @@ const App: React.FC = () => {
       )}
       <div style={{ display: activeScreen === 'grading' || isToolScreen ? 'none' : 'contents' }}>
         <div className="main-content">
-          <Body activeScreen={isToolScreen ? 'main' : activeScreen} featureGuard={guard} hasMainFeatures={hasMainFeatures} />
+          <Body activeScreen={isToolScreen ? 'main' : activeScreen} featureGuard={guard} hasMainFeatures={hasMainFeatures}
+            onOpenConfig={(path) => openScreen('config', path)} />
         </div>
       </div>
       {activeScreen === 'grading' && (
