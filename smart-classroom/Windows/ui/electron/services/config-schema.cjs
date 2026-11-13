@@ -172,10 +172,9 @@ const FIELDS = [
     group: 'asr',
     subgroup: 'asrRecognition',
     label: 'ASR model',
-    type: 'string',
-    maxLength: 128,
+    type: 'enum',
     wizard: true,
-    suggestions: ['whisper-base', 'whisper-small', 'whisper-medium', 'whisper-large', 'paraformer-zh'],
+    options: ['whisper-base', 'whisper-small', 'paraformer-zh'],
     help: 'whisper-small is the balanced default; paraformer-zh is Chinese-optimised.',
   },
   {
@@ -516,10 +515,11 @@ const FIELDS = [
     group: 'devices',
     subgroup: 'textGen',
     label: 'VLM model',
-    type: 'string',
-    maxLength: 200,
-    suggestions: ['Qwen/Qwen3-VL-8B-Instruct', 'Qwen/Qwen3.5-9B', 'Qwen/Qwen3.6-35B-A3B'],
-    help: 'These options are downloaded as pre-converted OpenVINO IR; anything else is converted on first run.',
+    type: 'enum',
+    // The keys of TEXT_GEN_CATALOG below, which mirrors
+    // components/vlm/text_gen_profiles.py::CATALOG.
+    options: ['Qwen/Qwen3-VL-8B-Instruct', 'Qwen/Qwen3.5-9B', 'Qwen/Qwen3.6-35B-A3B', 'Qwen/Qwen3.8-27B'],
+    help: 'These models are downloaded as pre-converted OpenVINO IR.',
   },
   {
     path: 'models.text_gen.device',
@@ -568,7 +568,7 @@ const FIELDS = [
     label: 'Speculative decoding method',
     type: 'enum',
     options: ['auto', 'eagle3', 'dflash', 'mtp'],
-    help: 'auto picks the method profiled for the VLM model. Ignored when mode is off.',
+    help: 'Tested: Qwen3-VL-8B-Instruct int4 eagle3 (English only); Qwen3.5-9B int4/int8 dflash or mtp; Qwen3.6-35B-A3B int4 dflash; Qwen3.8-27B none. auto picks the tested method. Ignored when mode is off.',
   },
   {
     path: 'models.ocr.provider',
@@ -1240,6 +1240,48 @@ const ASR_MODEL_FAMILY = { openai: 'whisper', openvino: 'whisper', funasr: 'para
 // speaker model is Mandarin-tuned, so both features demand this exact pair.
 const FUNASR_PARAFORMER = 'ASR provider "funasr" with model "paraformer-zh"';
 
+// The tested text_gen combinations, copied from
+// components/vlm/text_gen_profiles.py::CATALOG — keep the two in step.
+//   formats:  `ir_repos`, the weight formats shipped as pre-converted IR. Any
+//             other format would be converted locally on first run, untested.
+//   methods:  speculative profiles, each qualified for `precisions` and, when
+//             set, only for those `app.language` values. `target` marks the
+//             method that uses the target's bundled head (draft_source: target).
+//   defaultMethod: what `method: auto` prefers; _autoMethod mirrors the rest.
+const TEXT_GEN_CATALOG = {
+  'qwen/qwen3-vl-8b-instruct': {
+    formats: ['int4', 'int8'],
+    defaultMethod: 'eagle3',
+    methods: { eagle3: { precisions: ['int4'], languages: ['en'] } },
+  },
+  'qwen/qwen3.5-9b': {
+    formats: ['int4', 'int8'],
+    defaultMethod: 'dflash',
+    methods: {
+      dflash: { precisions: ['int4', 'int8'] },
+      mtp: { precisions: ['int4', 'int8'], target: true },
+    },
+  },
+  'qwen/qwen3.6-35b-a3b': {
+    formats: ['int4'],
+    defaultMethod: 'dflash',
+    methods: { dflash: { precisions: ['int4'] } },
+  },
+  'qwen/qwen3.8-27b': {
+    formats: ['int4', 'int8'],
+    defaultMethod: null,
+    methods: {},
+  },
+};
+
+const TEXT_GEN_PATHS = {
+  model: 'models.text_gen.vlm_name',
+  format: 'models.text_gen.weight_format',
+  mode: 'models.text_gen.speculative.mode',
+  method: 'models.text_gen.speculative.method',
+  language: 'app.language',
+};
+
 const lower = (value) => String(value ?? '').trim().toLowerCase();
 
 // config.yaml uses YAML 1.1 booleans ("True"/"False") in places.
@@ -1263,6 +1305,82 @@ function listOf(labels) {
 }
 
 const labelsOf = (ids) => listOf(ids.map((id) => FEATURES[id].label));
+
+/** text_gen_profiles.py::_mode — YAML 1.1 reads bare off/on as booleans. */
+function speculativeMode(value) {
+  if (value === undefined || value === null || value === false) return 'off';
+  if (value === true) return 'on';
+  return lower(value);
+}
+
+/** text_gen_profiles.py::_auto_method, for this precision and draft source. */
+function autoMethod(target, format, source) {
+  if (!target.defaultMethod) return null;
+  for (const name of [target.defaultMethod, ...Object.keys(target.methods)]) {
+    const profile = target.methods[name];
+    if (profile.precisions.includes(format) && (source !== 'target' || profile.target)) return name;
+  }
+  return target.defaultMethod;
+}
+
+/** "eagle3 (int4, app.language en); dflash (int4, int8)" — names and codes only, so it reads in any UI language. */
+function describeMethods(methods) {
+  return Object.entries(methods)
+    .map(([name, p]) => `${name} (${[...p.precisions, ...(p.languages ? [`app.language ${p.languages.join('/')}`] : [])].join(', ')})`)
+    .join('; ');
+}
+
+/**
+ * Why the configured speculative decoding is outside the tested set, or null.
+ * Under mode "on" text_gen_profiles.py::resolve_plan refuses to start on these;
+ * under auto it quietly runs plain generation, which is not what was asked for.
+ */
+function speculativeProblem(cfg) {
+  const textGen = cfg?.models?.text_gen;
+  const mode = speculativeMode(textGen?.speculative?.mode);
+  // An unknown mode is the enum's problem.
+  if (!['auto', 'on'].includes(mode)) return null;
+  const model = textGen?.vlm_name;
+  const target = TEXT_GEN_CATALOG[lower(model)];
+  const format = lower(textGen?.weight_format);
+  // An unknown model, or a format with no IR, is another rule's to report.
+  if (!target || !target.formats.includes(format)) return null;
+
+  const offFix = [{ file: CONFIG, path: TEXT_GEN_PATHS.mode, value: 'off' }];
+  if (!Object.keys(target.methods).length) {
+    return { kind: 'none', model, paths: [TEXT_GEN_PATHS.model, TEXT_GEN_PATHS.mode], fix: offFix };
+  }
+
+  const language = lower(cfg?.app?.language);
+  const requested = lower(textGen?.speculative?.method) || 'auto';
+  const source = lower(textGen?.speculative?.draft_source);
+  const method = requested === 'auto' ? autoMethod(target, format, source) : requested;
+  const profile = target.methods[method];
+  const languageOk = (p) => !p.languages || !language || p.languages.includes(language);
+  if (profile && profile.precisions.includes(format) && languageOk(profile)) return null;
+
+  // One click to the nearest tested setting: another method that suits this
+  // precision and language, else plain generation.
+  const alternative = Object.entries(target.methods).find(
+    ([, p]) => p.precisions.includes(format) && languageOk(p)
+  );
+  const languageIsWhy = !!profile && profile.precisions.includes(format) && !languageOk(profile);
+  return {
+    kind: 'untested',
+    model,
+    format,
+    method: requested,
+    supported: describeMethods(target.methods),
+    paths: [
+      TEXT_GEN_PATHS.model,
+      TEXT_GEN_PATHS.format,
+      TEXT_GEN_PATHS.mode,
+      TEXT_GEN_PATHS.method,
+      ...(languageIsWhy ? [TEXT_GEN_PATHS.language] : []),
+    ],
+    fix: alternative ? [{ file: CONFIG, path: TEXT_GEN_PATHS.method, value: alternative[0] }] : offFix,
+  };
+}
 
 /**
  * Which features config.yaml switches on, read the way
@@ -1316,6 +1434,63 @@ const RULES = [
       return {
         message: `The ${provider} provider only runs ${family} models, but the ASR model is "${cfg.models.asr.name}". Pick a ${family} model or change the provider.`,
         params: { provider, family, model: cfg.models.asr.name },
+      };
+    },
+  },
+  // The three rules below keep text generation inside TEXT_GEN_CATALOG, the
+  // tested set. They block rather than warn: the backend would run some of
+  // these (a local conversion, or plain generation under mode auto), but not
+  // as anything that has been tested.
+  {
+    id: 'vlmWeightFormat',
+    summary: 'Untested weight format',
+    file: CONFIG,
+    paths: [TEXT_GEN_PATHS.model, TEXT_GEN_PATHS.format],
+    check(cfg) {
+      const model = cfg?.models?.text_gen?.vlm_name;
+      const format = lower(cfg?.models?.text_gen?.weight_format);
+      const target = TEXT_GEN_CATALOG[lower(model)];
+      // An unknown model or format is the enum's problem, not this rule's.
+      if (!target || !format || target.formats.includes(format)) return null;
+      const available = target.formats.join(', ');
+      return {
+        message: `${model} is tested only with weight format ${available}; ${format} has no pre-converted IR. Pick ${available}.`,
+        params: { model, format, available },
+        fix: [{ file: CONFIG, path: TEXT_GEN_PATHS.format, value: target.formats[0] }],
+      };
+    },
+  },
+  {
+    id: 'speculativeNone',
+    summary: 'No tested speculative decoding',
+    file: CONFIG,
+    paths: [TEXT_GEN_PATHS.model, TEXT_GEN_PATHS.mode],
+    check(cfg) {
+      const found = speculativeProblem(cfg);
+      if (found?.kind !== 'none') return null;
+      return {
+        message: `${found.model} has no tested speculative decoding method. Set speculative decoding mode to off.`,
+        params: { model: found.model },
+        paths: found.paths,
+        fix: found.fix,
+      };
+    },
+  },
+  {
+    id: 'speculativeUntested',
+    summary: 'Untested speculative decoding',
+    file: CONFIG,
+    paths: [TEXT_GEN_PATHS.model, TEXT_GEN_PATHS.format, TEXT_GEN_PATHS.mode, TEXT_GEN_PATHS.method],
+    check(cfg) {
+      const found = speculativeProblem(cfg);
+      if (found?.kind !== 'untested') return null;
+      const { model, format, method, supported } = found;
+      const language = cfg?.app?.language ?? '';
+      return {
+        message: `Speculative decoding method ${method} is not tested for ${model} ${format} with app.language ${language}. Tested: ${supported}. Pick a tested method or set the mode to off.`,
+        params: { model, format, method, supported, language },
+        paths: found.paths,
+        fix: found.fix,
       };
     },
   },
