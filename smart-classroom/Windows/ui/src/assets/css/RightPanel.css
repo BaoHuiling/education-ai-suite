@@ -141,8 +141,7 @@
   grid-template-columns: 1fr 1fr;
   gap: 2rem;
   margin-top: 1rem;
-  margin-left: 2rem;
-  padding: 0.5rem 1;
+  margin-left: 1rem;
 }
 
 
@@ -189,6 +188,40 @@
   font-weight: 600;
   color: #2d3748;
   margin-right: 0.3rem;
+}
+
+.configuration-metrics p.config-model-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.configuration-metrics p.config-model-row > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Text-style link button; overrides the global button padding/background. */
+.config-change-btn {
+  flex-shrink: 0;
+  padding: 0 2px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  line-height: inherit;
+  color: #0071c5;
+  background: none;
+  border-radius: 2px;
+}
+
+.config-change-btn:hover {
+  text-decoration: underline;
+  background: none;
+}
+
+.config-change-btn:focus-visible {
+  outline: 2px solid #0071c5;
+  outline-offset: 1px;
 }
 
 @media (max-width: 768px) {

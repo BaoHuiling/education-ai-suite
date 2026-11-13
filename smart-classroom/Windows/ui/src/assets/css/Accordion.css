@@ -1,69 +1,183 @@
 .accordion {
-  border: none;
-  border-radius: 0;
-  margin-bottom: 0;
-  background: #f8f8f8;
-  box-shadow: none;
+  --accordion-duration: 260ms; /* keep in sync with ANIMATION_MS in Accordion.tsx */
+  --accordion-ease: cubic-bezier(0.2, 0, 0, 1);
+  --accordion-accent: #0071c5;
+
+  border-bottom: 1px solid #e6e7e8;
+  background: none;
 }
 
+/* ---------------------------------------------------------------- header */
+
+.accordion-heading {
+  margin: 0;
+  font: inherit;
+}
+
+/* Full-width button. Bleeds 8px past the panel's content edge on both sides so
+   the hover pill has room while the title stays aligned with the content. */
 .accordion-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: 0.75rem 0;
+  justify-content: space-between;
+  gap: 12px;
+  width: calc(100% + 16px);
+  margin: 6px -8px;
+  padding: 10px 8px;
+  font-family: var(--font-display, "IntelOne Display", system-ui, sans-serif);
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 20px;
+  text-align: left;
+  color: #2b2c30;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
   cursor: pointer;
-  background: none;
-  border-bottom: 1px solid #e6e7e8;
-  font-family: "IntelOne Text", system-ui, sans-serif;
-  font-size: 16px;
-  font-weight: 500;
-  color: #2B2C30;
-  line-height: 20px;
+  transition: background-color 150ms ease, color 150ms ease;
 }
 
-.accordion-header h3 {
-  margin: 0;
-  font-family: "IntelOne Text", system-ui, sans-serif;
-  font-size: 16px;
-  font-weight: 500;
-  line-height: 20px;
-  color: #2B2C30;
+.accordion-header:hover {
+  background: #eef2f6;
 }
 
-.accordion-subtitle {
-  font-family: "IntelOne Text", system-ui, sans-serif;
-  font-size: 14px;
-  font-weight: 500;
-  color: #2B2C30;
-  line-height: 20px;
-  margin: 0 0 4px 0;
+.accordion-header:active {
+  background: #e4eaf0;
 }
 
-.accordion-toggle {
+.accordion-header:focus-visible {
+  outline: 2px solid var(--accordion-accent);
+  outline-offset: 0;
+}
+
+.accordion-title {
   display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* Accent bar: grey when collapsed, Intel blue and taller when open. */
+.accordion-title::before {
+  content: "";
+  flex-shrink: 0;
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  background: #c4c9d0;
+  transition: background-color var(--accordion-duration) var(--accordion-ease),
+              height var(--accordion-duration) var(--accordion-ease);
+}
+
+.accordion.is-open .accordion-title::before {
+  height: 18px;
+  background: var(--accordion-accent);
+}
+
+.accordion-chevron {
+  display: inline-flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: center;
   width: 28px;
   height: 28px;
-  font-size: 1.2rem;
-  color: #0071c5;
-  background: none;
-  border: none;
-  cursor: pointer;
+  color: #6b6e76;
   border-radius: 50%;
+  transition: transform var(--accordion-duration) var(--accordion-ease),
+              background-color 150ms ease, color 150ms ease;
 }
 
-.accordion-toggle:hover {
-  background: #e6e7e8;
+.accordion-header:hover .accordion-chevron {
+  color: var(--accordion-accent);
+}
+
+.accordion.is-open .accordion-chevron {
+  transform: rotate(90deg);
+  color: var(--accordion-accent);
+  background: #e8f1fa;
+}
+
+/* ------------------------------------------------------------- open/close */
+
+/* Height animates via the grid-row trick (0fr <-> 1fr), so no JS measuring. */
+.accordion-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows var(--accordion-duration) var(--accordion-ease),
+              opacity calc(var(--accordion-duration) * 0.7) ease;
+}
+
+.accordion.is-open .accordion-panel {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+/* The panel mounts already "open"; start it collapsed so opening animates. */
+@starting-style {
+  .accordion.is-open .accordion-panel {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+}
+
+.accordion-panel__inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Clip only while animating; once open, let content (tooltips, focus rings)
+   overflow normally. */
+.accordion.is-open .accordion-panel__inner {
+  animation: accordion-unclip 0s var(--accordion-duration) forwards;
+}
+
+@keyframes accordion-unclip {
+  to { overflow: visible; }
 }
 
 .accordion-content {
-  padding: 0.5rem 0 1rem 0;
-  font-family: "IntelOne Text", system-ui, sans-serif;
+  padding: 0 0 1rem 0;
+  font-family: var(--font-text, "IntelOne Text", system-ui, sans-serif);
   font-size: 14px;
   font-weight: 400;
-  color: #2B2C30;
+  color: #2b2c30;
   line-height: 20px;
   background: none;
-  border-bottom: 1px solid #e6e7e8; /* Seamless border between accordions */
+  transform: translateY(-4px);
+  transition: transform var(--accordion-duration) var(--accordion-ease);
+}
+
+.accordion.is-open .accordion-content {
+  transform: none;
+}
+
+@starting-style {
+  .accordion.is-open .accordion-content {
+    transform: translateY(-4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .accordion {
+    --accordion-duration: 0ms;
+  }
+
+  .accordion-panel,
+  .accordion-content,
+  .accordion-chevron,
+  .accordion-title::before {
+    transition: none;
+  }
+}
+
+/* -------------------------------------------------------------- subtitle */
+
+.accordion-subtitle {
+  font-family: var(--font-text, "IntelOne Text", system-ui, sans-serif);
+  font-size: 14px;
+  font-weight: 500;
+  color: #2b2c30;
+  line-height: 20px;
+  margin: 0 0 4px 0;
 }
