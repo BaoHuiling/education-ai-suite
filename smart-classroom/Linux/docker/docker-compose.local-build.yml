@@ -20,6 +20,8 @@ services:
         HTTP_PROXY: "${HTTP_PROXY:-}"
         HTTPS_PROXY: "${HTTPS_PROXY:-}"
         NO_PROXY: "${NO_PROXY:-}"
+      secrets:
+        - corporate_ca
     image: smart-classroom-audio-analyzer:local
     pull_policy: build
 

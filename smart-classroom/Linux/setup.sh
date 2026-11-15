@@ -207,7 +207,7 @@ else
   log "      docker compose -f docker/docker-compose.yml ps"
   log "    Inspect logs with:"
   log "      docker compose -f docker/docker-compose.yml logs -f app"
-  log "      docker compose -f docker/docker-compose.yml logs -f model-downloader ovms"
+  log "      docker compose -f docker/docker-compose.yml logs -f model-downloader audio-analyzer ovms"
   die "App startup failed; resolve the errors above before using the UI."
 fi
 
