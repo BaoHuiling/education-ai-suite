@@ -76,7 +76,10 @@ const SetupScreen: React.FC<SetupScreenProps> = ({ onOpenScreen, focusStepId }) 
         .filter((entry) => entry.items.length > 0),
     [sections, steps]
   );
-  const busy = !!busyId || runningAll;
+  // A running step counts even when this screen did not start it: the main
+  // process runs setup on its own at launch, and a click into that would only
+  // fail with "another step is already running".
+  const busy = !!busyId || runningAll || steps.some((step) => step.status === 'running');
 
   // "Nothing left to fix", not "a run finished": a fully prepared machine gets
   // the same confirmation the first time it opens this screen.

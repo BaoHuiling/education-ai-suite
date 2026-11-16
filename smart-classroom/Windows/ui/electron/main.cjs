@@ -17,7 +17,7 @@ const servicePaths = require('./services/paths.cjs');
 const serviceIpc = require('./services/ipc.cjs');
 const { LogStore } = require('./services/log-store.cjs');
 const { ServiceManager } = require('./services/process-manager.cjs');
-const { SetupRunner } = require('./services/setup-runner.cjs');
+const { SetupRunner, LOG_ID: SETUP_LOG_ID } = require('./services/setup-runner.cjs');
 const winEnv = require('./services/win-env.cjs');
 const { resetToShippedDefaults } = require('./services/config-reset.cjs');
 
@@ -217,6 +217,162 @@ const logStore = new LogStore(servicePaths.managerLogDir());
 const serviceManager = new ServiceManager(logStore);
 const setupRunner = new SetupRunner(logStore);
 
+serviceManager.setStartGuard(() =>
+  setupRunner.working
+    ? { code: 'setup', message: 'Setup is still preparing the Python environment. Start the backend when it finishes.' }
+    : null
+);
+
+// The service snapshot is pushed only when a status changes, so the renderer's
+// `runnable` (the interpreter exists) goes stale while setup creates or
+// removes the environment. Push it again whenever setup starts or stops work.
+let setupWasWorking = false;
+setupRunner.on('changed', () => {
+  if (setupRunner.working === setupWasWorking) return;
+  setupWasWorking = setupRunner.working;
+  serviceManager.emitChanged();
+});
+
+// `--setup-only`: prepare the machine without opening a window, print what was
+// done, and exit with a code a script can test. Used by
+// start-desktop-app.ps1 -SetupOnly and by unattended validation.
+const SETUP_ONLY = process.argv.includes('--setup-only');
+
+const SETUP_EXIT = {
+  // Every step is satisfied.
+  READY: 0,
+  // An automatic step failed, was skipped or cancelled, or the backend still
+  // cannot start.
+  FAILED: 1,
+  // The backend can start, but rows remain that need an administrator prompt or
+  // a confirmed click on the Setup screen (long paths, DL Streamer, Recreate).
+  NEEDS_ATTENTION: 2,
+};
+
+/**
+ * Whether launching the app prepares the environment and starts the backend
+ * without being asked.
+ *
+ * SC_AUTO_START_BACKEND is set by start-desktop-app.ps1: '1' by default and '0'
+ * for -NoAutoStart. When nothing set it, the installed app does this and a bare
+ * `electron .` from a developer's checkout does not. The installed app opts in
+ * because "install, then click through Setup before anything works" is the
+ * first-run experience this replaces.
+ */
+function autoPrepareEnabled() {
+  const flag = process.env.SC_AUTO_START_BACKEND;
+  if (flag === '1') return true;
+  if (flag === '0') return false;
+  return app.isPackaged;
+}
+
+const backendService = () => serviceManager.snapshot().find((service) => service.id === 'backend');
+const isIdle = (service) => service?.status === 'stopped' || service?.status === 'failed';
+
+/**
+ * Startup sequence for the windowed app: check everything, then, if allowed,
+ * run every repair that needs no one at the keyboard and start the backend.
+ *
+ * Progress shows on the Get started and Setup screens like a Fix run would,
+ * because it uses the same runner. A first launch on a fresh machine therefore
+ * ends with a running backend instead of an idle app waiting for clicks.
+ */
+async function prepareAndStartBackend() {
+  const startBackend = () => {
+    // Re-read: setup may have created the environment, and the user may have
+    // started the backend from Services in the meantime.
+    const backend = backendService();
+    if (!backend?.runnable || !isIdle(backend)) return;
+    serviceManager.startService('backend').catch((error) => {
+      console.error('[electron] backend auto-start failed:', error.message);
+    });
+  };
+
+  // checkAll() is unconditional: it fills in the Setup screen so a first-time
+  // user sees real statuses instead of "Not checked".
+  if (!autoPrepareEnabled()) {
+    await setupRunner.checkAll();
+    return;
+  }
+
+  // Every launch after the first: the environment check alone says whether the
+  // backend can start, so start it now rather than after the driver queries.
+  // An environment that exists but is incomplete (a first run closed during
+  // pip) fails this and takes the setup path below. Outdated still starts, as
+  // it always has; Upgrade stays on the Setup screen.
+  if (backendService()?.runnable) {
+    const venv = await setupRunner.checkStep('venv');
+    if (venv.status === 'ok' || venv.status === 'outdated') {
+      startBackend();
+      await setupRunner.checkAll();
+      return;
+    }
+  }
+
+  await setupRunner.checkAll();
+  // A backend already up, for example one adopted from the legacy PowerShell
+  // path, has the environment's files in use, so setup cannot change them.
+  if (!isIdle(backendService())) return;
+
+  const result = await setupRunner.runAutomatic();
+  if (result.ran.length || result.failed.length) {
+    console.info(
+      `[setup] automatic run: ${result.ran.length} ran, ${result.failed.length} failed, ` +
+      `${result.blocked.length} blocked, ${result.manual.length} left for the Setup screen`
+    );
+  }
+
+  // A cancel means the user has taken over.
+  if (setupRunner.autoCancelled) return;
+  startBackend();
+}
+
+/** The `--setup-only` run. Resolves to the process exit code. */
+async function runSetupOnly() {
+  const print = (line) => process.stdout.write(`${line}\n`);
+
+  // The same lines the Setup screen's Output pane shows.
+  logStore.on('append', (batch) => {
+    if (batch.id !== SETUP_LOG_ID) return;
+    for (const line of batch.lines) print(line.text);
+  });
+
+  print('Checking prerequisites...');
+  await setupRunner.checkAll();
+  const result = await setupRunner.runAutomatic();
+  const steps = setupRunner.snapshot();
+
+  print('');
+  print('Setup summary:');
+  for (const step of steps) {
+    print(`  ${step.status.padEnd(9)} ${step.label}${step.optional ? ' (optional)' : ''}: ${step.detail}`);
+  }
+
+  const label = (id) => steps.find((step) => step.id === id)?.label ?? id;
+  const needsWork = steps.filter((step) => ['missing', 'failed', 'outdated'].includes(step.status));
+  const runnable = !!backendService()?.runnable;
+
+  print('');
+  if (result.manual.length) {
+    print(`Left for the Setup screen (administrator prompt or confirmation): ${result.manual.map(label).join(', ')}`);
+  }
+  if (result.blocked.length) {
+    print(`Skipped because a prerequisite is not ready: ${result.blocked.map(label).join(', ')}`);
+  }
+  print(`Setup log folder: ${servicePaths.managerLogDir()}`);
+
+  if (setupRunner.autoCancelled || result.failed.length || result.blocked.length || !runnable) {
+    print(runnable ? 'Setup did not complete.' : 'Setup did not complete: the backend cannot start yet.');
+    return SETUP_EXIT.FAILED;
+  }
+  if (needsWork.length) {
+    print('The backend is ready to start. Some items still need attention on the Setup screen.');
+    return SETUP_EXIT.NEEDS_ATTENTION;
+  }
+  print('Setup complete. The backend is ready to start.');
+  return SETUP_EXIT.READY;
+}
+
 async function resolveStartUrl() {
   if (DEV_SERVER_URL) return DEV_SERVER_URL;
   // Resolve `dist/` relative to this file (ui/electron/main.cjs -> ui/dist).
@@ -337,8 +493,26 @@ async function createWindow() {
 }
 
 // Single-instance: focus the existing window instead of opening a second one.
+// A --setup-only run needs the lock too, because an open window may be running
+// setup or the backend on the same environment.
 if (!app.requestSingleInstanceLock()) {
-  app.quit();
+  if (SETUP_ONLY) {
+    process.stderr.write('Smart Classroom is already running. Close it, then run setup again.\n');
+    app.exit(SETUP_EXIT.FAILED);
+  } else {
+    app.quit();
+  }
+} else if (SETUP_ONLY) {
+  app.whenReady().then(async () => {
+    let code = SETUP_EXIT.FAILED;
+    try {
+      code = await runSetupOnly();
+    } catch (error) {
+      process.stderr.write(`Setup failed: ${error.message}\n`);
+    }
+    await logStore.disposeAndFlush().catch(() => { });
+    app.exit(code);
+  });
 } else {
   app.on('second-instance', () => {
     if (mainWindow) {
@@ -430,9 +604,9 @@ if (!app.requestSingleInstanceLock()) {
     });
     serviceManager.start();
 
-    // Populate the Setup screen up front so a first-time user sees real statuses
-    // instead of "Not checked".
-    setupRunner.checkAll().catch(() => { });
+    prepareAndStartBackend().catch((error) => {
+      console.error('[electron] automatic setup or backend start failed:', error.message);
+    });
 
     // A backend that dies on a missing package leaves Setup insisting the
     // environment is fine. Re-check on the transition into failed, so the two
@@ -445,18 +619,6 @@ if (!app.requestSingleInstanceLock()) {
       if (failed && !backendFailed) setupRunner.checkAll().catch(() => { });
       backendFailed = failed;
     });
-
-    // Opt-in one-command launch (start-desktop-app.ps1). Skipped when the Python
-    // environment does not exist yet: that is a first-run state to be handled on
-    // the Setup screen, not a failure to show the user.
-    if (process.env.SC_AUTO_START_BACKEND === '1') {
-      const backend = serviceManager.snapshot().find((service) => service.id === 'backend');
-      if (backend?.runnable) {
-        serviceManager.startService('backend').catch((error) => {
-          console.error('[electron] auto-start failed:', error.message);
-        });
-      }
-    }
 
     // Open the native application menu as a popup, positioned under the
     // title-bar menu button (coordinates come from the renderer, in viewport

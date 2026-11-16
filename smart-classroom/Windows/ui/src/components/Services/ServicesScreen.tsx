@@ -75,10 +75,11 @@ const ServicesScreen: React.FC = () => {
   const renderControls = (service: ServiceSnapshot) => {
     const busy = busyId === service.id;
     const running = service.status !== 'stopped' && service.status !== 'failed';
+    const blocked = !!service.startBlockedBy;
     return (
       <div className="services-actions" key={service.id}>
         {controllable.length > 1 && <span className="services-actions-label">{service.label}</span>}
-        <button className="services-btn" disabled={busy || running || !service.runnable} onClick={() => start(service.id)}>
+        <button className="services-btn" disabled={busy || running || !service.runnable || blocked} onClick={() => start(service.id)}>
           {t('services.start', 'Start')}
         </button>
         <button className="services-btn" disabled={busy || !running} onClick={() => stop(service.id)}>
@@ -86,7 +87,7 @@ const ServicesScreen: React.FC = () => {
         </button>
         <button
           className="services-btn"
-          disabled={busy || service.external || !service.runnable}
+          disabled={busy || service.external || !service.runnable || blocked}
           onClick={() => restart(service.id)}
         >
           {t('services.restart', 'Restart')}
@@ -109,7 +110,17 @@ const ServicesScreen: React.FC = () => {
 
       {error && <div className="services-error">{error}</div>}
 
-      {controllable.some((service) => !service.runnable) && (
+      {/* Setup first: an environment being created is "not runnable" until
+          its interpreter exists, and "missing" would tell the user to create
+          what is already being created. */}
+      {controllable.some((service) => service.startBlockedBy === 'setup') ? (
+        <div className="services-banner">
+          {t(
+            'services.setupRunning',
+            'Setup is preparing the Python environment. Start the backend when it finishes; progress is on the Setup screen.'
+          )}
+        </div>
+      ) : controllable.some((service) => !service.runnable) && (
         <div className="services-banner">
           {t(
             'services.needsSetup',

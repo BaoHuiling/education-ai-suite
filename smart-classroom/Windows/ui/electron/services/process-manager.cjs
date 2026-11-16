@@ -81,6 +81,8 @@ class ServiceManager extends EventEmitter {
     this.state = new Map();
     this.timer = null;
     this.ticking = false;
+    // () => { code, message } | null; see setStartGuard().
+    this.startGuard = () => null;
 
     for (const service of registry.SERVICES) {
       this.state.set(service.id, {
@@ -94,6 +96,16 @@ class ServiceManager extends EventEmitter {
         strikes: 0,
       });
     }
+  }
+
+  /**
+   * `guard` returns why managed services cannot start right now, as
+   * { code, message }, or null. startService() and restartService() refuse
+   * with the message; the snapshot carries the code as `startBlockedBy`, so the
+   * screens can disable Start and say why in the UI language.
+   */
+  setStartGuard(guard) {
+    this.startGuard = typeof guard === 'function' ? guard : () => null;
   }
 
   start() {
@@ -118,6 +130,8 @@ class ServiceManager extends EventEmitter {
         // Managed services need their interpreter on disk before Start means
         // anything; the UI uses this to point a first-time user at Setup.
         runnable: service.managed ? fs.existsSync(registry.resolveCommand(service).command) : true,
+        // Why Start is refused right now even though the interpreter exists.
+        startBlockedBy: service.managed ? (this.startGuard()?.code ?? null) : null,
         startedAt: state.startedAt,
         uptimeMs: state.healthySince ? Date.now() - state.healthySince : null,
         exitCode: state.exitCode,
@@ -242,6 +256,12 @@ class ServiceManager extends EventEmitter {
       this.emitChanged();
       return { started: false, reason: 'already-healthy' };
     }
+
+    // The interpreter exists seconds into creating the environment, long before
+    // pip has finished, so `runnable` alone would let a start run on
+    // half-installed packages and lock the files pip is still writing.
+    const blocked = this.startGuard();
+    if (blocked) throw new Error(blocked.message);
 
     const { command, args, cwd, display } = registry.resolveCommand(service);
     if (!fs.existsSync(command)) {
@@ -401,6 +421,9 @@ class ServiceManager extends EventEmitter {
   }
 
   async restartService(id) {
+    // Before stopping: a restart whose start is refused would just be a stop.
+    const blocked = this.startGuard();
+    if (blocked) throw new Error(blocked.message);
     await this.stopService(id);
     // adopt: false — stopService just proved these ports were free, so anything
     // answering now is an orphan of the run we stopped, not a backend someone

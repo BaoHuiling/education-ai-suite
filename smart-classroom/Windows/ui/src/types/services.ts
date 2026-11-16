@@ -23,6 +23,12 @@ export interface ServiceSnapshot {
   external: boolean;
   /** Managed services only: false when the Python environment is not created yet. */
   runnable: boolean;
+  /**
+   * Managed services only: why Start is refused although `runnable` is true.
+   * 'setup' while setup is installing or changing something, which includes
+   * the minutes pip runs after the interpreter already exists.
+   */
+  startBlockedBy: 'setup' | null;
   startedAt: number | null;
   uptimeMs: number | null;
   exitCode: number | null;

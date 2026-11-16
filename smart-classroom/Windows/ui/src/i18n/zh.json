@@ -693,6 +693,7 @@
     "restart": "重启",
     "external": "外部启动",
     "needsSetup": "Python 环境缺失。请先在“安装”中创建，再启动后端。",
+    "setupRunning": "正在准备 Python 环境。完成后再启动后端；进度请在“安装”页面查看。",
     "disabledIn": "已在 config.yaml 中禁用",
     "status": {
       "stopped": "已停止",

@@ -19,9 +19,28 @@ The desktop app **supervises the Python services itself**: it starts and stops
 them, tails their logs, edits the configuration files and runs first-time setup.
 
 `start-desktop-app.ps1` bootstraps Node (installing it via `winget` when missing), rebuilds
-`dist/`, and hands over. It never requests Administrator privileges. Unlike the
-installed app, it starts the backend automatically (`SC_AUTO_START_BACKEND=1`)
-unless you pass `-NoAutoStart`.
+`dist/`, and hands over. It never requests Administrator privileges.
+
+On launch, the app (installed, or started by the script) prepares and starts the
+backend by itself. It checks every setup step, then runs each repair that needs
+no Administrator rights and no confirmation: installing Python and FFmpeg,
+creating the Python environment and, with grading enabled, the grading
+environment and layout model. When the Python environment exists, it starts the
+backend. Enabling long paths, installing DL Streamer and **Recreate** stay on
+the Setup screen, because they raise a UAC prompt or delete files. When the
+environment is already fine, the backend starts after that one check, without
+waiting for the rest.
+
+- `SC_AUTO_START_BACKEND=1` / `0` turns this on or off. The script sets `1`, or
+  `0` with `-NoAutoStart`. When the variable is unset, the installed app does it
+  and a bare `electron .` does not.
+- `-SetupOnly` runs the same preparation without opening a window and exits:
+  `0` when everything is ready, `1` when a step failed or the backend still
+  cannot start, and `2` when the backend can start but rows remain for the Setup
+  screen. For the installed app, run
+  `Start-Process "<install dir>\Smart Classroom.exe" -ArgumentList --setup-only -Wait -PassThru`
+  and read `ExitCode`. A GUI executable prints nothing to the console, so read the
+  `setup-*.log` files under `logs\manager` instead.
 
 | Screen | Backed by |
 |--------|-----------|

@@ -41,7 +41,7 @@ const NPU_DRIVER_URL = 'https://www.intel.com/content/www/us/en/download/794734/
 // the winget id and the download URL with it.
 const PYTHON_VERSION = PYTHON_TARGET.join('.');
 const PYTHON_WINGET_ID = `Python.Python.${PYTHON_VERSION}`;
-const PYTHON_WINGET_HINT = `winget install -e --id ${PYTHON_WINGET_ID} --source winget`;
+const PYTHON_WINGET_HINT = `winget install -e --id ${PYTHON_WINGET_ID} --source winget --scope user`;
 const DLSTREAMER_URL =
   `https://github.com/open-edge-platform/dlstreamer/releases/download/v${REQUIRED_DLSTREAMER}/dlstreamer-${REQUIRED_DLSTREAMER}-win64.exe`;
 
@@ -58,6 +58,10 @@ const STATUS = {
 // Statuses with something to run. OUTDATED belongs here and WARN does not: that
 // is the whole distinction between them.
 const REPAIRABLE = [STATUS.MISSING, STATUS.FAILED, STATUS.OUTDATED];
+
+// A step whose `requires` are in one of these can run. Neither a warning nor an
+// outdated row blocks the step below it. Mirrors blockedBy in SetupScreen.tsx.
+const SATISFIED = [STATUS.OK, STATUS.WARN, STATUS.OUTDATED];
 
 // Failures the Setup screen can offer a way out of. The code crosses IPC with
 // the message (see fail() in ipc.cjs), so the screen decides what to offer from
@@ -178,7 +182,16 @@ async function pythonCandidates() {
       if (line.trim() && !line.includes('WindowsApps')) found.push(line.trim());
     }
   }
-  return [...new Set(found)];
+  // Where the per-user install the Python step runs puts it. Named directly,
+  // because neither the launcher nor PATH is guaranteed to see an install made
+  // a moment ago in this session.
+  if (process.env.LOCALAPPDATA) {
+    const perUser = path.join(
+      process.env.LOCALAPPDATA, 'Programs', 'Python', `Python${PYTHON_TARGET[0]}${PYTHON_TARGET[1]}`, 'python.exe'
+    );
+    if (fs.existsSync(perUser)) found.push(perUser);
+  }
+  return [...new Set(found.map((exe) => path.normalize(exe)))];
 }
 
 async function pythonVersion(exe) {
@@ -469,13 +482,17 @@ function venvActions({ dir, requirements, cwd, interpreter }) {
   ];
 }
 
-async function wingetInstall(emit, id, label) {
+async function wingetInstall(emit, id, label, { scope } = {}) {
   const winget = await run('where.exe', ['winget']);
   if (!winget.ok) throw new Error(`winget is not available; install ${label} manually.`);
   await stream(
     emit,
     'winget.exe',
-    ['install', '-e', '--id', id, '--source', 'winget', '--accept-source-agreements', '--accept-package-agreements'],
+    [
+      'install', '-e', '--id', id, '--source', 'winget',
+      ...(scope ? ['--scope', scope] : []),
+      '--accept-source-agreements', '--accept-package-agreements',
+    ],
     { cwd: paths.home() }
   );
 }
@@ -583,6 +600,8 @@ const STEPS = [
       {
         id: 'enable',
         label: 'Enable',
+        // Raises a UAC prompt, so runAutomatic() leaves it to the user.
+        elevates: true,
         async run(emit) {
           emit('Requesting administrator privileges…');
           const command =
@@ -628,7 +647,10 @@ const STEPS = [
         id: 'install',
         label: 'Install',
         async run(emit) {
-          await wingetInstall(emit, PYTHON_WINGET_ID, `Python ${PYTHON_VERSION}`);
+          // Per-user: winget may otherwise pick the all-users installer, whose
+          // UAC prompt stalls the unattended first-launch run, and --setup-only
+          // with nobody at the screen. The environment is per-user anyway.
+          await wingetInstall(emit, PYTHON_WINGET_ID, `Python ${PYTHON_VERSION}`, { scope: 'user' });
           emit('Installed.');
         },
       },
@@ -724,6 +746,8 @@ const STEPS = [
         // The installer reinstalls GStreamer, and its silent setup hangs on DLLs
         // a running pipeline has loaded.
         requiresBackendStopped: true,
+        // The installer raises a UAC prompt, so runAutomatic() leaves it to the user.
+        elevates: true,
         async run(emit) {
           const script = paths.dlStreamerScript();
           if (!fs.existsSync(script)) throw new Error(`${script} is missing.`);
@@ -947,6 +971,11 @@ class SetupRunner extends EventEmitter {
     this.logs = logs;
     this.state = new Map();
     this.busy = false;
+    // Set by cancel(), so runAutomatic() stops instead of moving to the next step.
+    this.autoCancelled = false;
+    // True for the whole of runAutomatic(), including between its steps, when
+    // `busy` is briefly false.
+    this.autoRunning = false;
     for (const step of STEPS) {
       this.record(step, { status: STATUS.UNKNOWN, detail: '' });
     }
@@ -1030,16 +1059,31 @@ class SetupRunner extends EventEmitter {
 
     for (const step of STEPS) {
       if (step.enabled && !step.enabled()) continue;
-      this.record(step, { ...this.state.get(step.id), status: STATUS.RUNNING, repair: null });
-      this.emitChanged();
-      try {
-        this.record(step, await step.check());
-      } catch (error) {
-        this.record(step, { status: STATUS.FAILED, detail: error.message });
-      }
-      this.emitChanged();
+      await this.checkOne(step);
     }
     return this.snapshot();
+  }
+
+  /**
+   * Re-run one detection. Never installs anything. For a caller that needs a
+   * single answer without waiting for the whole list, driver queries included.
+   */
+  async checkStep(stepId) {
+    const step = BY_ID.get(stepId);
+    if (!step) throw new Error(`Unknown setup step: ${String(stepId).slice(0, 64)}`);
+    await this.checkOne(step);
+    return this.state.get(step.id);
+  }
+
+  async checkOne(step) {
+    this.record(step, { ...this.state.get(step.id), status: STATUS.RUNNING, repair: null });
+    this.emitChanged();
+    try {
+      this.record(step, await step.check());
+    } catch (error) {
+      this.record(step, { status: STATUS.FAILED, detail: error.message });
+    }
+    this.emitChanged();
   }
 
   /**
@@ -1135,7 +1179,74 @@ class SetupRunner extends EventEmitter {
     return this.state.get(step.id);
   }
 
+  /**
+   * Run every repair that needs no one at the keyboard, in step order. This is
+   * what makes a fresh install work without a visit to the Setup screen.
+   *
+   * It is the Fix button's queue minus two kinds of action: destructive ones,
+   * which must stay a confirmed click, and ones that raise a UAC prompt, which
+   * would otherwise appear unannounced or hang a headless run. Those are left
+   * for the Setup screen and reported as `manual`.
+   *
+   * Unlike the Fix button it does not stop at the first failure: FFmpeg failing
+   * to install is no reason not to create the Python environment. A step whose
+   * prerequisite did not come good is skipped instead of run into a certain
+   * failure. Cancel stops the whole run, not just the step in progress.
+   *
+   * Reads the repairs from the current state, so call checkAll() first.
+   */
+  async runAutomatic() {
+    this.autoCancelled = false;
+    this.autoRunning = true;
+    this.emitChanged();
+    try {
+      return await this.runRepairs();
+    } finally {
+      this.autoRunning = false;
+      this.emitChanged();
+    }
+  }
+
+  /** Setup is installing or changing something, so the backend must not start. */
+  get working() {
+    return this.busy || this.autoRunning;
+  }
+
+  async runRepairs() {
+    const result = { ran: [], failed: [], blocked: [], manual: [] };
+
+    for (const step of STEPS) {
+      if (this.autoCancelled) break;
+      if (step.enabled && !step.enabled()) continue;
+      const actionId = this.state.get(step.id).repair;
+      if (!actionId) continue;
+      const action = step.actions.find((entry) => entry.id === actionId);
+      if (!action || action.destructive || action.elevates) {
+        result.manual.push(step.id);
+        continue;
+      }
+
+      const unmet = (step.requires ?? []).filter((id) => !SATISFIED.includes(this.state.get(id)?.status));
+      if (unmet.length) {
+        const names = unmet.map((id) => BY_ID.get(id).label).join(', ');
+        this.log(`Skipping ${step.label}: it needs ${names}.`);
+        result.blocked.push(step.id);
+        continue;
+      }
+
+      try {
+        await this.runStep(step.id, actionId);
+        result.ran.push(step.id);
+      } catch (error) {
+        // runStep has already recorded and logged it.
+        result.failed.push({ id: step.id, error: error.message });
+      }
+    }
+    return result;
+  }
+
   cancel() {
+    this.autoCancelled = true;
     if (!activeChild) return false;
     activeChild.kill();
     this.log('Cancellation requested.');
