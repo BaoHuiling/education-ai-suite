@@ -47,7 +47,8 @@ models:
   summarizer:
     mode: dialog   # dialog | teacher | hybrid
 
-  model_hub: huggingface # huggingface or modelscope
+  model_hub: huggingface # huggingface or modelscope, fallback to the configured hub for models only available on single platform
+  hf_endpoint: "" # Hugging Face mirror, e.g. https://hf-mirror.com; HF_ENDPOINT env wins
 
   gpu_queue_priority: LOW # LOW, MEDIUM, or HIGH for OpenVINO GPU services
 

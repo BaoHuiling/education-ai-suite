@@ -29,12 +29,16 @@ def _preconverted_repo(model_id: str, weight_format: str):
 
 
 def _download_preconverted_ov_model(repo_id: str, cache_dir: str):
-    from huggingface_hub import snapshot_download
+    # Backend only (model_type "vlm"), where models.model_hub is loaded. The
+    # OpenVINO org publishes identical IR on Hugging Face and ModelScope.
+    from utils.model_download_helper import download_snapshot
+    from utils.model_hub import get_model_hub
 
     logger.info(f"Downloading pre-converted OpenVINO IR '{repo_id}' -> {cache_dir}")
-    snapshot_download(
-        repo_id=repo_id,
-        local_dir=cache_dir,
+    download_snapshot(
+        get_model_hub(),
+        repo_id,
+        cache_dir,
         allow_patterns=[
             "openvino_*.xml",
             "openvino_*.bin",
