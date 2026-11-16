@@ -145,6 +145,7 @@
       "restart": "Restart",
       "external": "external",
       "needsSetup": "The Python environment is missing. Create it on the Setup screen before starting the backend.",
+      "setupRunning": "Setup is preparing the Python environment. Start the backend when it finishes; progress is on the Setup screen.",
       "disabledIn": "Disabled in config.yaml",
       "status": {
         "stopped": "Stopped",

@@ -8,9 +8,13 @@
 
 .DESCRIPTION
     The desktop app supervises the Python services itself, so this script only
-    bootstraps the Node toolchain and hands over. It never elevates: steps that
-    need Administrator, such as enabling Windows long paths or installing DL
-    Streamer, raise their own UAC prompt from the app's Setup screen.
+    bootstraps the Node toolchain and hands over. On a first launch the app then
+    installs Python and creates the Python environment by itself before starting
+    the backend; -SetupOnly does the same without opening a window.
+
+    It never elevates: steps that need Administrator, such as enabling Windows
+    long paths or installing DL Streamer, are left for the app's Setup screen,
+    which raises their UAC prompt when selected.
 
     Node is required for `npm install` and `npm run build` only. Once node_modules
     and dist exist, the app runs on Electron's own embedded Node.
@@ -19,6 +23,7 @@
 param(
     [switch]$Dev,
     [switch]$NoAutoStart,
+    [switch]$SetupOnly,
     [switch]$SkipNodeInstall,
     [switch]$Silent,
     [switch]$Help
@@ -40,11 +45,16 @@ if ($Help) {
     Write-Host @'
 Smart Classroom Desktop App
 
-Usage: ./start-desktop-app.ps1 [-Dev] [-NoAutoStart] [-SkipNodeInstall] [-Silent] [-Help]
+Usage: ./start-desktop-app.ps1 [-Dev] [-NoAutoStart] [-SetupOnly] [-SkipNodeInstall] [-Silent] [-Help]
 
 Options:
     -Dev               Run the Vite dev server with hot reload (npm run electron:dev)
-    -NoAutoStart       Open the app without starting the backend automatically
+    -NoAutoStart       Open the app without preparing the Python environment or
+                       starting the backend automatically
+    -SetupOnly         Prepare Python, the Python environment and models without
+                       opening the app, then exit. Exit code 0: ready; 1: failed or
+                       the backend cannot start; 2: the backend can start but items
+                       remain that need the Setup screen (administrator prompt)
     -SkipNodeInstall   Fail instead of installing Node.js when it is missing
     -Silent            Skip the proxy prompts and use the saved .proxy-config
     -Help              Show this help message
@@ -378,6 +388,32 @@ try {
         if ($LASTEXITCODE -ne 0) { Write-Host 'npm install failed.' -ForegroundColor Red; exit 1 }
     }
 
+    # Inherited from VS Code's extension host by anything it starts, including
+    # agents and task runners. It makes Electron run as plain Node, which then
+    # fails in main.cjs on an undefined `app`.
+    Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
+
+    $electron = Join-Path $UiDir 'node_modules\.bin\electron.cmd'
+    $mainScript = Join-Path $UiDir 'electron\main.cjs'
+
+    # No window, so no UI to build. The app runs the same steps as on a first
+    # launch, prints them, and exits with a code automation can test.
+    if ($SetupOnly) {
+        Write-Host ''
+        Write-Host 'Preparing Python, the Python environment and models...' -ForegroundColor Green
+        Write-Host 'The first run downloads several gigabytes and takes a while.' -ForegroundColor DarkGray
+        Write-Host ''
+        & $electron $mainScript --setup-only
+        $code = $LASTEXITCODE
+        Write-Host ''
+        switch ($code) {
+            0 { Write-Host 'Setup complete. Run ./start-desktop-app.ps1 to open the app.' -ForegroundColor Green }
+            2 { Write-Host 'The backend is ready. Open the app''s Setup screen for the items listed above.' -ForegroundColor Yellow }
+            default { Write-Host "Setup did not complete (exit code $code). See the output above." -ForegroundColor Red }
+        }
+        exit $code
+    }
+
     # Dev mode serves from Vite, so a dist build is not needed.
     if (-not $Dev) {
         Write-Host 'Building the UI...' -ForegroundColor Yellow
@@ -385,17 +421,33 @@ try {
         if ($LASTEXITCODE -ne 0) { Write-Host 'UI build failed.' -ForegroundColor Red; exit 1 }
     }
 
-    if (-not $NoAutoStart) { $env:SC_AUTO_START_BACKEND = '1' }
+    # Set both ways: without it the app decides for itself, which differs between
+    # a source checkout and the installed app.
+    $env:SC_AUTO_START_BACKEND = if ($NoAutoStart) { '0' } else { '1' }
+
+    # Same location as paths.venvDir() in the app for a source checkout. Only
+    # drives the message below; the app does its own, thorough check.
+    $venvPython = Join-Path (Split-Path $ScriptDir -Parent) 'smartclassroom\Scripts\python.exe'
+    $firstRun = -not (Test-Path $venvPython)
 
     Write-Host ''
-    Write-Host 'Starting the desktop app. Services are managed from its Services screen.' -ForegroundColor Green
+    if ($firstRun -and -not $NoAutoStart) {
+        Write-Host 'First launch: the app now installs Python and creates the Python environment,' -ForegroundColor Yellow
+        Write-Host 'then starts the backend. This downloads several gigabytes and takes a while.' -ForegroundColor Yellow
+        Write-Host 'Progress is shown on the app''s Get started and Setup screens; keep the window open.' -ForegroundColor Yellow
+    } elseif ($firstRun) {
+        Write-Host 'The Python environment does not exist yet, and -NoAutoStart leaves it that way.' -ForegroundColor Yellow
+        Write-Host 'Create it with Fix on the app''s Setup screen before starting the backend.' -ForegroundColor Yellow
+    } else {
+        Write-Host 'Starting the desktop app. Services are managed from its Services screen.' -ForegroundColor Green
+    }
     Write-Host 'Close the window to stop everything it started.' -ForegroundColor DarkGray
     Write-Host ''
 
     if ($Dev) {
         npm run electron:dev
     } else {
-        & (Join-Path $UiDir 'node_modules\.bin\electron.cmd') (Join-Path $UiDir 'electron\main.cjs')
+        & $electron $mainScript
     }
     exit $LASTEXITCODE
 } finally {

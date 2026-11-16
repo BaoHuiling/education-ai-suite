@@ -43,15 +43,23 @@ the Python environment, sessions, and logs are stored separately for each Window
 user, also when the app is installed for everyone; see
 [Where Your Data Is Stored](#where-your-data-is-stored).
 
-## Step 3: Complete the Setup Screen
+## Step 3: Let the App Prepare Itself
 
-Launch **Smart Classroom** from the desktop or the Start menu. While anything still
-needs doing, the app opens on the **Get started** screen, which lists what is missing.
-The menu button at the top left switches between screens.
+Launch **Smart Classroom** from the desktop or the Start menu. On the first launch the
+app prepares itself without being asked: it installs Python 3.12 and FFmpeg when they
+are missing, creates the Python environment and, when grading is enabled, the grading
+conversion environment and layout detection model. It then starts the backend. Keep the
+window open until it finishes.
+
+While this runs, the app shows the **Get started** screen, which lists what is still
+being worked on. Open **Setup** to follow the progress in its **Output** pane. The menu
+button at the top left switches between screens.
 
 ![Get started screen on first launch](../_assets/windows-app-get-started.png)<!--hide_directive{w=700px}hide_directive-->
 
-Follow the links on **Get started**, or open **Setup** directly, and work down the list:
+Two items need you, because they show an administrator prompt: enabling Windows long
+paths, and installing DL Streamer for video analytics. Follow the links on **Get
+started**, or open **Setup** directly, for these and for any step that failed:
 
 | Section | Covers |
 | :--- | :--- |
@@ -65,22 +73,23 @@ Each row shows what was found and what it blocks. Rows the app can fix have a bu
 - **Prepare** for the layout detection model
 - **Enable** for Windows long paths (shows an administrator prompt)
 
-**Fix _n_ items** at the top runs everything outstanding in order. Progress appears in
-the **Output** pane below, and **Copy diagnostics** puts the whole list on the
-clipboard for a bug report.
+**Fix _n_ items** at the top runs everything outstanding in order. **Copy
+diagnostics** puts the whole list on the clipboard for a bug report.
 
 ![Setup screen](../_assets/windows-app-setup.png)<!--hide_directive{w=700px}hide_directive-->
 
 > [!IMPORTANT]
-> If you are behind a proxy, set `HTTP_PROXY` and `HTTPS_PROXY` on the **Get started**
-> or **Configuration** screen before you run the Setup actions. The installs and model
-> downloads use these values.
+> If you are behind a proxy, the first launch uses the `HTTP_PROXY` and `HTTPS_PROXY`
+> environment variables of your Windows account. If they are not set, the downloads
+> fail and **Setup** shows the failed rows. Set the proxy on the **Get started** or
+> **Configuration** screen, then select **Fix _n_ items** on **Setup** to continue.
 
 > [!NOTE]
 > Creating the Python environment downloads several gigabytes, and preparing
   the layout detection model downloads and converts it. Both take a while on a first run.
 
-The backend cannot start until the Python environment exists.
+If you close the app before setup finishes, the next launch continues where it
+stopped.
 
 ## Step 4: Review the Settings
 
@@ -97,9 +106,10 @@ the full list from `config.yaml` and `.proxy-config`, grouped and searchable.
   diarization is enabled without a token; set it under **Configuration**, or see
   [Speaker Diarization Setup](../advanced-setup-guide.md#f-speaker-diarization-setup-optional).
 
-## Step 5: Start the Backend
+## Step 5: Check the Backend
 
-The backend does not start on its own. Start it in either of these ways:
+The app starts the backend at every launch once the Python environment exists. If you
+stopped it, or it failed to start, start it in either of these ways:
 
 - Select **Start backend** on the **Get started** screen.
 - Open **Services** and select **Start** on the backend row.

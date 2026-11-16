@@ -111,8 +111,27 @@ const App: React.FC = () => {
   const setupNeedsAttention = setupSteps.some((step) =>
     ['missing', 'failed', 'outdated'].includes(step.status)
   );
+  // The app runs setup by itself at launch, so show it at work. An action (an
+  // install, pip) is told apart from a check by the detail runStep gives the
+  // row; a check keeps the row's previous detail.
+  const setupActing = setupSteps.some((step) => step.status === 'running' && step.detailKey === 'running');
+  // Latched for the session: between two steps nothing is acting for a moment,
+  // and a step that failed is best explained on the screen it failed on, with
+  // its output, rather than on Get started.
+  const [setupShown, setSetupShown] = useState(false);
+  useEffect(() => {
+    if (setupActing) setSetupShown(true);
+  }, [setupActing]);
+  const setupRunning = setupSteps.some((step) => step.status === 'running');
+  // Not `runnable` alone: the interpreter exists seconds into creating the
+  // environment, while pip runs for minutes after. Handing over to Services
+  // then showed a Start button for an environment still being built.
   const firstRunScreen =
-    setupChecked && !setupNeedsAttention && backendService?.runnable !== false ? 'services' : 'ready';
+    setupActing || (setupShown && (setupNeedsAttention || setupRunning))
+      ? 'setup'
+      : setupChecked && !setupNeedsAttention && backendService?.runnable !== false
+        ? 'services'
+        : 'ready';
 
   // Memoised so the effects below can depend on it by name without re-running on
   // every render.

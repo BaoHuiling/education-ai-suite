@@ -152,6 +152,26 @@ class LogStore extends EventEmitter {
     this.flushTimer = null;
     for (const id of [...this.sinks.keys()]) this.closeSink(id);
   }
+
+  /**
+   * dispose(), resolving once every log file is written out. File streams
+   * write asynchronously, so a process that exits straight after dispose()
+   * can lose the end of its log, which is the part that explains a failure.
+   */
+  async disposeAndFlush() {
+    const streams = [...this.sinks.values()].map((sink) => sink.stream);
+    this.dispose();
+    await Promise.all(
+      streams.map(
+        (stream) =>
+          new Promise((resolve) => {
+            if (stream.closed || stream.destroyed) return resolve();
+            stream.once('close', resolve);
+            stream.once('error', resolve);
+          })
+      )
+    );
+  }
 }
 
 module.exports = { LogStore, MAX_LINES };
