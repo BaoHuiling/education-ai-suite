@@ -315,7 +315,11 @@
     "models": {
       "model_hub": {
         "label": "模型下载源",
-        "help": "从哪里下载模型。"
+        "help": "两个平台都提供的模型从哪里下载。只在一个平台发布的模型不受此设置影响。"
+      },
+      "hf_endpoint": {
+        "label": "Hugging Face 镜像",
+        "help": "可选，Hugging Face 下载使用的镜像地址，例如 https://hf-mirror.com。留空则使用 huggingface.co。"
       },
       "asr": {
         "provider": {
