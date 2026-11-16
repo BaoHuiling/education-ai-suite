@@ -2,7 +2,9 @@
 
 services:
   model-cache-permissions:
-    profiles: ["text-gen"]
+    # Shared by text-gen (OVMS models) and asr (audio-analyzer snapshots): both
+    # model-downloader (appuser 1000) and audio-analyzer (1000:1000) write here.
+    profiles: ["text-gen", "asr"]
     image: python:3.12-slim
     container_name: sc-model-cache-permissions
     command: >-
@@ -137,6 +139,13 @@ services:
     user: "1000:1000"
     environment:
       HF_HOME: /app/audio_analyzer/.cache/huggingface
+      # Whisper sources, FunASR (ModelScope) and diarization snapshots are
+      # requested from the shared model-downloader REST service below and land
+      # on the shared model-cache volume; audio-analyzer never downloads them
+      # itself. Only the `openai` ASR provider still fetches its checkpoint
+      # directly (OpenAI's CDN is not a model-download hub).
+      AUDIO_ANALYZER_MODEL_DOWNLOAD_URL: http://model-downloader:8000
+      AUDIO_ANALYZER_MODEL_DOWNLOAD_TIMEOUT_SEC: "${AUDIO_ANALYZER_MODEL_DOWNLOAD_TIMEOUT_SEC:-1800}"
       # ZE_ENABLE_ALT_DRIVERS is required for Intel NPU enumeration (GPU override).
       ZE_ENABLE_ALT_DRIVERS: libze_intel_npu.so
       # HF_TOKEN is only needed when the service runs diarization (gated models).
@@ -144,21 +153,27 @@ services:
       AUDIO_ANALYZER_SERVER_PORT: "8010"
       HTTP_PROXY: "${HTTP_PROXY:-}"
       HTTPS_PROXY: "${HTTPS_PROXY:-}"
-      NO_PROXY: "${NO_PROXY:-}"
+      NO_PROXY: "model-downloader,localhost,127.0.0.1,${NO_PROXY:-}"
     volumes:
       # Editable service config (ASR provider/model/device, diarization).
       - ../edge-ai-libraries/microservices/audio-analyzer/config.yaml:/app/audio_analyzer/config.yaml:ro
-      - audio-analyzer-models:/app/audio_analyzer/models
+      # Same volume model-downloader writes to (/opt/models); snapshots are
+      # read back here at <download_path>/<hub>/<owner_model>.
+      - model-cache:/app/audio_analyzer/models
       - audio-analyzer-chunks:/app/audio_analyzer/chunks
       - audio-analyzer-storage:/app/audio_analyzer/storage
       - audio-analyzer-cache:/app/audio_analyzer/.cache
+    depends_on:
+      model-cache-permissions: { condition: service_completed_successfully }
+      model-downloader: { condition: service_healthy }
     healthcheck:
-      # The port only binds after startup preloads models. First run downloads
-      # them (FunASR paraformer-zh ~900MB + VAD/punc, or Whisper) which, on a
-      # slow/proxied network, can take far longer than a Whisper GPU warmup —
-      # so start_period must cover that one-time download or the container is
-      # wrongly flagged unhealthy before it ever serves. Models persist to the
-      # audio-analyzer-models volume, so subsequent starts are fast.
+      # The port only binds after startup provisions and preloads models. On the
+      # first run audio-analyzer waits for model-downloader to fetch its
+      # snapshots (FunASR paraformer-zh ~900MB + VAD/punc, or Whisper) and then
+      # exports Whisper to OpenVINO IR, which on a slow/proxied network can take
+      # far longer than a plain GPU warmup -- so start_period must cover that
+      # one-time step or the container is wrongly flagged unhealthy before it
+      # ever serves. Snapshots persist on model-cache, so later starts are fast.
       test:
         - CMD
         - python3
@@ -172,15 +187,20 @@ services:
     networks: [smart-classroom]
 
   model-downloader:
-    profiles: ["text-gen"]
+    # Long-running REST service shared by text-gen (OVMS exports driven by
+    # startup-models*.yaml) and asr (snapshots requested by audio-analyzer).
+    profiles: ["text-gen", "asr"]
     image: ${MODEL_DOWNLOADER_IMAGE:-intel/model-download:${INTEL_IMAGE_TAG:-latest}}
     container_name: sc-model-downloader
-    command: --plugins ${ENABLED_PLUGINS:-huggingface,openvino}
+    command: --plugins ${ENABLED_PLUGINS:-huggingface,openvino,modelscope}
     environment:
       - HF_TOKEN=${HF_TOKEN:-}
       - MODEL_PATH=/opt/models
-      - ENABLED_PLUGINS=${ENABLED_PLUGINS:-huggingface,openvino}
-      - STARTUP_MODELS_CONFIG=/opt/startup-models.yaml
+      - ENABLED_PLUGINS=${ENABLED_PLUGINS:-huggingface,openvino,modelscope}
+      # Value-less on purpose: taken from .env, where utils/compose_profiles.py
+      # writes it only while the text-gen profile is active. Unset means no OVMS
+      # startup exports (ASR-only stacks still get a downloader for snapshots).
+      - STARTUP_MODELS_CONFIG
       - OVMS_RELEASE_TAG=${OVMS_RELEASE_TAG:-v2026.4.1}
       - HTTP_PROXY=${HTTP_PROXY:-}
       - HTTPS_PROXY=${HTTPS_PROXY:-}
@@ -364,7 +384,6 @@ volumes:
   model-cache:
   metrics:
   video-analytics-models:
-  audio-analyzer-models:
   audio-analyzer-chunks:
   audio-analyzer-storage:
   audio-analyzer-cache:

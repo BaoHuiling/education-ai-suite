@@ -23,13 +23,13 @@ The audio pipeline handles speech-to-text conversion and content summarization:
   Cleans and formats audio data using FFmpeg, chunking input into segments for optimal processing.
 
 - **ASR Component (Automatic Speech Recognition)**
-  Converts audio into text through the Audio Analyzer microservice, which provides transcription and optional speaker diarization. The provider is set by `models.asr.provider` in `config.yaml`, and models are downloaded on first start, then cached:
+  Converts audio into text through the Audio Analyzer microservice, which provides transcription and optional speaker diarization. The provider is set by `models.asr.provider` in `config.yaml`. On Linux, Audio Analyzer requests its models from the shared `model-downloader` container on first start and reuses them from the `model-cache` volume afterwards:
 
   | Provider | Models | Downloaded from |
   |---|---|---|
-  | OpenVINO™ (default) | Whisper (e.g. `whisper-base`) | Hugging Face (`openai/whisper-*`), exported to OpenVINO IR |
-  | FunASR | Paraformer (`paraformer-zh`), for Mandarin | ModelScope (switch to Hugging Face with `model_hub`) |
-  | OpenAI | Whisper (e.g. `whisper-base`) | OpenAI's public `openai-whisper` checkpoints |
+  | OpenVINO™ (default) | Whisper (e.g. `whisper-base`) | Hugging Face (`openai/whisper-*`) via `model-downloader`, exported to OpenVINO IR |
+  | FunASR | Paraformer (`paraformer-zh`), for Mandarin | ModelScope via `model-downloader` |
+  | OpenAI | Whisper (e.g. `whisper-base`) | OpenAI's public `openai-whisper` checkpoints (fetched directly) |
 
 - **Speaker Diarization**
   Identifies and separates individual speakers using Pyannote Audio models. This can be enabled or disabled by modifying `config.yaml`.

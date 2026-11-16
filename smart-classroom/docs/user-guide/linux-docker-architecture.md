@@ -40,9 +40,9 @@ runs for you and stores in `COMPOSE_PROFILES` in `.env`.
 | `app` | `smart-classroom-app` | `smart-classroom-app:local` | core | Long-running | The main backend. Serves the UI and the REST API, runs the audio pipeline, and hosts Content Search and Grading in-process. |
 | `storage-permissions` | `sc-storage-permissions` | `python:3.12-slim` | core | One-shot | Creates `storage/smart-classroom` and `storage/content-search` and sets ownership for the `app` user (UID 10001). |
 | `metrics-collector` | `sc-metrics-collector` | `intel/retail-benchmark` | core | Long-running | Telemetry sidecar for CPU, GPU, NPU, memory, and power. Serves `/metrics` and `/platform-info`. Runs privileged with read-only host `/sys` mounts. |
-| `audio-analyzer` | `sc-audio-analyzer` | `intel/audio-analyzer` | `asr` | Long-running | Speech-to-text (Whisper or FunASR) and optional speaker diarization. |
-| `model-cache-permissions` | `sc-model-cache-permissions` | `python:3.12-slim` | `text-gen` | One-shot | Prepares ownership and permissions on the shared `model-cache` volume. |
-| `model-downloader` | `sc-model-downloader` | `intel/model-download` | `text-gen` | Long-running | Downloads and exports the VLM, embedding, and reranker models to OpenVINO™ IR, based on `startup-models*.yaml`. |
+| `audio-analyzer` | `sc-audio-analyzer` | `intel/audio-analyzer` | `asr` | Long-running | Speech-to-text (Whisper or FunASR) and optional speaker diarization. Requests its model snapshots from `model-downloader` at startup; it does not download them itself. |
+| `model-cache-permissions` | `sc-model-cache-permissions` | `python:3.12-slim` | `asr`, `text-gen` | One-shot | Prepares ownership and permissions on the shared `model-cache` volume. |
+| `model-downloader` | `sc-model-downloader` | `intel/model-download` | `asr`, `text-gen` | Long-running | Shared model service. For `text-gen`, downloads and exports the VLM, embedding, and reranker models to OpenVINO™ IR based on `startup-models*.yaml`. For `asr`, serves `audio-analyzer`'s REST requests for Whisper sources (Hugging Face), FunASR/Paraformer (ModelScope), and diarization snapshots. |
 | `ovms-provision` | `sc-ovms-provision` | `sc-ovms-provision:local` | `text-gen` | One-shot | Waits for the downloader jobs to finish, then merges the exported models into `ovms/config.json`. |
 | `ovms` | `sc-ovms` | `openvino/model_server:2026.4.1-gpu` | `text-gen` | Long-running | OpenVINO™ Model Server. Serves the text generation (VLM) model through an OpenAI-compatible API. |
 | `va-model-provision` | `sc-va-model-provision` | `sc-va-model-provision:local` | `va` | One-shot | Exports the video analytics (YOLO pose and related) models to OpenVINO™ IR into the `video-analytics-models` volume. |
@@ -58,7 +58,7 @@ runs for you and stores in `COMPOSE_PROFILES` in `.env`.
 
 | `config.yaml` feature | Profile(s) it activates | Containers that start in addition to the core |
 |---|---|---|
-| `asr` | `asr` | `audio-analyzer` |
+| `asr` | `asr` | `model-cache-permissions`, `model-downloader`, `audio-analyzer` |
 | `summary`, `mindmap`, `topic_segmentation` | `asr`, `text-gen` | `audio-analyzer`, plus the `text-gen` group |
 | `content_search`, `qa`, `grading` | `text-gen` | `model-cache-permissions`, `model-downloader`, `ovms-provision`, `ovms` |
 | `video_analytics` | `va` | `va-model-provision`, `mediamtx`, `video-analytics` |
@@ -68,10 +68,14 @@ The resulting container set for each profile (verified with `docker compose conf
 | `COMPOSE_PROFILES` | Containers that run |
 |---|---|
 | *(empty)* | `storage-permissions`, `metrics-collector`, `app` |
-| `asr` | core + `audio-analyzer` |
+| `asr` | core + `model-cache-permissions`, `model-downloader`, `audio-analyzer` |
 | `text-gen` | core + `model-cache-permissions`, `model-downloader`, `ovms-provision`, `ovms` |
 | `va` | core + `va-model-provision`, `mediamtx`, `video-analytics` |
 | `asr,text-gen,va` (all default features on) | All 11 services |
+
+`model-downloader` is a single shared container in every combination. Its OVMS startup exports are
+controlled by `STARTUP_MODELS_CONFIG` in `.env`, which `utils/compose_profiles.py` writes only while
+`text-gen` is active, so an ASR-only stack does not download the VLM.
 
 > [!IMPORTANT]
 > After you change `features:` in `config.yaml`, rerun `./setup.sh` so that `COMPOSE_PROFILES` is regenerated.
@@ -130,9 +134,9 @@ The MediaMTX ports can be changed with `VA_MEDIAMTX_RTSP_PORT`, `VA_MEDIAMTX_HLS
 | Volume or mount | Used by | Contents |
 |---|---|---|
 | `${STORAGE_DIR:-../storage}` (bind mount, default `Linux/storage`) | `app` (read and write), `video-analytics`, `storage-permissions` | Session data under `smart-classroom/`, Content Search data (SQLite, ChromaDB, uploads) under `content-search/`, and the GStreamer cache under `gstreamer/` |
-| `model-cache` | `model-cache-permissions`, `model-downloader`, `ovms-provision` (read and write); `ovms` (read-only); `app` (mounted at `/app/models`) | OVMS model repository (`ovms/openvino_models`, `ovms/config.json`) and the models that Content Search converts on first use |
+| `model-cache` | `model-cache-permissions`, `model-downloader`, `ovms-provision`, `audio-analyzer` (read and write); `ovms` (read-only); `app` (mounted at `/app/models`) | OVMS model repository (`ovms/openvino_models`, `ovms/config.json`), the ASR snapshots `audio-analyzer` requests (`whisper-source/`, `funasr/`, `diarization/`) plus its OpenVINO exports, and the models that Content Search converts on first use |
 | `video-analytics-models` | `va-model-provision` (read and write), `video-analytics` (read-only) | Exported video analytics OpenVINO™ models |
-| `audio-analyzer-models`, `-chunks`, `-storage`, `-cache` | `audio-analyzer` | Downloaded ASR and diarization models, audio chunks, and caches. Models persist, so later starts are fast. |
+| `audio-analyzer-chunks`, `-storage`, `-cache` | `audio-analyzer` | Audio chunks, session storage, and caches. |
 | `metrics` | `metrics-collector` | Telemetry results, such as NPU usage CSV |
 | `components/vlm/config/startup-models.yaml` (bind mount) | `model-downloader`, `ovms-provision` | List of models to export. The GPU override mounts `startup-models.gpu.yaml` instead. |
 | `edge-ai-libraries/microservices/audio-analyzer/config.yaml` (bind mount) | `audio-analyzer` | ASR provider, model, device, and diarization settings |
@@ -152,8 +156,8 @@ them only when the matching feature is used.
 |---|---|---|
 | `app` | `GET :8000/health` | `setup.sh` waits for this to become `healthy`, then for Content Search readiness at `/api/v1/system/health`. |
 | `metrics-collector` | `GET :9000/health` | |
-| `audio-analyzer` | `GET :8010/health` | The port opens only after models are preloaded, which includes the first-run download. |
-| `model-downloader` | `GET :8000/health` | The first run exports the VLM, embedding, and reranker models. |
+| `audio-analyzer` | `GET :8010/health` | Starts after `model-downloader` is healthy. The port opens only after the snapshots are provisioned through `model-downloader` (first run) and the models are preloaded. |
+| `model-downloader` | `GET :8000/health` | Healthy once the API is up; with `text-gen`, the first run then exports the VLM, embedding, and reranker models in the background. |
 | `ovms` | `GET :9000/v2/health/ready` | Starts after the models and `config.json` exist. |
 | `video-analytics` | `GET :8020/health` | |
 
@@ -251,6 +255,33 @@ The model list comes from `components/vlm/config/startup-models.yaml` (or `start
 override). `setup.sh` keeps both files in sync with `models.text_gen`, `models.embedding`, and the Content
 Search reranker in `config.yaml`.
 
+### Model Provisioning for `asr`
+
+```mermaid
+sequenceDiagram
+    participant MD as model-downloader
+    participant Hub as Hugging Face / ModelScope
+    participant MC as model-cache volume
+    participant AA as audio-analyzer
+
+    AA->>AA: Derive snapshots from audio-analyzer config.yaml
+    AA->>MD: POST /models/download (hub, revision, download_path)
+    MD->>Hub: Download snapshot
+    MD->>MC: <download_path>/<hub>/<owner_model>/
+    AA->>MD: Poll /jobs/{id} until completed
+    AA->>MC: Write completion inventory, validate
+    AA->>MC: Export Whisper to OpenVINO IR (openvino provider)
+    AA->>AA: Preload models, open :8010
+```
+
+`audio-analyzer` never downloads hub models itself: the same `model-downloader` container used for
+`text-gen` serves its requests (`AUDIO_ANALYZER_MODEL_DOWNLOAD_URL=http://model-downloader:8000`).
+Whisper sources and pyannote diarization come from Hugging Face (`HF_TOKEN` is forwarded per request
+for gated models); FunASR/Paraformer, VAD, and punctuation models come from ModelScope, which is why
+`ENABLED_PLUGINS` includes `modelscope`. Valid snapshots already on `model-cache` are reused without
+contacting the service. The `openai` ASR provider is the one exception and fetches its checkpoint
+directly from OpenAI's CDN.
+
 ### Telemetry
 
 The `app` container polls `metrics-collector` for `/metrics` and `/platform-info`. The UI shows these as
@@ -283,7 +314,9 @@ to the host `/sys` to read hardware counters.
 | `HF_TOKEN` | Hugging Face token for diarization and gated models. |
 | `INTEL_IMAGE_TAG` | Tag for `intel/model-download` and `intel/retail-benchmark`. |
 | `OVMS_RELEASE_TAG` | OVMS release the downloader uses. Keep it aligned with the `ovms` image tag. |
-| `ENABLED_PLUGINS` | Model downloader plugins. Defaults to `huggingface,openvino`. |
+| `ENABLED_PLUGINS` | Model downloader plugins. Defaults to `huggingface,openvino,modelscope`. |
+| `STARTUP_MODELS_CONFIG` | Container path of the OVMS startup model list. Written by `utils/compose_profiles.py` only while `text-gen` is active; unset means no OVMS exports. |
+| `AUDIO_ANALYZER_MODEL_DOWNLOAD_TIMEOUT_SEC` | How long `audio-analyzer` waits for each snapshot from `model-downloader`. Defaults to `1800`. |
 | `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` | Proxy settings forwarded to builds and containers. |
 | `CORPORATE_CA_FILE` | Optional PEM file for TLS-inspecting corporate proxies. Used only at build time. |
 | `VA_*` | Video analytics device, codec, pose-tuning, and MediaMTX port settings. |

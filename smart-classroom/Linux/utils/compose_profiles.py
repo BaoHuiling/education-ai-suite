@@ -14,8 +14,15 @@ resulting `COMPOSE_PROFILES` value to `.env` so `docker compose up` only
 starts the containers the enabled features actually need.
 
 Profile groups (must match the `profiles:` lists in docker/docker-compose.yml):
-  - "asr"            -> audio-analyzer (transcription microservice)
+  - "asr"            -> audio-analyzer + the shared model-downloader (ASR snapshots)
   - "text-gen"       -> model-downloader, ovms-provision, ovms (VLM serving)
+
+`model-downloader` is shared by both groups. Its OVMS exports are driven by
+`STARTUP_MODELS_CONFIG`, which this module also writes to `.env` -- only when
+`text-gen` is active -- so an ASR-only stack does not download the VLM,
+embedding and reranker models it will never serve (docker-compose.yml declares
+the variable value-less so an absent `.env` line leaves it unset in the
+container).
 
 Content Search is launched inside app by ContentSearchFeature, not by a
 separate Compose service. Its models use the same persistent model cache.
@@ -45,6 +52,10 @@ logger = logging.getLogger(__name__)
 
 SC_ROOT = Path(__file__).resolve().parents[1]
 ENV_PATH = SC_ROOT / ".env"
+
+# Container path of the startup-models bind mount in docker/docker-compose.yml.
+STARTUP_MODELS_CONFIG_KEY = "STARTUP_MODELS_CONFIG"
+STARTUP_MODELS_CONFIG_DEFAULT = "/opt/startup-models.yaml"
 
 # feature id (config.yaml `features:` key) -> compose profile(s) it requires.
 # asr: direct transcription feature AND every feature downstream of it in the
@@ -87,25 +98,43 @@ def resolve_profiles() -> List[str]:
 
 def write_env(path: Path = ENV_PATH) -> str:
     """(Re)write the `COMPOSE_PROFILES=` line in `.env`, preserving any other
-    lines already present. Returns the value written."""
-    value = ",".join(resolve_profiles())
+    lines already present. Returns the value written.
+
+    Also manages `STARTUP_MODELS_CONFIG=`: kept (added with the default if
+    missing) while `text-gen` is active, removed otherwise."""
+    profiles = resolve_profiles()
+    value = ",".join(profiles)
+    text_gen = "text-gen" in profiles
     lines: List[str] = []
     if path.is_file():
         lines = path.read_text(encoding="utf-8").splitlines()
 
     replaced = False
+    startup_present = False
     new_lines: List[str] = []
     for line in lines:
         if line.startswith("COMPOSE_PROFILES="):
             new_lines.append(f"COMPOSE_PROFILES={value}")
             replaced = True
+        elif line.startswith(f"{STARTUP_MODELS_CONFIG_KEY}="):
+            if text_gen:
+                new_lines.append(line)
+                startup_present = True
         else:
             new_lines.append(line)
     if not replaced:
         new_lines.append(f"COMPOSE_PROFILES={value}")
+    if text_gen and not startup_present:
+        new_lines.append(f"{STARTUP_MODELS_CONFIG_KEY}={STARTUP_MODELS_CONFIG_DEFAULT}")
 
     path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
     logger.info("✅ Wrote COMPOSE_PROFILES=%s to %s", value, path)
+    logger.info(
+        "   %s %s",
+        STARTUP_MODELS_CONFIG_KEY,
+        "set (text-gen active: model-downloader exports OVMS models)" if text_gen
+        else "unset (text-gen inactive: model-downloader serves ASR snapshots only)",
+    )
     return value
 
 

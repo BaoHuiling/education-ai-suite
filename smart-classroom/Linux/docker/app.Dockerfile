@@ -79,14 +79,14 @@ RUN --mount=type=secret,id=corporate_ca,required=false \
     && curl -fL --retry 5 --retry-delay 5 --retry-all-errors -O \
         "https://github.com/intel/intel-graphics-compiler/releases/download/v2.34.4/intel-igc-opencl-2_2.34.4+21428_amd64.deb" \
     && curl -fL --retry 5 --retry-delay 5 --retry-all-errors -O \
-        "https://ppa.launchpadcontent.net/kobuk-team/intel-graphics/ubuntu/pool/main/l/level-zero-loader/libze1_1.32.0-1~24.04~ppa1_amd64.deb" \
+        "https://ppa.launchpadcontent.net/kobuk-team/intel-graphics/ubuntu/pool/main/l/level-zero-loader/libze1_1.34.0-1~24.04~ppa1_amd64.deb" \
     && printf '%s\n' \
         '12b8254e6d3415c32cee9cd13943030b991d91212445c79fe1cc27176a72eca4  libze-intel-gpu1_26.18.38308.1-0_amd64.deb' \
         'b2d0c924e56b3f9e5837774d68b0c67461b8633035d93ca18b1a8e3e5ead15fa  intel-opencl-icd_26.18.38308.1-0_amd64.deb' \
         '6031a63d6e8a12ce61c14efc15f2c8e727061286e3820b8594e6d00615e04d54  libigdgmm12_22.10.0_amd64.deb' \
         '0ce1e715ec5bf30b1304b42acfbda34cc514a0f616dd48c6a31973c4075d8d09  intel-igc-core-2_2.34.4+21428_amd64.deb' \
         '09a71e8b6ad432ed0511b09fa4f580c1b44534a60ccb0545212507bf67dc0d1b  intel-igc-opencl-2_2.34.4+21428_amd64.deb' \
-        'd4001dc474d3cb74ded50a449b9f646cfdfbb31e69e70b8af38f2d18273dfce1  libze1_1.32.0-1~24.04~ppa1_amd64.deb' \
+        '4ea0d892f5e2b82db3c15c9e9a97327b6323189972b75fe4fc8b029a3aa3d26d  libze1_1.34.0-1~24.04~ppa1_amd64.deb' \
         | sha256sum --check - \
     && dpkg -i ./*.deb \
     && ldconfig \

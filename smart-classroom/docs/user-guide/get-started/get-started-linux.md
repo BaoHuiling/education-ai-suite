@@ -106,7 +106,8 @@ The script performs the following:
 3. Creates `.env` from `.env.example` if it does not exist.
 4. Warns if diarization is enabled without `HF_TOKEN`.
 5. Syncs `startup-models.yaml` and `startup-models.gpu.yaml` with `config.yaml`.
-6. Derives `COMPOSE_PROFILES` from the enabled features.
+6. Derives `COMPOSE_PROFILES` from the enabled features, and sets `STARTUP_MODELS_CONFIG` only when
+   `text-gen` is active (so an ASR-only stack's shared `model-downloader` skips the OVMS exports).
 7. Requires an Intel GPU (`/dev/dri`), sets `RENDER_GID` from the host's `render` group, and enables the GPU Compose configuration.
 8. Validates the compose config, then follows `REGISTRY` in `config.yaml`: pulls the
    Docker Hub images when `true`, or builds them locally when `false`. The app and
