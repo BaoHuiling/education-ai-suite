@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
+import ReactMarkdown, { type Components } from "react-markdown";
 import { useTranslation } from "react-i18next";
 import "../../assets/css/QASection.css";
 import { csQaAsk, type QAChatMessage, type QASource } from "../../services/api";
@@ -6,6 +7,16 @@ import { useAppSelector } from "../../redux/hooks";
 import noSearchIcon from "../../assets/images/no-search-icon.svg";
 
 const MAX_QUESTION_LENGTH = 500;
+
+// Links in an answer open in a new window, which the Electron main process
+// hands to the OS browser; a plain link would navigate the app window away.
+const qaMarkdownComponents: Components = {
+  a: ({ href, title, children }) => (
+    <a href={href} title={title} target="_blank" rel="noopener noreferrer">
+      {children}
+    </a>
+  ),
+};
 
 interface ChatEntry {
   id: string;
@@ -273,7 +284,15 @@ const QASection: React.FC = () => {
                       key={msg.id}
                       className={`cs-qa-message cs-qa-message--${msg.role}${msg.isError ? " cs-qa-message--error" : ""}`}
                     >
-                      <div className="cs-qa-bubble">{msg.content}</div>
+                      {msg.role === "assistant" && !msg.isError ? (
+                        // The VLM answers in markdown (bold, lists); render it
+                        // instead of showing the raw ** and * markers.
+                        <div className="cs-qa-bubble cs-qa-bubble--md">
+                          <ReactMarkdown components={qaMarkdownComponents}>{msg.content}</ReactMarkdown>
+                        </div>
+                      ) : (
+                        <div className="cs-qa-bubble">{msg.content}</div>
+                      )}
 
                       {/* Sources */}
                       {msg.role === "assistant" &&
