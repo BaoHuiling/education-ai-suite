@@ -219,6 +219,9 @@ class QAService:
                         "messages": messages,
                         "max_completion_tokens": effective_max_tokens,
                         "stream": False,
+                        # Thinking models (Qwen3.5) otherwise spend the whole token
+                        # budget on reasoning text and return no answer.
+                        "enable_thinking": False,
                     },
                     headers={"X-SC-Stage": "qa"},  # processing-time attribution
                 )
