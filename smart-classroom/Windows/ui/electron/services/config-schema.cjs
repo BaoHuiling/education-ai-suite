@@ -45,6 +45,13 @@ const { FEATURES } = require('./feature-catalog.cjs');
 
 const featurePath = (id) => `features.${id}.enabled`;
 
+// `appliesWhen` maps another field's path to the values under which this field
+// has any effect. The renderer greys the field out otherwise, so a setting the
+// backend ignores never looks like it does something. Values are matched
+// against the pending draft as well as the file, so switching the provider
+// updates the form before saving.
+const OPENAI_WHISPER_ONLY = { 'models.asr.provider': ['openai'] };
+
 // The "Get started" screen shows `wizard: true` only; the full editor still
 // shows everything.
 const featureFields = Object.entries(FEATURES).map(([id, { label }]) => ({
@@ -217,11 +224,15 @@ const FIELDS = [
     wizard: true,
     help: 'Required only when diarization is enabled and diarization model is not downloaded yet.',
   },
+  // The five below are openai-whisper decode options. components/asr/openai/
+  // whisper.py is the only backend that reads them: the openvino whisper decodes
+  // greedily with no segment filter, and paraformer is non-autoregressive.
   {
     path: 'models.asr.temperature',
     file: CONFIG,
     group: 'asr',
     subgroup: 'asrRecognition',
+    appliesWhen: OPENAI_WHISPER_ONLY,
     label: 'Decoding temperature',
     type: 'number',
     min: 0,
@@ -233,6 +244,7 @@ const FIELDS = [
     file: CONFIG,
     group: 'asr',
     subgroup: 'asrRecognition',
+    appliesWhen: OPENAI_WHISPER_ONLY,
     label: 'No-speech threshold',
     type: 'number',
     min: 0,
@@ -244,6 +256,7 @@ const FIELDS = [
     file: CONFIG,
     group: 'asr',
     subgroup: 'asrRecognition',
+    appliesWhen: OPENAI_WHISPER_ONLY,
     label: 'Log-probability threshold',
     type: 'number',
     min: -10,
@@ -255,6 +268,7 @@ const FIELDS = [
     file: CONFIG,
     group: 'asr',
     subgroup: 'asrRecognition',
+    appliesWhen: OPENAI_WHISPER_ONLY,
     label: 'Minimum segment duration (s)',
     type: 'number',
     min: 0,
@@ -266,6 +280,7 @@ const FIELDS = [
     file: CONFIG,
     group: 'asr',
     subgroup: 'asrRecognition',
+    appliesWhen: OPENAI_WHISPER_ONLY,
     label: 'Minimum words per segment',
     type: 'number',
     min: 0,
@@ -669,51 +684,50 @@ const FIELDS = [
     integer: true,
     help: 'How long to wait for a video pipeline to finish before giving up.',
   },
+  // Durations are seconds of video time, measured on frame timestamps, so they
+  // mean the same whatever rate the pose model runs at.
   {
-    path: 'va_pipeline.pose_statistics.min_frames_for_transition',
+    path: 'va_pipeline.pose_statistics.raise_confirm_sec',
     file: CONFIG,
     group: 'videoAnalytics',
     subgroup: 'poseStatistics',
-    label: 'Frames to confirm a raised hand',
+    label: 'Seconds to confirm a raised hand',
     type: 'number',
-    min: 1,
-    max: 300,
-    integer: true,
-    help: 'For identified students.',
+    min: 0,
+    max: 10,
+    help: 'For identified (standing) students.',
   },
   {
-    path: 'va_pipeline.pose_statistics.min_frames_for_transition_unid',
+    path: 'va_pipeline.pose_statistics.raise_confirm_sec_unid',
     file: CONFIG,
     group: 'videoAnalytics',
     subgroup: 'poseStatistics',
-    label: 'Frames to confirm a raised hand (unidentified)',
+    label: 'Seconds to confirm a raised hand (unidentified)',
     type: 'number',
-    min: 1,
-    max: 300,
-    integer: true,
+    min: 0,
+    max: 10,
   },
   {
-    path: 'va_pipeline.pose_statistics.min_stand_frames',
+    path: 'va_pipeline.pose_statistics.stand_confirm_sec',
     file: CONFIG,
     group: 'videoAnalytics',
     subgroup: 'poseStatistics',
-    label: 'Frames before counting a stand-up',
+    label: 'Seconds before counting a stand-up',
     type: 'number',
-    min: 1,
-    max: 300,
-    integer: true,
+    min: 0,
+    max: 30,
+    help: 'How long a standing student must stay tracked before the stand-up counts.',
   },
   {
-    path: 'va_pipeline.pose_statistics.absence_threshold',
+    path: 'va_pipeline.pose_statistics.absence_sec',
     file: CONFIG,
     group: 'videoAnalytics',
     subgroup: 'poseStatistics',
-    label: 'Forget a student after (frames)',
+    label: 'Forget a student after (s)',
     type: 'number',
-    min: 1,
-    max: 3600,
-    integer: true,
-    help: 'Unseen for this many frames and the student is dropped (90 ≈ 3s).',
+    min: 0.5,
+    max: 600,
+    help: 'Unseen for this long and the student is dropped; coming back counts as a new stand-up.',
   },
   {
     path: 'va_pipeline.pose_statistics.center_dist_threshold',
@@ -738,15 +752,37 @@ const FIELDS = [
     integer: true,
   },
   {
-    path: 'va_pipeline.pose_statistics.stale_unidentified_threshold',
+    path: 'va_pipeline.pose_statistics.stale_unidentified_sec',
     file: CONFIG,
     group: 'videoAnalytics',
     subgroup: 'poseStatistics',
-    label: 'Forget an unidentified student after (frames)',
+    label: 'Forget an unidentified student after (s)',
     type: 'number',
-    min: 1,
+    min: 0.5,
+    max: 600,
+  },
+  {
+    path: 'va_pipeline.pose_statistics.count_bucket_sec',
+    file: CONFIG,
+    group: 'videoAnalytics',
+    subgroup: 'poseStatistics',
+    label: 'Student count interval (s)',
+    type: 'number',
+    min: 5,
     max: 3600,
     integer: true,
+    help: 'The class is split into intervals this long; each gives one count.',
+  },
+  {
+    path: 'va_pipeline.pose_statistics.count_percentile',
+    file: CONFIG,
+    group: 'videoAnalytics',
+    subgroup: 'poseStatistics',
+    label: 'Student count percentile',
+    type: 'number',
+    min: 1,
+    max: 100,
+    help: 'Which percentile of the per-frame counts in an interval is taken as its count.',
   },
   {
     path: 'board_ocr.frame_rate',

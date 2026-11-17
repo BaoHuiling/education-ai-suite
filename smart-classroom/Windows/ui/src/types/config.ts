@@ -21,6 +21,13 @@ export interface ConfigField {
   options: string[] | null;
   /** Non-binding choices offered for a free-text field. */
   suggestions: string[] | null;
+  /**
+   * Other fields' paths, in the same file, mapped to the values under which
+   * this one has any effect; null when it always applies.
+   */
+  appliesWhen: Record<string, string[]> | null;
+  /** The key is absent from the file, so the backend is using its default. */
+  missing: boolean;
   wizard: boolean;
   help: string | null;
   min: number | null;

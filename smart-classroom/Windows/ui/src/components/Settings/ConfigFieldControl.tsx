@@ -8,7 +8,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import type { ConfigField, ConfigProblem, ConfigValue } from '../../types/config';
-import { fieldKey } from '../../services/configManager';
+import { fieldKey, type UnmetCondition } from '../../services/configManager';
 import { fieldHelp, fieldLabel } from '../../i18n/settingsText';
 
 interface SuggestionInputProps {
@@ -136,9 +136,19 @@ interface ConfigFieldControlProps {
   flashed?: boolean;
   /** A cross-field rule this value takes part in breaking. */
   problem?: ConfigProblem;
+  /** Set when the backend ignores this field under the current values. */
+  unmet?: UnmetCondition | null;
 }
 
-const ConfigFieldControl: React.FC<ConfigFieldControlProps> = ({ field, draft, onChange, id, flashed, problem }) => {
+const ConfigFieldControl: React.FC<ConfigFieldControlProps> = ({
+  field,
+  draft,
+  onChange,
+  id,
+  flashed,
+  problem,
+  unmet,
+}) => {
   const { t } = useTranslation();
   const key = fieldKey(field);
   const edited = draft[key] !== undefined;
@@ -210,16 +220,38 @@ const ConfigFieldControl: React.FC<ConfigFieldControlProps> = ({ field, draft, o
   };
 
   const problemClass = problem ? (problem.blocking ? ' invalid' : ' questionable') : '';
+  const inactiveClass = unmet ? ' inactive' : '';
   const help = fieldHelp(t, field);
 
   return (
-    <div id={id} className={`config-field${edited ? ' dirty' : ''}${flashed ? ' flashed' : ''}${problemClass}`}>
+    <div
+      id={id}
+      className={`config-field${edited ? ' dirty' : ''}${flashed ? ' flashed' : ''}${problemClass}${inactiveClass}`}
+    >
       <div className="config-field-label">
         <span className="config-field-name">{fieldLabel(t, field)}</span>
         <code className="config-field-path" title={field.path}>
           {field.path}
         </code>
         {help && <span className="config-field-help">{help}</span>}
+        {/* Disabled rather than hidden: the value is still in the file, and
+            seeing it explains what switching the other field back would do. */}
+        {unmet && (
+          <span className="config-field-note">
+            {t('config.notApplied', 'Only used when {{path}} is {{values}}.', {
+              path: unmet.path,
+              values: unmet.values.join(' / '),
+            })}
+          </span>
+        )}
+        {field.missing && (
+          <span
+            className="config-field-note"
+            title={t('config.missingTitle', 'The backend is using its built-in default. Saving writes the key back.')}
+          >
+            {t('config.missing', 'Not in config.yaml')}
+          </span>
+        )}
         {/* Short form only: the banner above already states the problem in full,
             and a rule can name several fields, so the sentence would otherwise
             appear two or three times within one screenful. */}
@@ -229,7 +261,11 @@ const ConfigFieldControl: React.FC<ConfigFieldControlProps> = ({ field, draft, o
           </span>
         )}
       </div>
-      <div className="config-field-control">{control()}</div>
+      {/* A disabled fieldset disables every control inside it, the combo's
+          toggle button included, without each branch above handling it. */}
+      <fieldset className="config-field-control" disabled={!!unmet}>
+        {control()}
+      </fieldset>
     </div>
   );
 };
