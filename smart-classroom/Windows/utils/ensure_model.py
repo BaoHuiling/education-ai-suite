@@ -9,7 +9,6 @@ from utils.convert_yolo_models import convert_yolo_models
 from model_manager.feature_bootstrap import resolve_effective_features
 
 logger = logging.getLogger(__name__)
-from huggingface_hub import snapshot_download
 from huggingface_hub.errors import GatedRepoError, RepositoryNotFoundError
 
 HF_PYTORCH_WEIGHTS_NAME = "pytorch_model.bin"
@@ -41,22 +40,27 @@ def _hf_auth_hint(model_name: str) -> str:
         f"'{model_name}' is gated or private. Accept the model conditions at "
         f"https://hf.co/{model_name}, create a token at "
         "https://hf.co/settings/tokens, and set models.asr.hf_token in config.yaml "
-        "(or disable models.asr.diarization)."
+        "(or disable models.asr.diarization). Alternatively set models.model_hub: "
+        "modelscope, which serves the same files without a token."
     )
 
 
-def _download_hf_model(
+def _download_hub_model(
     model_name: str,
     output_dir: str,
     hf_token: str = None,
     force: bool = False,
     required_files: list[str] | None = None
 ) -> str:
-    """Download a HuggingFace model locally (full snapshot, offline usable).
+    """Download a model snapshot from ``models.model_hub`` (offline usable).
 
+    For repos with identical files on both hubs (the pyannote pipelines). The
+    directory does not depend on the hub, so switching hubs reuses the cache.
     Returns the local directory; raises ModelDownloadError if the snapshot
     could not be fetched.
     """
+    from utils.model_download_helper import download_snapshot
+    from utils.model_hub import HF, get_model_hub
 
     os.makedirs(output_dir, exist_ok=True)
 
@@ -68,22 +72,22 @@ def _download_hf_model(
 
     # If already downloaded and not forcing, reuse
     if not force and os.listdir(output_dir) and has_required_files:
-        logger.info(f"⚡ Using cached HF model at {output_dir}")
+        logger.info(f"⚡ Using cached model at {output_dir}")
         return output_dir
 
     if os.listdir(output_dir) and not has_required_files:
-        logger.warning(f"Incomplete HF model cache detected at {output_dir}. Re-downloading snapshot.")
+        logger.warning(f"Incomplete model cache detected at {output_dir}. Re-downloading snapshot.")
 
-    logger.info(f"🚀 Downloading HF model {model_name} → {output_dir}\n"
+    logger.info(f"🚀 Downloading model {model_name} → {output_dir}\n"
                 "⏳ This may take time depending on model size...\n"
                 "⚠️ Please do not terminate.")
 
+    hub = get_model_hub()
     try:
-        snapshot_download(
-            repo_id=model_name,
-            local_dir=output_dir,
-            token=normalize_hf_token(hf_token)
-        )
+        download_snapshot(hub, model_name, output_dir,
+                          hf_token=normalize_hf_token(hf_token) if hub == HF else None)
+    except ModelDownloadError:
+        raise  # ModelScope failure, already explained
     except (GatedRepoError, RepositoryNotFoundError) as e:
         # 401/403/404 all surface here when the token is missing, expired, or
         # has not accepted the model conditions — the actionable case.
@@ -98,13 +102,13 @@ def _download_hf_model(
 
     if not os.listdir(output_dir):
         raise ModelDownloadError(
-            f"Download of HF model {model_name} left {output_dir} empty."
+            f"Download of model {model_name} left {output_dir} empty."
         )
 
     missing = [f for f in required_files if not os.path.exists(os.path.join(output_dir, f))]
     if missing:
         raise ModelDownloadError(
-            f"HF model {model_name} downloaded to {output_dir} but is missing "
+            f"Model {model_name} downloaded to {output_dir} but is missing "
             f"required file(s): {', '.join(missing)}"
         )
 
@@ -147,7 +151,7 @@ def _cache_diarization_dependencies_locally(pipeline_dir: str, hf_token: str = N
         dependency_dir = os.path.join(pipeline_dir, "dependencies", model_ref.replace("/", "_"))
         # Not swallowed: a sub-model that never lands leaves the pipeline config
         # pointing at the hub, which only fails much later at diarize() time.
-        _download_hf_model(
+        _download_hub_model(
             model_ref,
             dependency_dir,
             hf_token=hf_token,
@@ -227,6 +231,10 @@ def _download_openvino_model(
     if not force and _ir_exists(output_dir):
         logger.info(f"⚡ Using cached export at {output_dir}")
         return output_dir
+
+    from utils.model_hub import HF, warn_if_not_configured_hub
+    # optimum fetches the checkpoint from Hugging Face (openai/whisper-* is not on ModelScope).
+    warn_if_not_configured_hub(model_name, HF)
 
     # Through convert_worker rather than the optimum-cli executable, so an optional
     # dependency Windows Application Control blocks (pyarrow) does not fail the export.

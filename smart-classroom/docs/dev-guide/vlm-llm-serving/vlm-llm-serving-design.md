@@ -43,6 +43,8 @@ Keep one target per serving instance. Generating tool calls and consuming tool r
 | `Qwen/Qwen3.6-35B-A3B` | [INT4 IR](https://huggingface.co/OpenVINO/Qwen3.6-35B-A3B-int4-ov) | [DFlash](https://huggingface.co/z-lab/Qwen3.6-35B-A3B-DFlash) |
 | `Qwen/Qwen3.8-27B` | [INT4 IR](https://huggingface.co/OpenVINO/Qwen3.8-27B-int4-ov) or [INT8 IR](https://huggingface.co/OpenVINO/Qwen3.8-27B-int8-ov) | [DFlash2](https://huggingface.co/z-lab/Qwen3.8-27B-DFlash2) (planned: no profile yet, so plain generation) |
 
+With `models.model_hub: modelscope`, target IR is downloaded from the ModelScope repository of the same name, which holds identical files. Drafters always come from Hugging Face: their revisions are Hugging Face commits.
+
 A Qwen3.5-9B selection uses `provider: vlm`, `vlm_name: Qwen/Qwen3.5-9B`, and `weight_format: int4` or `int8` under `models.text_gen`. Omit `speculative` for plain generation. With `speculative.mode` `auto` or `"on"`, the catalog selects DFlash, or the target-bundled MTP head with `method: mtp` or `draft_source: target`; GenAI 2026.4.1 loads either into the same `VLMPipeline`, so image requests keep working. DFlash passed GPU smoke tests on INT4 and INT8, MTP on INT4 only; neither is yet performance- or accuracy-qualified.
 
 A maintained catalog supplies compatible combinations of targets and methods, default drafter sources, immutable revisions, conversion recipes, dependency versions, and profile tuning values. Explicit speculative settings select or override these defaults only within a validated profile. Drafter precision is independent of target precision. Extend the catalog without restricting the existing plain-model loading path.

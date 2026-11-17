@@ -149,7 +149,16 @@ const FIELDS = [
     label: 'Model hub',
     type: 'enum',
     options: ['huggingface', 'modelscope'],
-    help: 'Where models are downloaded from.',
+    help: 'Where models published on both hubs are downloaded from. Some models exist on one hub only and ignore this.',
+  },
+  {
+    path: 'models.hf_endpoint',
+    file: CONFIG,
+    group: 'general',
+    label: 'Hugging Face mirror',
+    type: 'url',
+    maxLength: 512,
+    help: 'Optional mirror for Hugging Face downloads, e.g. https://hf-mirror.com. Leave empty for huggingface.co.',
   },
 
   // -------------------------------------------------------------------------

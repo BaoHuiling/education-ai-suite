@@ -119,10 +119,11 @@ available:
 
 | Backend | Gated access | Speed (CPU) | Notes |
 | :--- | :--- | :--- | :--- |
-| `pyannote` (default) | Yes, Hugging Face token required | ~0.43x realtime | Detects overlapping speech |
+| `pyannote` (default) | Yes, Hugging Face token required (none with `model_hub: modelscope`) | ~0.43x realtime | Detects overlapping speech |
 | `campplus` | No | ~0.01x realtime | FunASR VAD + CAM++, requires the FunASR setup from section C |
 
-Steps a-c below set up the default pyannote backend. Skip to step d for CAM++.
+Steps a-c below set up the default pyannote backend. Skip them when `models.model_hub` is
+`modelscope`: ModelScope serves the same pyannote files without a token. Skip to step d for CAM++.
 
 #### a. Request model access on Hugging Face
 
@@ -168,8 +169,8 @@ models:
 #### d. CAM++ backend (FunASR only)
 
 `campplus` needs no token and no gated access, but it requires `provider: funasr` and
-`name: paraformer-zh` from section C. Its speaker and VAD models are downloaded from ModelScope
-on first use and reused offline afterwards.
+`name: paraformer-zh` from section C. Its speaker and VAD models are downloaded on first use from
+the hub that `models.model_hub` selects, and reused offline afterwards.
 
 ```yaml
 models:
@@ -213,6 +214,14 @@ Get-Command soffice
   **Configuration** screen under **Proxy**.
 - **Model downloads**: Stable access to `huggingface.co` is required to download
   pre-trained models.
+- **Model hub**: `models.model_hub` (**Model hub** on the **Configuration** screen) selects
+  Hugging Face or ModelScope for the models published with identical files on both: OpenVINO IR
+  for text generation, pyannote, the FunASR VAD and CAM++ models, PaddleOCR and the grading layout
+  model. FunASR Paraformer and punctuation always come from ModelScope. Whisper exports, other
+  model exports and speculative-decoding drafters always come from Hugging Face. The backend log
+  warns when a download goes to the hub you did not select.
+- **Hugging Face mirror**: set `models.hf_endpoint` (**Hugging Face mirror**) to a mirror such as
+  `https://hf-mirror.com`. An `HF_ENDPOINT` environment variable takes precedence.
 - **Windows long paths**: Model downloads with deep paths can fail when long paths are
   disabled. Select **Enable** on the **Windows long paths** row of the **Setup** screen.
 

@@ -94,7 +94,7 @@ class AsrHandler:
         from pathlib import Path
         from utils.ensure_model import (
             get_diarization_model_path,
-            _download_hf_model,
+            _download_hub_model,
             _cache_diarization_dependencies_locally,
             diarization_cache_complete,
         )
@@ -107,7 +107,7 @@ class AsrHandler:
             return
 
         logger.info(f"Downloading diarization model...")
-        _download_hf_model(
+        _download_hub_model(
             config.models.diarization.name,
             output_dir,
             hf_token=config.models.asr.hf_token,

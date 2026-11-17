@@ -28,7 +28,7 @@ The audio pipeline handles speech-to-text conversion and content summarization:
   | Provider | Models | Downloaded from |
   |---|---|---|
   | OpenVINO™ (default) | Whisper (e.g. `whisper-base`) | Hugging Face (`openai/whisper-*`) via `model-downloader`, exported to OpenVINO IR |
-  | FunASR | Paraformer (`paraformer-zh`), for Mandarin | ModelScope via `model-downloader` |
+  | FunASR | Paraformer (`paraformer-zh`), for Mandarin | ModelScope via `model-downloader`. On Windows, `model_hub: huggingface` moves only the VAD and CAM++ models to Hugging Face |
   | OpenAI | Whisper (e.g. `whisper-base`) | OpenAI's public `openai-whisper` checkpoints (fetched directly) |
 
 - **Speaker Diarization**

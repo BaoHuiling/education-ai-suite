@@ -13,5 +13,5 @@ Audio Analyzer container requests its model snapshots from the shared
 | Provider | Models | Downloaded from |
 |---|---|---|
 | OpenVINO™ (default) | Whisper (e.g. `whisper-base`) | Hugging Face (`openai/whisper-*`) via `model-downloader`, exported to OpenVINO IR |
-| FunASR | Paraformer (`paraformer-zh`), for Mandarin | ModelScope via `model-downloader` (`modelscope` plugin) |
+| FunASR | Paraformer (`paraformer-zh`), for Mandarin | ModelScope via `model-downloader` (`modelscope` plugin). On Windows, `model_hub: huggingface` moves only the VAD and CAM++ models to Hugging Face |
 | OpenAI | Whisper (e.g. `whisper-base`) | OpenAI's public `openai-whisper` checkpoints (fetched directly by Audio Analyzer) |

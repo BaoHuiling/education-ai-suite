@@ -17,14 +17,10 @@ from funasr.models.campplus.utils import correct_labels, postprocess
 from components.asr.diarization.base_diarizer import GlobalSpeakerDiarizer
 from utils.ensure_model import get_asr_model_path
 from utils.model_download_helper import get_or_download_model_dir
+from components.asr.funasr.hub_models import CAMPPLUS, VAD
 
 logger = logging.getLogger(__name__)
 
-CAMPPLUS_MODEL = "iic/speech_campplus_sv_zh-cn_16k-common"
-CAMPPLUS_REVISION = "v2.0.2"
-# Same snapshot the FunASR ASR pipeline downloads, reused instead of fetched twice.
-VAD_MODEL = "iic/speech_fsmn_vad_zh-cn-16k-common-pytorch"
-VAD_REVISION = "v2.0.4"
 
 SAMPLE_RATE = 16000
 SEG_DUR = 1.5       # embedding window length in seconds
@@ -38,15 +34,9 @@ class CamPlusPlusDiarizer(GlobalSpeakerDiarizer):
         super().__init__()
         models_dir = os.path.dirname(get_asr_model_path())
         spk_dir = get_or_download_model_dir(
-            model=CAMPPLUS_MODEL,
-            revision=CAMPPLUS_REVISION,
-            local_dir=os.path.join(models_dir, CAMPPLUS_MODEL),
-        )
-        vad_dir = get_or_download_model_dir(
-            model=VAD_MODEL,
-            revision=VAD_REVISION,
-            local_dir=os.path.join(models_dir, VAD_MODEL),
-        )
+            CAMPPLUS, os.path.join(models_dir, CAMPPLUS.name))
+        # Same snapshot the FunASR ASR pipeline downloads, reused instead of fetched twice.
+        vad_dir = get_or_download_model_dir(VAD, os.path.join(models_dir, VAD.name))
 
         self.device = device
         self.vad_model = AutoModel(model=vad_dir, device=device, disable_update=True)
