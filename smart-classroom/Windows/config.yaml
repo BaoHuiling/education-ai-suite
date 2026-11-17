@@ -78,7 +78,7 @@ models:
 
   text_gen:
     provider: vlm
-    vlm_name: Qwen/Qwen3-VL-8B-Instruct
+    vlm_name: Qwen/Qwen3.5-9B
     device: GPU # GPU or CPU
     weight_format: int4 # int4,int 8-- shared with content_search.vlm.weight_format
     max_new_tokens: 5120
