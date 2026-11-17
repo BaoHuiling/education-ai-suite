@@ -336,8 +336,8 @@ docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-com
 docker compose -f docker/docker-compose.yml -f docker/docker-compose.gpu.yml logs -f app
 docker compose -f docker/docker-compose.yml -f docker/docker-compose.gpu.yml logs -f model-downloader ovms
 
-# Stop the stack
-docker compose -f docker/docker-compose.yml -f docker/docker-compose.gpu.yml down
+# Stop the stack (keeps volumes and images; ./uninstall.sh removes them)
+docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.gpu.yml down
 ```
 
 > [!NOTE]
@@ -349,4 +349,5 @@ docker compose -f docker/docker-compose.yml -f docker/docker-compose.gpu.yml dow
 
 - [Get Started on Linux](./get-started/get-started-linux.md): Run `setup.sh` and verify the stack.
 - [Manual Docker Startup (Optional)](./get-started/get-started-linux.md#manual-docker-startup-optional): Run the Compose commands yourself instead of `setup.sh`.
+- [Uninstall the Application](./get-started/get-started-linux.md#uninstall-the-application): Remove the containers, volumes, images, and data with `uninstall.sh`.
 - [Content Search Flow](./content-search-flow.md): The Content Search feature in the UI.

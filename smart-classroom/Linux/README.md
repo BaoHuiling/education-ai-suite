@@ -61,4 +61,5 @@ To see the system requirements and other installations, see the following guides
 
 - [System Requirements](../docs/user-guide/get-started/system-requirements.md): Check the hardware and software requirements for deploying the application.
 - [Get Started](../docs/user-guide/get-started/get-started-linux.md): Follow step-by-step instructions to set up the application.
+- [Uninstall](../docs/user-guide/get-started/get-started-linux.md#uninstall-the-application): Run `./uninstall.sh` to remove the containers, models, and data.
 - [Linux Docker Architecture](../docs/user-guide/linux-docker-architecture.md): See the containers, ports, startup order, and data flow in the Docker Compose stack.

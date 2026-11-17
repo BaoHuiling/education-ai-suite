@@ -133,7 +133,7 @@ services:
 
   audio-analyzer:   
     profiles: ["asr"]
-    image: intel/audio-analyzer
+    image: intel/audio-analyzer:${INTEL_IMAGE_TAG:-latest}
     pull_policy: always
     container_name: sc-audio-analyzer
     user: "1000:1000"

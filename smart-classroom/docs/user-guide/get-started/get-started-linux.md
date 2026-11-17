@@ -147,9 +147,11 @@ docker compose -f docker/docker-compose.yml logs -f model-downloader ovms
 Stop the services:
 
 ```bash
-docker compose -f docker/docker-compose.yml down
+docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.gpu.yml down
 kill $(cat ui/vite-dev.pid)   # stop the UI dev server
 ```
+
+This keeps the Docker volumes (downloaded models) and images so that the next `./setup.sh` starts quickly. To remove the application and free the disk space, see [Uninstall the Application](#uninstall-the-application).
 
 > [!IMPORTANT]
 > After changing `config.yaml`, rerun `./setup.sh` so that profiles and model lists are regenerated and the stack restarts with the new configuration.
@@ -200,3 +202,58 @@ HTTP 200 with `"status":"ok"` means ready. Use the same Compose command with
 
 - **Proxy**: If behind a proxy, configure `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` for the shell and for Docker.
 - **Model Downloads**: Stable access to `huggingface.co` is required to download pre-trained models.
+
+## Uninstall the Application
+
+The `uninstall.sh` script reverses `setup.sh`. From the `Linux` directory, run:
+
+```bash
+./uninstall.sh
+```
+
+The script lists what it will remove and asks for confirmation before it changes anything. It removes:
+
+| Item | What is removed |
+|---|---|
+| UI dev server | The process started by `setup.sh`, plus `ui/node_modules`, `ui/vite-dev.log`, and `ui/vite-dev.pid`. |
+| Containers and network | Every service of the `smart-classroom` Compose project, in all profiles. |
+| Docker volumes | `model-cache` (downloaded and exported models, the largest item), `video-analytics-models`, the `audio-analyzer-*` volumes, and `metrics`. |
+| Docker images | The images that the stack pulled or built, including the locally built app and video-analytics images. |
+
+By default the script keeps `storage/` (session data and Content Search data), `.env`, and the source tree.
+
+### Options
+
+| Option | Effect |
+|---|---|
+| `-y`, `--yes` | Skip the confirmation prompt. Required in a non-interactive shell. |
+| `--remove-storage` | Also delete `storage/` (or the path in `STORAGE_DIR`), which holds session data and Content Search data (SQLite, ChromaDB, uploads). The container user owns these files, so the script retries with `sudo` if needed. |
+| `--prune-build-cache` | Also run `docker builder prune -af` to free the build layers cached by the app and video-analytics builds. This clears the build cache of every Docker project on the host. |
+| `--remove-node` | Also remove Node.js (the NodeSource `apt` or `dnf` package, and `~/.nvm`). `setup.sh` does not record whether it installed Node.js, so this also removes a Node.js that you installed yourself. After removing `~/.nvm`, delete the nvm lines from your shell profile, for example `~/.bashrc`. |
+
+For example, to remove everything that `setup.sh` created, without prompts:
+
+```bash
+./uninstall.sh --yes --remove-storage --prune-build-cache
+```
+
+The script exits with a non-zero status and prints a warning if a step fails, for example when the Docker daemon is not reachable.
+
+### Finish the Cleanup
+
+To also delete the source tree, including the git submodules and `.env` (which can contain `HF_TOKEN`):
+
+```bash
+cd ../../..
+rm -rf education-ai-suite
+```
+
+To check that nothing is left behind:
+
+```bash
+docker volume ls --filter label=com.docker.compose.project=smart-classroom
+docker system df
+```
+
+> [!NOTE]
+> After an uninstall, the next `./setup.sh` downloads and exports the models again. This first run can take up to about 30 minutes.
