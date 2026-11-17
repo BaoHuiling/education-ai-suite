@@ -9,7 +9,14 @@ import { useTranslation } from 'react-i18next';
 import '../../assets/css/Config.css';
 import '../../assets/css/GetStarted.css';
 import type { ConfigChange, ConfigField, ConfigValue } from '../../types/config';
-import { useConfig, useConfigProblems, withFix, NO_CHANGES, fieldKey as keyOf } from '../../services/configManager';
+import {
+  useConfig,
+  useConfigProblems,
+  withFix,
+  unmetCondition,
+  NO_CHANGES,
+  fieldKey as keyOf,
+} from '../../services/configManager';
 import { useServices } from '../../services/serviceManager';
 import { useSetup } from '../../services/setupManager';
 import { useReadiness, type ReadinessItem } from '../../services/useReadiness';
@@ -247,6 +254,7 @@ const GetStartedScreen: React.FC<GetStartedScreenProps> = ({ onOpenScreen }) => 
                     key={keyOf(field)}
                     field={field}
                     draft={draft}
+                    unmet={unmetCondition(field, description?.fields ?? [], draft)}
                     problem={byField.get(keyOf(field))}
                     onChange={(value) => setDraft((previous) => ({ ...previous, [keyOf(field)]: value }))}
                   />
