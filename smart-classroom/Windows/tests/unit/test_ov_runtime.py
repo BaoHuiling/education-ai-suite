@@ -26,6 +26,19 @@ def test_gpu_queue_priority_accepts_configured_values(monkeypatch):
     assert ov_runtime.gpu_queue_priority() == "HIGH"
 
 
+def test_gpu_queue_priority_warns_and_defaults_for_invalid_value(monkeypatch, caplog):
+    monkeypatch.setattr(
+        config_loader,
+        "config",
+        SimpleNamespace(models=SimpleNamespace(gpu_queue_priority="urgent")),
+    )
+
+    with caplog.at_level("WARNING", logger="utils.ov_runtime"):
+        assert ov_runtime.gpu_queue_priority() == "LOW"
+
+    assert "Invalid GPU queue priority 'urgent'; falling back to LOW" in caplog.text
+
+
 def test_gpu_plugin_config_applies_priority_only_to_gpu(monkeypatch):
     monkeypatch.setattr(
         config_loader,

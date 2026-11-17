@@ -3,8 +3,11 @@
 
 """Shared OpenVINO GPU runtime configuration for Smart Classroom services."""
 
+import logging
+
 _VALID_PRIORITIES = ("LOW", "MEDIUM", "HIGH")
 _DEFAULT_PRIORITY = "LOW"
+logger = logging.getLogger(__name__)
 
 
 def gpu_queue_priority() -> str:
@@ -13,12 +16,18 @@ def gpu_queue_priority() -> str:
         from utils.config_loader import config
 
         models = getattr(config, "models", None)
-        value = str(
-            getattr(models, "gpu_queue_priority", _DEFAULT_PRIORITY) or _DEFAULT_PRIORITY
-        ).upper()
+        configured_value = getattr(models, "gpu_queue_priority", _DEFAULT_PRIORITY)
+        value = str(configured_value or _DEFAULT_PRIORITY).upper()
     except Exception:
         value = _DEFAULT_PRIORITY
-    return value if value in _VALID_PRIORITIES else _DEFAULT_PRIORITY
+    if value not in _VALID_PRIORITIES:
+        logger.warning(
+            "Invalid GPU queue priority %r; falling back to LOW. Valid values are: %s",
+            configured_value,
+            ", ".join(_VALID_PRIORITIES),
+        )
+        return _DEFAULT_PRIORITY
+    return value
 
 
 def gpu_plugin_config(device, base=None) -> dict:
