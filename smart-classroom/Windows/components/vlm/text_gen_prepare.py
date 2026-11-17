@@ -49,6 +49,7 @@ from components.vlm.text_gen_profiles import (
     preconverted_repo,
     version_at_least,
 )
+from utils.model_hub import HF, warn_if_not_configured_hub
 from utils.model_paths import OPENVINO_MODELS_DIR, SC_ROOT
 
 logger = logging.getLogger(__name__)
@@ -291,6 +292,9 @@ def _prepare_target(plan: TextGenPlan) -> Path:
                         # A resumable download: transient network errors are retried.
                         _with_retries(convert, f"{plan.model_name} {plan.weight_format} IR")
                     else:
+                        if not Path(plan.model_name).exists():
+                            # optimum fetches the checkpoint from Hugging Face.
+                            warn_if_not_configured_hub(plan.model_name, HF)
                         convert()  # a local export; a failure would only repeat
                 except Exception as exc:  # noqa: BLE001 - surfaced with context
                     raise PreparationError(
@@ -420,6 +424,8 @@ def _download_source(repo: str, revision: str) -> Path:
     staging.mkdir(parents=True, exist_ok=True)
     _check_disk(staging, _with_retries(lambda: _repo_size(repo, revision),
                                        f"size of {repo}") * EXPORT_DISK_FACTOR)
+    # Pinned to a Hugging Face commit, which ModelScope cannot resolve.
+    warn_if_not_configured_hub(repo, HF)
     logger.info("Downloading drafter source %s@%s", repo, revision[:12])
     # Resumable: snapshot_download skips files already complete in local_dir.
     _with_retries(lambda: _snapshot(repo, staging, revision, _DRAFT_SOURCE_PATTERNS),

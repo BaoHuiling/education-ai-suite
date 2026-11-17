@@ -64,6 +64,10 @@ def load_config(path="config.yaml"):
         data = yaml.safe_load(f)
     data = _apply_backcompat(data)
     _validate_features(data)
+    # Imported before huggingface_hub/paddlex everywhere, so their env-driven
+    # download settings are still unread here.
+    from utils.model_hub import apply_hub_env
+    apply_hub_env((data or {}).get("models"))
     return _dict_to_namespace(data)
 
 config = load_config()
