@@ -12,6 +12,16 @@ files:
 win:
   target:
     - nsis
+  # Signing runs only when SC_CODESIGN_SCRIPT is set (see build/sign.cjs).
+  signtoolOptions:
+    sign: ./build/sign.cjs
+    # The hook is called once per algorithm; the signing service handles digests.
+    signingHashAlgorithms:
+      - sha256
+  # Default is .exe only; also sign Electron DLLs and native addons.
+  signExts:
+    - .dll
+    - .node
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: false
