@@ -406,9 +406,34 @@
   color: var(--color-gray-700);
 }
 
+/* Why a value does nothing right now: the field it depends on is set elsewhere,
+   or the key is absent from the file. */
+.config-field-note {
+  align-self: flex-start;
+  font-size: 11px;
+  font-style: italic;
+  color: #7a5b00;
+}
+
+/* A <fieldset>, so disabling it disables the control; strip its default frame. */
 .config-field-control {
   display: flex;
   justify-content: flex-end;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+/* The backend ignores this field under the current values. */
+.config-field.inactive .config-field-name,
+.config-field.inactive .config-field-help,
+.config-field.inactive .config-field-control {
+  opacity: 0.55;
+}
+
+.config-field.inactive .config-field-control * {
+  cursor: not-allowed;
 }
 
 .config-input {

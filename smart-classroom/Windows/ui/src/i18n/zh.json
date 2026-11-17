@@ -150,6 +150,9 @@
     "loading": "正在加载配置…",
     "secretSet": "已保存。输入以替换",
     "secretUnset": "未设置",
+    "notApplied": "仅当 {{path}} 为 {{values}} 时生效。",
+    "missing": "config.yaml 中没有此项",
+    "missingTitle": "后端正在使用内置默认值。保存会把该项写回文件。",
     "restartRequired": "已保存。请重启后端以生效。",
     "savedIdle": "已保存。将在后端下次启动时生效。",
     "restartBackend": "重启后端",
@@ -518,19 +521,20 @@
         "help": "等待视频管道完成的最长时间，超时即放弃。"
       },
       "pose_statistics": {
-        "min_frames_for_transition": {
-          "label": "确认举手所需帧数",
-          "help": "针对已识别的学生。"
+        "raise_confirm_sec": {
+          "label": "确认举手所需秒数",
+          "help": "针对已识别（起立）的学生。"
         },
-        "min_frames_for_transition_unid": {
-          "label": "确认举手所需帧数（未识别学生）"
+        "raise_confirm_sec_unid": {
+          "label": "确认举手所需秒数（未识别学生）"
         },
-        "min_stand_frames": {
-          "label": "计为起立所需帧数"
+        "stand_confirm_sec": {
+          "label": "计为起立所需秒数",
+          "help": "起立的学生需持续被跟踪这么久才计为一次起立。"
         },
-        "absence_threshold": {
-          "label": "学生消失判定（帧）",
-          "help": "连续这么多帧未出现即移除该学生（90 帧约 3 秒）。"
+        "absence_sec": {
+          "label": "学生消失判定（秒）",
+          "help": "持续这么久未出现即移除该学生；再次出现计为新的起立。"
         },
         "center_dist_threshold": {
           "label": "同一人距离阈值",
@@ -539,8 +543,16 @@
         "unidentified_max": {
           "label": "未识别学生跟踪上限"
         },
-        "stale_unidentified_threshold": {
-          "label": "未识别学生消失判定（帧）"
+        "stale_unidentified_sec": {
+          "label": "未识别学生消失判定（秒）"
+        },
+        "count_bucket_sec": {
+          "label": "学生人数统计区间（秒）",
+          "help": "课堂按此长度分段，每段得出一个人数。"
+        },
+        "count_percentile": {
+          "label": "学生人数百分位",
+          "help": "取区间内逐帧人数的哪个百分位作为该区间的人数。"
         }
       }
     },

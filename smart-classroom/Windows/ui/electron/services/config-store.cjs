@@ -127,6 +127,11 @@ function describe() {
       type: field.type,
       options: field.options ?? null,
       suggestions: field.suggestions ?? null,
+      appliesWhen: field.appliesWhen ?? null,
+      // Every schema path ships in config.yaml, so an absent one means the file
+      // was hand-edited or predates this app: the backend is on its default,
+      // and saving the field writes the key back.
+      missing: field.file === schema.CONFIG && raw === undefined,
       wizard: !!field.wizard,
       help: field.help ?? null,
       min: field.min ?? null,

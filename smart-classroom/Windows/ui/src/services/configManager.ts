@@ -12,6 +12,30 @@ import { toMessage, unwrap } from './ipcResult';
 /** Draft key for one field; a path alone is ambiguous across the three files. */
 export const fieldKey = (field: ConfigField) => `${field.file}:${field.path}`;
 
+/** A condition from `appliesWhen` that the current values do not meet. */
+export interface UnmetCondition {
+  path: string;
+  values: string[];
+}
+
+/**
+ * The first `appliesWhen` condition that rules `field` out, or null when the
+ * field takes effect. Reads the draft first, so switching the field it depends
+ * on updates the form before anything is saved.
+ */
+export function unmetCondition(
+  field: ConfigField,
+  fields: ConfigField[],
+  draft: Record<string, ConfigValue>
+): UnmetCondition | null {
+  for (const [path, values] of Object.entries(field.appliesWhen ?? {})) {
+    const key = `${field.file}:${path}`;
+    const current = draft[key] ?? fields.find((other) => fieldKey(other) === key)?.value;
+    if (!values.includes(String(current))) return { path, values };
+  }
+  return null;
+}
+
 /**
  * A rule's one-click fix, merged into the pending draft — not written straight
  * to disk, so it shows up in the save count and Discard undoes it.
