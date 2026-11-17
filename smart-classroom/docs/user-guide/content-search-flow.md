@@ -1,8 +1,8 @@
 # Content Search Flow
 
 The Content Search feature supports file upload and ingestion, multimodal search (text and image
-queries), and Q&A over retrieved content. To enter the Content Search view, click the
-**Content Search** button in the top navigation bar on the Smart Classroom main screen:
+queries), and Q&A over retrieved content. To enter the Content Search view, open the ☰ menu at
+the top left of the Smart Classroom app and click **Content Search**:
 
 ![Content Search Entry](./_assets/content-search-entry1.png)
 
@@ -17,23 +17,25 @@ The Content Search view page is split into two panels:
 
 **Right Panel**
 
-- **Configurations** - Platform and software configuration for Content Search services
-- **Resource Utilization** - Live monitoring of CPU, GPU, memory, and power utilization
-- **Pre-validated Models** - Models used by Content Search, including Vision-Language Model (VLM), visual embedding, document embedding,
-  and reranker
+- **Configurations** - The platform, and the models and services used by Content Search:
+  Vision-Language Model (VLM), visual embedding, document embedding, reranker, vector database,
+  and whether video summarization is enabled
+- **Resource Utilization** - Live monitoring of CPU, GPU, NPU, memory, and power utilization
 
 ![Content Search Initial View](./_assets/content-search-entry2.png)
 
 ## Step 1: Upload Files
 
-1. Click **Upload Files** to browse, or drag and drop files into the drop zone:
+1. Drag and drop files into the drop zone, or click it to browse. The files are listed in a
+   table with the status **Ready**:
 
    ![Upload Flow](./_assets/content-search-upload.png)
 
 2. **Select files** using checkboxes to manage file tags
 3. **Add tags** to selected files before the upload
 4. **Video options** - Toggle the summarization of MP4 files
-5. **Search and Q&A tabs** - Available after the upload completes
+5. **Upload Files** - Starts the upload of the selected files
+6. **Search and Q&A tabs** - Available after the upload completes
 
 Supported file formats:
 
@@ -52,7 +54,7 @@ Before uploading files, you can add tags to organize your content:
 3. Tags appear as chips that can be removed by clicking **x**
 
 > [!NOTE]
-> Tags can be added or removed only while the file is in the **Staged** state (before
+> Tags can be added or removed only while the file is in the **Ready** state (before
   upload). Once uploaded, tags are locked.
 
 ### Toggle Video Summarization
@@ -72,7 +74,9 @@ goes through the ingestion pipeline:
 - **Videos** - Time-based chunking, frame sampling, VLM summarization if enabled, and both text
   and visual embedding
 
-The status column shows the current state: Staged -> Processing -> Completed (or Failed).
+The status column shows the current state: **Ready** -> **Processing...** -> **Uploaded ✔**
+(or **Failed**, with a **↻ Retry** button). For an `.mp4` file with summarization enabled, the file
+shows **Summarizing...** next to its name while the VLM summarizes the video in the background.
 
 ![Files Uploaded Successfully](./_assets/content-search-metrics.png)
 
@@ -161,8 +165,8 @@ The Content Search panel automatically checks the health of backend services on 
 is unreachable or unhealthy, an error message appears indicating:
 
 - Backend unreachable - The Content Search API (port 9011) is not responding
-- Upload/search failure - One or more downstream services (File Ingest, Video Preprocess,
-  VLM Serving, or ChromaDB vector database) have issues
+- Some services unavailable - One or more downstream services (File Ingest, Video Preprocess,
+  the VLM, or the ChromaDB vector database) have issues
 
 ![Health Check Error](./_assets/content-search-healthy-check.png)
 
@@ -175,7 +179,7 @@ Upload and search functionality is affected until all services are healthy.
 | Content Search API | 9011 | Orchestrator and public API |
 | File Ingest & Retrieve | 9990 | Embedding, indexing, and retrieval |
 | Video Preprocess | 8001 | Video chunking and VLM summarization |
-| VLM OpenVINO™ Serving | 9900 | VLM inference |
+| Smart Classroom backend | 8000 | VLM inference (shared with the main app) |
 | ChromaDB | 9090 | Vector database |
 
 ## Learn More
