@@ -68,17 +68,17 @@ RUN --mount=type=secret,id=corporate_ca,required=false \
     fi \
     && mkdir -p /tmp/intel-gpu-runtime \
     && cd /tmp/intel-gpu-runtime \
-    && curl -fL --retry 5 --retry-delay 5 --retry-all-errors -O \
+    && curl -fL --http1.1 --retry 5 --retry-delay 5 --retry-all-errors -O \
         "https://github.com/intel/compute-runtime/releases/download/26.18.38308.1/libze-intel-gpu1_26.18.38308.1-0_amd64.deb" \
-    && curl -fL --retry 5 --retry-delay 5 --retry-all-errors -O \
+    && curl -fL --http1.1 --retry 5 --retry-delay 5 --retry-all-errors -O \
         "https://github.com/intel/compute-runtime/releases/download/26.18.38308.1/intel-opencl-icd_26.18.38308.1-0_amd64.deb" \
-    && curl -fL --retry 5 --retry-delay 5 --retry-all-errors -O \
+    && curl -fL --http1.1 --retry 5 --retry-delay 5 --retry-all-errors -O \
         "https://github.com/intel/compute-runtime/releases/download/26.18.38308.1/libigdgmm12_22.10.0_amd64.deb" \
-    && curl -fL --retry 5 --retry-delay 5 --retry-all-errors -O \
+    && curl -fL --http1.1 --retry 5 --retry-delay 5 --retry-all-errors -O \
         "https://github.com/intel/intel-graphics-compiler/releases/download/v2.34.4/intel-igc-core-2_2.34.4+21428_amd64.deb" \
-    && curl -fL --retry 5 --retry-delay 5 --retry-all-errors -O \
+    && curl -fL --http1.1 --retry 5 --retry-delay 5 --retry-all-errors -O \
         "https://github.com/intel/intel-graphics-compiler/releases/download/v2.34.4/intel-igc-opencl-2_2.34.4+21428_amd64.deb" \
-    && curl -fL --retry 5 --retry-delay 5 --retry-all-errors -O \
+    && curl -fL --http1.1 --retry 5 --retry-delay 5 --retry-all-errors -O \
         "https://ppa.launchpadcontent.net/kobuk-team/intel-graphics/ubuntu/pool/main/l/level-zero-loader/libze1_1.34.0-1~24.04~ppa1_amd64.deb" \
     && printf '%s\n' \
         '12b8254e6d3415c32cee9cd13943030b991d91212445c79fe1cc27176a72eca4  libze-intel-gpu1_26.18.38308.1-0_amd64.deb' \

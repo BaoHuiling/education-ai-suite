@@ -72,6 +72,7 @@ For the steps to apply the token, see the guide for your operating system, or th
 
 - [System Requirements](./get-started/system-requirements.md): Hardware, software, supported models, and weight formats.
 - [Advanced Setup Guide](./advanced-setup-guide.md): Windows configuration reference, troubleshooting, and uninstall.
+- [Uninstall on Linux](./get-started/get-started-linux.md#uninstall-the-application): Remove the containers, models, and data with `uninstall.sh`.
 - [Build the Installer from Source](./get-started/build-from-source-windows.md): Build the Windows installer yourself.
 - [Application Flow](./application-flow.md): End-to-end application flow.
 - [Content Search Flow](./content-search-flow.md): The flow of the content search functionality.
