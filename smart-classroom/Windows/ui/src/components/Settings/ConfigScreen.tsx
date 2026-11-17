@@ -5,7 +5,14 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../../assets/css/Config.css';
 import type { ConfigChange, ConfigField, ConfigSubgroup, ConfigValue } from '../../types/config';
-import { revealConfig, useConfig, useConfigProblems, withFix, fieldKey as keyOf } from '../../services/configManager';
+import {
+  revealConfig,
+  useConfig,
+  useConfigProblems,
+  withFix,
+  unmetCondition,
+  fieldKey as keyOf,
+} from '../../services/configManager';
 import { useServices } from '../../services/serviceManager';
 import ConfigFieldControl from './ConfigFieldControl';
 import { fieldHelp, fieldLabel } from '../../i18n/settingsText';
@@ -339,6 +346,7 @@ const ConfigScreen: React.FC<ConfigScreenProps> = ({ onOpenScreen, focusPath }) 
                       id={`config-field-${keyOf(field)}`}
                       field={field}
                       draft={draft}
+                      unmet={unmetCondition(field, description?.fields ?? [], draft)}
                       flashed={flashed === keyOf(field)}
                       problem={byField.get(keyOf(field))}
                       onChange={(value) => setValue(field, value)}
