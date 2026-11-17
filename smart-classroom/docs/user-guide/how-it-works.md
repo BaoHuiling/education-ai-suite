@@ -123,7 +123,7 @@ The Q&A endpoint retrieves top-k relevant chunks, assembles them as context with
 | Content Search API | 9011 | Orchestrator and public API |
 | File Ingest & Retrieve | 9990 | Embedding, indexing, and retrieval |
 | Video Preprocess | 8001 | Video chunking and VLM summarization |
-| VLM OpenVINO™ Serving | 9900 | Vision-language model inference |
+| Smart Classroom backend | 8000 | Vision-language model inference (shared with the main app) |
 | ChromaDB | 9090 | Vector database |
 
 For API details, see the [Content Search Dev Guide](../dev-guide/content-search/Content_search_API.md).

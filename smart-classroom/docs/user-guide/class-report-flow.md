@@ -6,10 +6,10 @@ segmentation, attendance, speaking speed, and hand-raise counts. It also provide
 AI-generated insights on classroom interaction, atmosphere, and teaching recommendations.
 The report can be exported as a Word (`.docx`) or PDF document.
 
-To open the Class Report, click **View Report** in the top navigation menu on the Smart
-Classroom main screen:
+To open the Class Report, click the **Report** button at the right of the toolbar on the Smart
+Classroom Home screen:
 
-![View Report Entry](./_assets/report-entry.png)
+![Report Button](./_assets/report-entry.png)
 
 The Class Report opens as a slide-in panel with two areas:
 
@@ -31,6 +31,10 @@ available only after processing has settled:
 
 If a session is still processing, the **Generate Report** button stays disabled and the panel
 shows a hint explaining what to wait for.
+
+When processing finishes, the report is generated automatically in the background with the default
+field selection, so it is usually ready when you open the panel. The button then reads
+**⚡ Regenerate Report**. Use the steps below to change the fields or generate it again.
 
 ## Step 1: Select Report Fields
 
@@ -69,7 +73,7 @@ a toggleable field.
 
 ## Step 2: Generate the Report
 
-Click **⚡ Generate Report**. The report is assembled in two passes:
+Click **⚡ Generate Report** (or **⚡ Regenerate Report** if a report already exists). The report is assembled in two passes:
 
 1. The template is filled with the raw, measured fields immediately (shown as a skeleton).
 2. The AI writes the Teaching Effectiveness analysis, which streams into the preview as it is
@@ -77,7 +81,7 @@ Click **⚡ Generate Report**. The report is assembled in two passes:
 
 ![Report Generating](./_assets/report-generating.png)
 
-When finished, the panel shows **✓ Report ready** with the full report rendered in the preview.
+When finished, the panel shows **Report ready** with the full report rendered in the preview.
 
 ![Report Ready](./_assets/report-ready.png)
 
@@ -86,7 +90,7 @@ When finished, the panel shows **✓ Report ready** with the full report rendere
 After a report exists, you can change the selected fields or edit the basic information without
 re-running the AI:
 
-- **🔄 Apply field changes** - Re-projects the report onto your current selection and manual
+- **🔄 Apply field changes to report** - Re-projects the report onto your current selection and manual
   values instantly. No AI re-run. This button appears after you change any field.
 - **⚡ Regenerate Report** - Rewrites the AI analysis from scratch.
 
