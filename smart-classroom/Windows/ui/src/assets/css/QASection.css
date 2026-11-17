@@ -230,6 +230,71 @@
   border-bottom-left-radius: 3px;
 }
 
+/* Markdown answers: the markup supplies the line breaks, and the browser's
+   default block margins are too loose for a chat bubble. */
+.cs-qa-bubble--md {
+  white-space: normal;
+}
+
+.cs-qa-bubble--md > :first-child {
+  margin-top: 0;
+}
+
+.cs-qa-bubble--md > :last-child {
+  margin-bottom: 0;
+}
+
+.cs-qa-bubble--md p,
+.cs-qa-bubble--md ul,
+.cs-qa-bubble--md ol,
+.cs-qa-bubble--md pre,
+.cs-qa-bubble--md blockquote {
+  margin: 0 0 8px;
+}
+
+.cs-qa-bubble--md ul,
+.cs-qa-bubble--md ol {
+  padding-left: 20px;
+}
+
+.cs-qa-bubble--md li + li {
+  margin-top: 2px;
+}
+
+.cs-qa-bubble--md h1,
+.cs-qa-bubble--md h2,
+.cs-qa-bubble--md h3,
+.cs-qa-bubble--md h4 {
+  margin: 10px 0 6px;
+  font-size: 14.5px;
+  font-weight: 600;
+}
+
+.cs-qa-bubble--md code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.06);
+  font-size: 12.5px;
+}
+
+.cs-qa-bubble--md pre {
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.06);
+  overflow-x: auto;
+}
+
+.cs-qa-bubble--md pre code {
+  padding: 0;
+  background: none;
+}
+
+.cs-qa-bubble--md blockquote {
+  padding-left: 10px;
+  border-left: 3px solid #c7cad1;
+  color: #555;
+}
+
 .cs-qa-message--error .cs-qa-bubble {
   background: #fff0f0;
   color: #c62828;

@@ -174,6 +174,8 @@ class VlmClient:
             "messages": [{"role": "user", "content": content}],
             "stream": False,
             "max_completion_tokens": int(max_completion_tokens),
+            # Without this, thinking models (Qwen3.5) store reasoning text as the summary.
+            "enable_thinking": False,
         }
 
         try:
