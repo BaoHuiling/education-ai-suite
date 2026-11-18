@@ -67,33 +67,79 @@ def _is_node(node) -> bool:
     return isinstance(children, list) and all(_is_node(child) for child in children)
 
 
-def _is_mindmap(obj) -> bool:
+def _has_envelope(obj) -> bool:
     return (
         isinstance(obj, dict)
         and isinstance(obj.get("meta"), dict)
         and obj.get("format") == "node_tree"
-        and _is_node(obj.get("data"))
     )
 
 
-def parse_mindmap(raw: str) -> dict:
-    """The jsMind node_tree in ``raw``, repaired if the JSON is broken.
+def _is_mindmap(obj) -> bool:
+    return _has_envelope(obj) and _is_node(obj.get("data"))
 
-    Raises ``ValueError`` when no node_tree can be recovered, so a mind map the
-    UI cannot render fails the stage instead of being saved as done.
+
+def _prune(node) -> tuple:
+    """``node`` without the descendants that lack an id or topic, and how many
+    were dropped. ``None`` when ``node`` itself is incomplete.
+
+    A reply cut off mid-node repairs into a node with no topic; dropping it
+    keeps everything written before the cut.
     """
+    if not isinstance(node, dict):
+        return None, 1
+    if not isinstance(node.get("id"), str) or not isinstance(node.get("topic"), str):
+        return None, 1
+    kept_node = dict(node)
+    children = node.get("children")
+    kept_node.pop("children", None)
+    dropped = 0
+    if isinstance(children, list):
+        kept = []
+        for child in children:
+            pruned, lost = _prune(child)
+            dropped += lost
+            if pruned is not None:
+                kept.append(pruned)
+        if kept:
+            kept_node["children"] = kept
+    return kept_node, dropped
+
+
+def _recover(raw: str) -> tuple:
+    """The node_tree in ``raw`` and the number of incomplete nodes dropped."""
     text = (raw or "").strip()
     try:
         obj = json.loads(text)
     except ValueError:
         obj = None
-    if not _is_mindmap(obj):
-        repaired = json_repair.loads(text)
-        if not _is_mindmap(repaired):
-            raise ValueError(f"INVALID_MINDMAP_FORMAT: {text[:200]!r}")
+    if _is_mindmap(obj):
+        return obj, 0
+    repaired = json_repair.loads(text)
+    if _is_mindmap(repaired):
         logger.warning("Mindmap output was not a valid node_tree; saved the repaired JSON.")
-        obj = repaired
-    return obj
+        return repaired, 0
+    if _has_envelope(repaired):
+        data, dropped = _prune(repaired.get("data"))
+        if data is not None:
+            repaired["data"] = data
+            logger.warning(
+                "Mindmap output was not a valid node_tree; dropped %d incomplete "
+                "node(s) and saved the rest.", dropped,
+            )
+            return repaired, dropped
+    raise ValueError(f"INVALID_MINDMAP_FORMAT: {text[:200]!r}")
+
+
+def parse_mindmap(raw: str) -> dict:
+    """The jsMind node_tree in ``raw``, repaired if the JSON is broken.
+
+    Nodes cut off before their id or topic are dropped, so a reply that hit the
+    token limit still saves what it wrote. Raises ``ValueError`` when not even
+    the root node can be recovered, so a mind map the UI cannot render fails the
+    stage instead of being saved as done.
+    """
+    return _recover(raw)[0]
 
 
 class MindmapComponent(PipelineComponent):
@@ -112,13 +158,14 @@ class MindmapComponent(PipelineComponent):
             {"role": "user", "content": f"{input_text}"}
         ]
 
-    def _generate(self, messages: list) -> str:
+    def _generate(self, messages: list, finish_info: dict) -> str:
         try:
             return self.model.generate(
                 messages=messages,
                 stream=False,
                 enable_thinking=False,
                 json_schema=mindmap_json_schema(),
+                finish_info=finish_info,
             )
         except TypeError:
             logger.info("Backend does not accept json_schema; generating unconstrained.")
@@ -126,15 +173,39 @@ class MindmapComponent(PipelineComponent):
             logger.warning(
                 "Constrained generation failed (%s); retrying unconstrained.", exc
             )
-        return self.model.generate(messages=messages, stream=False, enable_thinking=False)
+        finish_info.clear()
+        return self.model.generate(messages=messages, stream=False, enable_thinking=False,
+                                   finish_info=finish_info)
+
+    def _warn_if_truncated(self, finish_info: dict, raw: str) -> bool:
+        if finish_info.get("truncated") is not True:
+            return False
+        logger.warning(
+            "MINDMAP_TRUNCATED: session %s mind map output stopped at the token limit "
+            "(%s of max_new_tokens=%s); the mind map will be incomplete. Raise "
+            "models.text_gen.max_new_tokens in config.yaml to avoid this. Output tail: %r",
+            self.session_id,
+            finish_info.get("output_tokens"),
+            finish_info.get("max_new_tokens"),
+            (raw or "")[-300:],
+        )
+        return True
 
     def generate_mindmap(self, summary_text):
         mindmap_path = str(SessionPaths.mindmap_path(self.session_id))
 
         try:
             logger.info("Generating mindmap from summary...")
-            raw = self._generate(self._get_mindmap_message(summary_text))
-            full_mindmap = json.dumps(parse_mindmap(raw), ensure_ascii=False, indent=2)
+            finish_info: dict = {}
+            raw = self._generate(self._get_mindmap_message(summary_text), finish_info)
+            truncated = self._warn_if_truncated(finish_info, raw)
+            mindmap, dropped = _recover(raw)
+            if truncated:
+                logger.warning(
+                    "MINDMAP_TRUNCATED: session %s saved the truncated mind map "
+                    "(%d incomplete node(s) dropped).", self.session_id, dropped,
+                )
+            full_mindmap = json.dumps(mindmap, ensure_ascii=False, indent=2)
             StorageManager.save(mindmap_path, full_mindmap, append=False)
             logger.info("Mindmap generation completed successfully.")
             return full_mindmap

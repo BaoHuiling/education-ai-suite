@@ -118,7 +118,7 @@ def test_dropped_quote_is_repaired_before_saving(tmp_path):
 def test_a_backend_without_json_schema_is_retried_unconstrained(tmp_path):
     model = FakeModel(json.dumps(VALID, ensure_ascii=False), raise_on_schema=True)
     _, saved = _run(_component(model), tmp_path)
-    assert model.calls == [{"enable_thinking": False}]
+    assert model.calls == [{"enable_thinking": False, "finish_info": {}}]
     assert json.loads(saved) == VALID
 
 
