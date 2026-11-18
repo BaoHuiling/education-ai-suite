@@ -19,7 +19,7 @@ from utils.rtsp_recorder import (
     stop_rtsp_recording,
 )
 from utils.runtime_config_loader import RuntimeConfig
-from utils.system_checker import check_dlstreamer_installation
+from utils.system_checker import check_dlstreamer_installation, dlstreamer_supports_d3d12
 from utils.gstreamer_env import (
     GST_SUBPROCESS_TIMEOUT,
     add_gst_plugin_path,
@@ -69,6 +69,11 @@ class PipelineOptions:
 
 class VideoAnalyticsPipelineService:
     """Service to manage video analytics pipelines"""
+
+    # Whether GPU/NPU pipelines stay in D3D12 memory from decoder to encoder
+    # (DL Streamer 2026.3+), instead of copying to D3D11 memory after the
+    # decoder. Set in __init__ from what the installed DL Streamer supports.
+    use_d3d12 = False
 
     def __init__(self):
         """
@@ -183,6 +188,7 @@ class VideoAnalyticsPipelineService:
         # Verify DL Streamer installation
         if not check_dlstreamer_installation():
             raise RuntimeError("DL Streamer is not installed or does not meet the minimum version requirement")
+        self.use_d3d12 = dlstreamer_supports_d3d12()
 
         # Register cleanup handler
         atexit.register(self._cleanup)
@@ -210,11 +216,10 @@ class VideoAnalyticsPipelineService:
             "GVA_common:2,gvaposturedetect:4,gvareid:4,gvaroifilter:4"
         )
         # Debugging: prefixing "*:1," surfaces the GST_ERROR_OBJECT lines of
-        # elements that fail without posting a bus error (e.g. mfh264enc
-        # "Failed to process input" under GPU memory pressure).
+        # elements that fail without posting a bus error (e.g. the D3D11
+        # pipeline's mfh264enc "Failed to process input" under GPU memory
+        # pressure).
         # os.environ["GST_DEBUG"] = "*:1," + os.environ["GST_DEBUG"]
-        # Comment out to use d3d12 decoders as d3d11 decoder + gvawatermark + encoder causes crash
-        # os.environ["GST_PLUGIN_FEATURE_RANK"] = "d3d11h264dec:max,d3d11h265dec:max"
 
     def _get_model_path(self, model_key: str) -> str:
         """Get full path to model"""
@@ -255,41 +260,37 @@ class VideoAnalyticsPipelineService:
             self.logger.error(f"File validation error: {e}")
             return f"File validation error: {e}"
 
-    @staticmethod
-    def _get_d3d12_to_d3d11_elements() -> List[str]:
-        """Get elements handing decoded D3D12 frames to the D3D11 pipeline.
+    def _get_decoded_elements(self, options: Optional["PipelineOptions"] = None) -> List[str]:
+        """Get the elements between the decoder and the rest of the pipeline.
 
-        The d3d12 decoders must output D3D12Memory: asked for D3D11Memory
+        The d3d12 decoders must output D3D12Memory: asked for any other memory
         they take a copy-out path that asserts and returns a flow error when a
         damaged stream (e.g. RTSP packet loss) makes them output a frame twice.
-        d3d12download then does the D3D11 interop copy on the GPU instead.
+        What follows depends on where inference reads the frames:
+
+        - GPU/NPU with use_d3d12: frames stay in D3D12Memory down to the
+          encoder. identity only carries the name the resume probe attaches to.
+        - GPU/NPU on older DL Streamer: d3d12download does the D3D11 interop
+          copy on the GPU, for pre-process-backend=d3d11.
+        - CPU: d3d12download copies to plain system memory, the only kind the
+          'opencv' pre-process-backend (see _get_preprocess_backend_elements)
+          and the CPU inference plugin can read.
         """
+        if options is not None and options.device == "CPU":
+            return [
+                "video/x-raw(memory:D3D12Memory)",
+                "!",
+                "d3d12download",
+                f"name={RESUME_PROBE_ELEMENT}",
+                "!",
+                "video/x-raw",
+                "!",
+            ]
         return [
             "video/x-raw(memory:D3D12Memory)",
             "!",
-            "d3d12download",
+            "identity" if self.use_d3d12 else "d3d12download",
             f"name={RESUME_PROBE_ELEMENT}",
-            "!",
-        ]
-
-    @staticmethod
-    def _get_d3d12_to_system_memory_elements() -> List[str]:
-        """CPU counterpart of _get_d3d12_to_d3d11_elements.
-
-        d3d12download's whole job is copying a decoded frame out of GPU
-        memory; asked for plain video/x-raw (no D3D11Memory feature) instead
-        of the D3D11 interop share, it hands back a CPU-mappable system
-        memory buffer -- the only kind the 'opencv' pre-process-backend (see
-        _get_preprocess_backend_elements) and the CPU inference plugin can
-        read.
-        """
-        return [
-            "video/x-raw(memory:D3D12Memory)",
-            "!",
-            "d3d12download",
-            f"name={RESUME_PROBE_ELEMENT}",
-            "!",
-            "video/x-raw",
             "!",
         ]
 
@@ -300,11 +301,7 @@ class VideoAnalyticsPipelineService:
         options: Optional["PipelineOptions"] = None,
     ) -> List[str]:
         """Get source elements based on input type"""
-        memory_elements = (
-            self._get_d3d12_to_system_memory_elements()
-            if options is not None and options.device == "CPU"
-            else self._get_d3d12_to_d3d11_elements()
-        )
+        memory_elements = self._get_decoded_elements(options)
         if input_type == "rtsp" and config.va_pipeline.rtsp_codec == "h264":
             return [
                 "rtspsrc",
@@ -363,7 +360,7 @@ class VideoAnalyticsPipelineService:
     def _gop_size(self, sink_framerate: Optional[str]) -> int:
         """Keyframe interval in frames, for a pipeline running at sink_framerate.
 
-        mfh264enc's gop-size counts *pictures*, not seconds. Deriving it from the
+        The encoders' gop-size counts *pictures*, not seconds. Deriving it from the
         framerate keeps the keyframe cadence constant in wall-clock time, down to
         the RTSP_MIN_GOP_FRAMES floor.
         """
@@ -371,23 +368,54 @@ class VideoAnalyticsPipelineService:
         return max(RTSP_MIN_GOP_FRAMES, round(fps * RTSP_KEYFRAME_INTERVAL_SEC))
 
     def _get_rtsp_sink_elements(
-        self, rtsp_url: str, pipeline_name: str, sink_framerate: Optional[str] = None
+        self,
+        rtsp_url: str,
+        pipeline_name: str,
+        sink_framerate: Optional[str] = None,
+        system_memory: bool = False,
     ) -> List[str]:
-        """Get RTSP sink elements for pushing to RTSP server"""
+        """Get RTSP sink elements for pushing to RTSP server
+
+        Args:
+            system_memory: frames arrive in system memory (device=CPU) and
+                must be uploaded to the GPU, as the converters accept GPU
+                memory only.
+        """
         max_width, max_height = RTSP_OUTPUT_MAX_RESOLUTION
+        if self.use_d3d12:
+            encoder = [
+                *(["d3d12upload", "!"] if system_memory else []),
+                "d3d12convert",
+                "!",
+                f"video/x-raw(memory:D3D12Memory),width=[1,{max_width}],"
+                f"height=[1,{max_height}],pixel-aspect-ratio=1/1",
+                "!",
+                # cbr/vbr output is corrupt on Intel Arc 140T (driver
+                # 32.0.101.8991): most frames come out as access units holding
+                # only a delimiter. cqp is intact but has no bitrate ceiling.
+                # The encoder reports no B-frame support on this device.
+                "d3d12h264enc",
+                "rate-control=cqp",
+                f"gop-size={self._gop_size(sink_framerate)}",
+            ]
+        else:
+            encoder = [
+                *(["d3d11upload", "!"] if system_memory else []),
+                "d3d11convert",
+                "!",
+                f"video/x-raw(memory:D3D11Memory),width=[1,{max_width}],"
+                f"height=[1,{max_height}],pixel-aspect-ratio=1/1",
+                "!",
+                "mfh264enc",
+                "bitrate=3000",
+                f"gop-size={self._gop_size(sink_framerate)}",
+                "low-latency=true",
+                "bframes=0",
+                "rc-mode=cbr",
+                "quality-vs-speed=0",
+            ]
         return [
-            "d3d11convert",
-            "!",
-            f"video/x-raw(memory:D3D11Memory),width=[1,{max_width}],"
-            f"height=[1,{max_height}],pixel-aspect-ratio=1/1",
-            "!",
-            "mfh264enc",
-            "bitrate=3000",
-            f"gop-size={self._gop_size(sink_framerate)}",
-            "low-latency=true",
-            "bframes=0",
-            "rc-mode=cbr",
-            "quality-vs-speed=0",
+            *encoder,
             "!",
             "h264parse",
             "!",
@@ -414,7 +442,10 @@ class VideoAnalyticsPipelineService:
         if not options.output_stream:
             return ["fakesink", "async=false", "sync=false"]
         return self._get_rtsp_sink_elements(
-            options.output_rtsp, stream_name, sink_framerate
+            options.output_rtsp,
+            stream_name,
+            sink_framerate,
+            system_memory=options.device == "CPU",
         )
 
     def _get_input_framerate_cap_elements(
@@ -441,17 +472,17 @@ class VideoAnalyticsPipelineService:
             "!",
         ]
 
-    @staticmethod
-    def _memory_caps(options: Optional["PipelineOptions"] = None) -> str:
+    def _memory_caps(self, options: Optional["PipelineOptions"] = None) -> str:
         """Memory feature for caps placed on the inference-side branches.
 
-        CPU inference runs on plain system memory (see
-        _get_d3d12_to_system_memory_elements); GPU/NPU stay on the D3D11
-        interop share so pre-process-backend=d3d11 keeps everything zero-copy
-        on the GPU.
+        CPU inference runs on plain system memory (see _get_decoded_elements).
+        GPU/NPU stay in GPU memory, D3D12 or the D3D11 interop share, so the
+        matching pre-process-backend keeps everything zero-copy on the GPU.
         """
         if options is not None and options.device == "CPU":
             return "video/x-raw"
+        if self.use_d3d12:
+            return "video/x-raw(memory:D3D12Memory)"
         return "video/x-raw(memory:D3D11Memory)"
 
     def _get_classify_decimation_elements(
@@ -469,20 +500,19 @@ class VideoAnalyticsPipelineService:
             "!",
         ]
 
-    @staticmethod
-    def _get_preprocess_backend_elements(options: "PipelineOptions") -> List[str]:
+    def _get_preprocess_backend_elements(self, options: "PipelineOptions") -> List[str]:
         """Get the gva* 'pre-process-backend' for options.device.
 
-        GPU/NPU keep the explicit 'd3d11' backend, mapping the D3D11Memory
-        frames _get_source_elements hands them zero-copy. CPU has no D3D11
-        inference path, so pre-processing (color conversion/resize) needs the
-        'opencv' backend instead, which only accepts system memory -- hence
-        the plain video/x-raw _get_source_elements/_memory_caps switch to for
-        this same device.
+        GPU/NPU use the explicit 'd3d12' backend ('d3d11' on older DL
+        Streamer), mapping the frames _get_source_elements hands them
+        zero-copy. CPU has no D3D inference path, so pre-processing (color
+        conversion/resize) needs the 'opencv' backend instead, which only
+        accepts system memory -- hence the plain video/x-raw
+        _get_source_elements/_memory_caps switch to for this same device.
         """
         if options.device == "CPU":
             return ["pre-process-backend=opencv"]
-        return ["pre-process-backend=d3d11"]
+        return [f"pre-process-backend={'d3d12' if self.use_d3d12 else 'd3d11'}"]
 
     @staticmethod
     def _join_pipeline_description(elements: List[str]) -> str:
