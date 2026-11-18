@@ -11,6 +11,8 @@ boxes in between (gvaposturedetect holds their postures).
 The service is built with object.__new__, as in test_va_pipeline_stop.py.
 """
 
+import pytest
+
 from components.va.va_pipeline_service import PipelineOptions, VideoAnalyticsPipelineService
 
 
@@ -20,6 +22,7 @@ def make_service(input_size=None, interval=1, threshold=None):
     svc.front_inference_interval = interval
     svc.front_threshold = threshold
     svc.max_input_framerate = "15/1"
+    svc.use_d3d12 = False
     svc.model_base_dir = __import__("pathlib").Path("C:/m")
     svc.models = {"front-pose": "yolov8m-pose.xml", "reid": "reid.xml"}
     return svc
@@ -54,3 +57,37 @@ def test_reshape_without_interval_has_no_tracker(tmp_path):
     seg = detect_segment(make_service("1280x736", 1), tmp_path)
     assert "reshape-width=1280" in seg and "reshape-height=736" in seg
     assert "gvatrack" not in seg
+
+
+@pytest.mark.parametrize("device", ["CPU", "GPU", "NPU"])
+@pytest.mark.parametrize("stream_name", ["front_stream", "back_stream", "content_stream"])
+@pytest.mark.parametrize("use_d3d12", [False, True])
+def test_video_sink_uploads_only_cpu_frames(device, stream_name, use_d3d12):
+    service = make_service()
+    service.use_d3d12 = use_d3d12
+    options = PipelineOptions(device=device)
+    elements = service._get_video_sink_elements(options, stream_name, "15/1")
+    expected_sink = service._get_rtsp_sink_elements(options.output_rtsp, stream_name, "15/1")
+    backend = "d3d12" if use_d3d12 else "d3d11"
+    uploads = [element for element in elements if element in ("d3d11upload", "d3d12upload")]
+
+    if device == "CPU":
+        assert elements == [f"{backend}upload", "!", *expected_sink]
+        assert elements[:3] == [f"{backend}upload", "!", f"{backend}convert"]
+        assert uploads == [f"{backend}upload"]
+        assert service._memory_caps(options) == "video/x-raw"
+        assert service._get_preprocess_backend_elements(options) == ["pre-process-backend=opencv"]
+    else:
+        assert elements == expected_sink
+        assert uploads == []
+
+
+@pytest.mark.parametrize("device", ["CPU", "GPU", "NPU"])
+@pytest.mark.parametrize("use_d3d12", [False, True])
+def test_disabled_video_stream_does_not_upload_frames(device, use_d3d12):
+    service = make_service()
+    service.use_d3d12 = use_d3d12
+    options = PipelineOptions(device=device, output_stream=False)
+    assert service._get_video_sink_elements(options, "content_stream", "15/1") == [
+        "fakesink", "async=false", "sync=false"
+    ]

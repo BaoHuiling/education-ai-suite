@@ -52,6 +52,29 @@ def _validate_features(data):
             + "."
         )
 
+def _normalize_va_device(data):
+    """Normalize the VA device at startup, falling back to NPU when invalid."""
+    if not isinstance(data, dict):
+        return
+    models = data.get("models")
+    if not isinstance(models, dict):
+        return
+    va = models.get("va")
+    if not isinstance(va, dict):
+        return
+    configured_value = va.get("device", "NPU")
+    device = str(configured_value).upper()
+    supported_devices = ("GPU", "NPU", "CPU")
+    if device not in supported_devices:
+        logger.warning(
+            "Invalid VA device %r; falling back to NPU. Valid values are: %s",
+            configured_value,
+            ", ".join(supported_devices),
+        )
+        device = "NPU"
+    va["device"] = device
+
+
 def load_config(path="config.yaml"):
     # Allow override via environment variable SC_CONFIG_PATH
     # Used by Flutter integration to use utils/flutter/config.yaml
@@ -64,6 +87,7 @@ def load_config(path="config.yaml"):
         data = yaml.safe_load(f)
     data = _apply_backcompat(data)
     _validate_features(data)
+    _normalize_va_device(data)
     # Imported before huggingface_hub/paddlex everywhere, so their env-driven
     # download settings are still unread here.
     from utils.model_hub import apply_hub_env

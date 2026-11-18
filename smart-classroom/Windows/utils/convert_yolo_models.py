@@ -3,12 +3,13 @@ from pathlib import Path
 from typing import List, Optional
 from zipfile import ZipFile
 import shutil
+import time
 
 import openvino as ov
 import torch
 from ultralytics import YOLO
 from ultralytics.data.utils import DATASETS_DIR
-from ultralytics.utils import DEFAULT_CFG
+from ultralytics.utils import DEFAULT_CFG, ROOT as ULTRALYTICS_ROOT
 from ultralytics.cfg import get_cfg
 from ultralytics.data.utils import check_det_dataset
 from ultralytics.models.yolo.pose import PoseValidator
@@ -16,11 +17,15 @@ from ultralytics.utils.metrics import OKS_SIGMA
 import nncf
 
 DATA_URL = "https://ultralytics.com/assets/coco8-pose.zip"
-CFG_URL = "https://raw.githubusercontent.com/ultralytics/ultralytics/v8.4.0/ultralytics/cfg/datasets/coco8-pose.yaml"
+# Bundled with the pinned ultralytics package; raw.githubusercontent.com is blocked or times out on some proxied networks.
+BUNDLED_CFG_PATH = ULTRALYTICS_ROOT / "cfg" / "datasets" / "coco8-pose.yaml"
 
 OUT_DIR = DATASETS_DIR
 DATA_PATH = OUT_DIR / "val2017.zip"
 CFG_PATH = OUT_DIR / "coco8-pose.yaml"
+
+_DOWNLOAD_ATTEMPTS = 4
+_DOWNLOAD_TIMEOUT = (10, 120)  # (connect, read) seconds
 
 _SUPPORTED_FAMILIES = ("v8", "11", "26")
 
@@ -57,22 +62,30 @@ def download_file(
     if directory is not None:
         Path(directory).mkdir(parents=True, exist_ok=True)
 
-    try:
-        response = requests.get(
-            url=url, headers={"User-agent": "Mozilla/5.0"}, stream=True
-        )
-        response.raise_for_status()
-    except (
-        requests.exceptions.HTTPError
-    ) as error:  # For error associated with not-200 codes. Will output something like: "404 Client Error: Not Found for url: {url}"
-        raise Exception(error) from None
-    except requests.exceptions.Timeout:
-        raise Exception(
-            "Connection timed out. If you access the internet through a proxy server, please "
-            "make sure the proxy is set in the shell from where you launched Jupyter."
-        ) from None
-    except requests.exceptions.RequestException as error:
-        raise Exception(f"File downloading failed with error: {error}") from None
+    for attempt in range(1, _DOWNLOAD_ATTEMPTS + 1):
+        try:
+            response = requests.get(
+                url=url, headers={"User-agent": "Mozilla/5.0"}, stream=True, timeout=_DOWNLOAD_TIMEOUT
+            )
+            response.raise_for_status()
+            break
+        except (
+            requests.exceptions.HTTPError
+        ) as error:  # For error associated with not-200 codes. Will output something like: "404 Client Error: Not Found for url: {url}"
+            raise Exception(error) from None
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as error:
+            # TLS/connection errors through a corporate proxy can be intermittent.
+            if attempt == _DOWNLOAD_ATTEMPTS:
+                if isinstance(error, requests.exceptions.Timeout):
+                    raise Exception(
+                        "Connection timed out. If you access the internet through a proxy server, please "
+                        "make sure the proxy is set in the shell from where you launched Jupyter."
+                    ) from None
+                raise Exception(f"File downloading failed with error: {error}") from None
+            print(f"Download of {url} failed ({type(error).__name__}); retrying [{attempt}/{_DOWNLOAD_ATTEMPTS}]...")
+            time.sleep(2 * attempt)
+        except requests.exceptions.RequestException as error:
+            raise Exception(f"File downloading failed with error: {error}") from None
 
     # download the file if it does not exist
     if not filepath.exists():
@@ -89,7 +102,9 @@ def download_file(
 
 if not (OUT_DIR / "coco8-pose/labels").exists():
     download_file(DATA_URL, DATA_PATH.name, DATA_PATH.parent)
-    download_file(CFG_URL, CFG_PATH.name, CFG_PATH.parent)
+    if not CFG_PATH.exists():
+        CFG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(BUNDLED_CFG_PATH, CFG_PATH)
     with ZipFile(DATA_PATH, "r") as zip_ref:
         zip_ref.extractall(OUT_DIR)
 

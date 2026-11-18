@@ -107,3 +107,4 @@ albumentations>=1.4.0
 
 # SSL certificates
 certifi>=2025.7.14
+truststore>=0.10.0
