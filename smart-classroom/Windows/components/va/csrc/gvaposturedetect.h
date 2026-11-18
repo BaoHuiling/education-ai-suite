@@ -31,7 +31,7 @@ struct _GstPostureDetect {
 
     // Posture of each tracked object id at its last inferred frame, re-applied
     // on the frames gvadetect skips (inference-interval > 1) where an upstream
-    // gvatrack only carries the box forward. Owned; HeldPostures in the .cpp.
+    // gvatrack carries the box forward. Owned; HeldPostures in the .cpp.
     void *held_postures;
 
     // Head heights of the people seen on recent inferred frames, by box

@@ -172,12 +172,24 @@ regardless of `device`, independently controlled by `VA_RTSP_ENCODER_BACKEND`
 too.
 
 The Windows build (`Windows/components/va/va_pipeline_service.py`) mirrors
-this exactly, just swapping VA-API's vocabulary for Media Foundation's:
-`pre-process-backend` is explicitly `d3d11` for GPU/NPU and `opencv` for CPU,
-and `d3d12download` (after `d3d12h264dec`/`d3d12h265dec`/`decodebin3`) is
-asked for plain `video/x-raw` instead of `video/x-raw(memory:D3D11Memory)`
-when `device` is CPU. RTSP encode (`d3d11convert`+`mfh264enc`) is likewise
-unconditional on the GPU.
+this with Direct3D in place of VA-API. Which Direct3D path it takes depends on
+the installed DL Streamer, checked once at startup by
+`utils/system_checker.dlstreamer_supports_d3d12` (`gvadetect` and
+`gvawatermark` must accept `memory:D3D12Memory`, and `d3d12h264enc` must
+exist):
+
+- **D3D12** (DL Streamer 2026.3+): GPU/NPU frames stay in
+  `video/x-raw(memory:D3D12Memory)` from `d3d12h264dec`/`d3d12h265dec`/
+  `decodebin3` to the encoder, with `pre-process-backend=d3d12`. RTSP encode
+  is `d3d12convert`+`d3d12h264enc rate-control=cqp`; `cbr`/`vbr` produce
+  corrupt streams on current Intel drivers.
+- **D3D11** (older DL Streamer): `d3d12download` copies the decoded frames to
+  `video/x-raw(memory:D3D11Memory)`, with `pre-process-backend=d3d11` and
+  `d3d11convert`+`mfh264enc` for RTSP encode.
+
+On either path, `device=CPU` uses `pre-process-backend=opencv`, and
+`d3d12download` is asked for plain `video/x-raw`. The RTSP branch uploads the
+frames back to the GPU (`d3d12upload`/`d3d11upload`) before encoding.
 
 ---
 
