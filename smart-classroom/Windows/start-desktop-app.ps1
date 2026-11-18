@@ -384,7 +384,7 @@ try {
 
     if ($needsInstall) {
         Write-Host 'Installing Node dependencies...' -ForegroundColor Yellow
-        npm install
+        npm.cmd install
         if ($LASTEXITCODE -ne 0) { Write-Host 'npm install failed.' -ForegroundColor Red; exit 1 }
     }
 
@@ -417,7 +417,7 @@ try {
     # Dev mode serves from Vite, so a dist build is not needed.
     if (-not $Dev) {
         Write-Host 'Building the UI...' -ForegroundColor Yellow
-        npm run build
+        npm.cmd run build
         if ($LASTEXITCODE -ne 0) { Write-Host 'UI build failed.' -ForegroundColor Red; exit 1 }
     }
 
@@ -445,7 +445,7 @@ try {
     Write-Host ''
 
     if ($Dev) {
-        npm run electron:dev
+        npm.cmd run electron:dev
     } else {
         & $electron $mainScript
     }

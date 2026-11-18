@@ -27,3 +27,5 @@ logs/
 *.whl
 
 .proxy-config
+
+/smart-classroom/Windows/.vscode/

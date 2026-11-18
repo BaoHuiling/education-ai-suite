@@ -11,7 +11,6 @@ from torchvision import datasets
 from torchvision import transforms
 import openvino as ov
 import nncf
-import yaml
 import os
 import tarfile
 import ssl
@@ -23,7 +22,6 @@ RESNET18 = "https://download.pytorch.org/models/resnet18-f37072fd.pth"
 REID_XML = "https://storage.openvinotoolkit.org/repositories/open_model_zoo/2023.0/models_bin/1/person-reidentification-retail-0288/FP16/person-reidentification-retail-0288.xml"
 REID_BIN = "https://storage.openvinotoolkit.org/repositories/open_model_zoo/2023.0/models_bin/1/person-reidentification-retail-0288/FP16/person-reidentification-retail-0288.bin"
 
-METADATA_URL = "https://raw.githubusercontent.com/openvinotoolkit/open_model_zoo/master/models/public/resnet-18-pytorch/model.yml"
 DATASET_URL = "https://s3.amazonaws.com/fast-ai-imageclas/imagenette2-320.tgz"
 DATASET_CLASSES = 10
 
@@ -117,14 +115,8 @@ def _download_resumable(url, filepath):
     raise RuntimeError(f"Failed to download {url} after {DOWNLOAD_RETRIES} attempts: {last_error}") from last_error
 
 def download_labels():
-    """Extract labels from model metadata."""
-    with urllib.request.urlopen(METADATA_URL) as response:
-        yaml_content = response.read().decode('utf-8')
-        metadata = yaml.safe_load(yaml_content)
-        if metadata and 'model_info' in metadata and 'labels' in metadata['model_info']:
-            labels = metadata['model_info']['labels']
-            return labels
-    return None
+    """Return bundled ResNet-18 labels as space-delimited metadata tokens."""
+    return [label.replace(" ", "_") for label in models.ResNet18_Weights.IMAGENET1K_V1.meta["categories"]]
 
 def is_within_directory(directory, target):
     directory = os.path.abspath(directory)

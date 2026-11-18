@@ -1,5 +1,13 @@
 import sys
 import warnings
+
+# Verify TLS against the Windows certificate store (covers corporate proxy CAs); must run before requests is imported.
+try:
+    import truststore
+    truststore.inject_into_ssl()
+except ImportError:
+    pass
+
 warnings.filterwarnings("ignore", message=r"[\s\S]*torchcodec is not installed correctly")
 
 from utils import system_checker
