@@ -49,7 +49,8 @@ struct HeldPosture {
     std::string posture;
     guint last_seen_frame;
     // Keypoint tensor of the last inferred frame (ROI-relative coordinates),
-    // re-attached to the tracked box so gvawatermark keeps drawing the skeleton.
+    // re-attached to a tracked box that has none (gvatrack before DL Streamer
+    // 2026.3) so gvawatermark keeps drawing the skeleton.
     std::shared_ptr<GstStructure> keypoints;
 };
 using HeldPostures = std::unordered_map<int32_t, HeldPosture>;
@@ -348,8 +349,8 @@ static GstFlowReturn gst_posture_detect_transform_ip(GstBaseTransform *trans, Gs
     GVA::VideoFrame video_frame(buf, self->info);
     auto regions = video_frame.regions();
     auto &held = *static_cast<HeldPostures *>(self->held_postures);
-    // Keypoints only come with an inferred frame; boxes a tracker carried over
-    // to a frame gvadetect skipped have none.
+    // A frame is inferred when gvadetect detected at least one box on it; the
+    // other boxes are ones gvatrack carried over from earlier frames.
     bool inferred = regions.empty();
 
     // Seat history is kept in stream time; a timestamp going backwards means a
@@ -371,59 +372,69 @@ static GstFlowReturn gst_posture_detect_transform_ip(GstBaseTransform *trans, Gs
         Person person;
         person.confidence = roi.confidence();
 
-        // Extract keypoints from tensors attached to this ROI
-        bool has_keypoints = false;
+        // gvadetect stamps model_name on the tensors it produces. A box gvatrack
+        // created itself (a frame gvadetect skipped, or a track it missed) has a
+        // bare detection tensor. Since DL Streamer 2026.3 such a box also carries
+        // a copy of the keypoints of its last detection; before, it had none.
+        bool detected = false;
         GstStructure *keypoints_structure = nullptr;
         for (GList *l = roi.get_params(); l; l = g_list_next(l)) {
             GstStructure *s = GST_STRUCTURE(l->data);
             GVA::Tensor tensor(s);
-            if (!tensor.is_detection() && tensor.type() == GVA::GST_ANALYTICS_KEYPOINTS_2_TENSOR) {
+            if (tensor.is_detection())
+                detected = gst_structure_has_field(s, "model_name");
+            else if (!keypoints_structure && tensor.type() == GVA::GST_ANALYTICS_KEYPOINTS_2_TENSOR)
                 keypoints_structure = s;
-                if (tensor.format() != GST_ANALYTICS_KEYPOINT_BODY_POSE_COCO_17) {
-                    GST_ELEMENT_ERROR(self, STREAM, FAILED,
-                                      ("Unsupported keypoint format: %s", tensor.format().c_str()), (NULL));
-                    return GST_FLOW_ERROR;
-                }
-                auto keypoints_data = tensor.data<float>();
-                auto confidence = tensor.confidences();
-                auto dims = tensor.dims();
+        }
 
-                if (dims.size() >= 2) {
-                    size_t points_num = dims[0];
-                    size_t point_dimension = dims[1];
-                    auto roi_rect = roi.rect();
+        // Extract keypoints of a detected box. A carried-over box keeps the
+        // posture of its last detection rather than re-evaluating stale keypoints.
+        bool has_keypoints = false;
+        if (detected && keypoints_structure) {
+            GVA::Tensor tensor(keypoints_structure);
+            if (tensor.format() != GST_ANALYTICS_KEYPOINT_BODY_POSE_COCO_17) {
+                GST_ELEMENT_ERROR(self, STREAM, FAILED, ("Unsupported keypoint format: %s", tensor.format().c_str()),
+                                  (NULL));
+                return GST_FLOW_ERROR;
+            }
+            auto keypoints_data = tensor.data<float>();
+            auto confidence = tensor.confidences();
+            auto dims = tensor.dims();
 
-                    person.keypoints.resize(points_num);
-                    person.box_width = static_cast<float>(roi_rect.w);
-                    person.box_height = static_cast<float>(roi_rect.h);
-                    person.box_center_x = roi_rect.x + 0.5f * roi_rect.w;
-                    person.box_bottom = static_cast<float>(roi_rect.y + roi_rect.h);
-                    for (size_t i = 0; i < points_num; ++i) {
-                        // Tensor keypoints are relative to the ROI; posture rules
-                        // measure lengths and angles, so use frame pixels.
-                        auto x = roi_rect.x + keypoints_data[point_dimension * i] * roi_rect.w;
-                        auto y = roi_rect.y + keypoints_data[point_dimension * i + 1] * roi_rect.h;
-                        person.keypoints[i].x = static_cast<float>(x);
-                        person.keypoints[i].y = static_cast<float>(y);
-                        person.keypoints[i].confidence = (confidence.size() > i) ? confidence[i] : 1.0f;
+            if (dims.size() >= 2) {
+                size_t points_num = dims[0];
+                size_t point_dimension = dims[1];
+                auto roi_rect = roi.rect();
 
-                        // Validate keypoint is within ROI bounds
-                        float tolerance_x = roi_rect.w * 0.2f;
-                        float tolerance_y = roi_rect.h * 0.2f;
-                        if (x < roi_rect.x - tolerance_x || x > roi_rect.x + roi_rect.w + tolerance_x ||
-                            y < roi_rect.y - tolerance_y || y > roi_rect.y + roi_rect.h + tolerance_y) {
-                            // Keypoint is outside ROI bounds, reduce confidence
-                            person.keypoints[i].confidence *= 0.1f;
-                        }
+                person.keypoints.resize(points_num);
+                person.box_width = static_cast<float>(roi_rect.w);
+                person.box_height = static_cast<float>(roi_rect.h);
+                person.box_center_x = roi_rect.x + 0.5f * roi_rect.w;
+                person.box_bottom = static_cast<float>(roi_rect.y + roi_rect.h);
+                for (size_t i = 0; i < points_num; ++i) {
+                    // Tensor keypoints are relative to the ROI; posture rules
+                    // measure lengths and angles, so use frame pixels.
+                    auto x = roi_rect.x + keypoints_data[point_dimension * i] * roi_rect.w;
+                    auto y = roi_rect.y + keypoints_data[point_dimension * i + 1] * roi_rect.h;
+                    person.keypoints[i].x = static_cast<float>(x);
+                    person.keypoints[i].y = static_cast<float>(y);
+                    person.keypoints[i].confidence = (confidence.size() > i) ? confidence[i] : 1.0f;
+
+                    // Validate keypoint is within ROI bounds
+                    float tolerance_x = roi_rect.w * 0.2f;
+                    float tolerance_y = roi_rect.h * 0.2f;
+                    if (x < roi_rect.x - tolerance_x || x > roi_rect.x + roi_rect.w + tolerance_x ||
+                        y < roi_rect.y - tolerance_y || y > roi_rect.y + roi_rect.h + tolerance_y) {
+                        // Keypoint is outside ROI bounds, reduce confidence
+                        person.keypoints[i].confidence *= 0.1f;
                     }
-                    has_keypoints = true;
                 }
-                break;
+                has_keypoints = true;
             }
         }
 
-        // Detect posture and update ROI label; a tracked box without keypoints
-        // keeps the posture its object id had at the last inferred frame
+        // Detect posture and update ROI label; a carried-over box keeps the
+        // posture its object id had at the last inferred frame
         std::string posture = "no_keypoints";
         const int32_t object_id = roi.object_id();
         if (has_keypoints) {
@@ -444,9 +455,11 @@ static GstFlowReturn gst_posture_detect_transform_ip(GstBaseTransform *trans, Gs
             if (it != held.end()) {
                 posture = it->second.posture;
                 it->second.last_seen_frame = self->frame_count;
-                // gvatrack creates the boxes of skipped frames without keypoints;
-                // the ROI takes ownership of the copy
-                if (it->second.keypoints)
+                // Fallback for DL Streamer before 2026.3, whose gvatrack carries
+                // the box without keypoints: re-attach the last ones so
+                // gvawatermark keeps drawing the skeleton. The ROI takes
+                // ownership of the copy.
+                if (!keypoints_structure && it->second.keypoints)
                     roi.add_tensor(GVA::Tensor(gst_structure_copy(it->second.keypoints.get())));
             }
         }

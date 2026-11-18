@@ -13,6 +13,8 @@ from utils.requirements import (  # noqa: F401
     REQUIRED_PYTHON_MINOR,
     dlstreamer_version_str,
 )
+from typing import Optional
+import functools
 import sys
 import re
 import subprocess
@@ -126,6 +128,44 @@ def check_dlstreamer_installation() -> bool:
     except Exception as e:
         logger.error(f"⚠️ DL Streamer check failed: {e}")
         return False
+
+
+@functools.lru_cache(maxsize=1)
+def dlstreamer_supports_d3d12() -> bool:
+    """Whether the VA pipelines can run in D3D12 memory end to end.
+
+    DL Streamer 2026.3 adds D3D12Memory input and the 'd3d12' pre-process
+    backend to gvadetect/gvaclassify, and D3D12 rendering to gvawatermark.
+    The 2026.3.0-rc still reports version 2026.2.0, so this checks the sink
+    caps of those elements rather than the version. It also requires the
+    d3d12h264enc encoder from GStreamer. Older installs keep the D3D11 pipeline.
+    Cached: the answer cannot change while the app runs.
+    """
+    def inspect(element: str) -> Optional[str]:
+        try:
+            result = subprocess.run(
+                ["gst-inspect-1.0.exe", element],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=GST_SUBPROCESS_TIMEOUT,
+            )
+        except Exception as e:
+            logger.warning(f"gst-inspect-1.0 {element} failed: {e}")
+            return None
+        return result.stdout if result.returncode == 0 else None
+
+    for element in ("gvadetect", "gvawatermark"):
+        output = inspect(element)
+        if output is None or "memory:D3D12Memory" not in output:
+            logger.info(f"{element} does not accept D3D12Memory; VA pipelines use D3D11.")
+            return False
+    if inspect("d3d12h264enc") is None:
+        logger.info("d3d12h264enc is not available; VA pipelines use D3D11.")
+        return False
+    logger.info("DL Streamer supports D3D12Memory; VA pipelines use D3D12.")
+    return True
 
 
 def check_system_requirements() -> bool:
