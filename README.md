@@ -34,7 +34,7 @@ The suite is built with modularity and extensibility in mind. It is designed as 
 understand the AI workload patterns and hardware requirements for educational edge AI systems.
 
 For full documentation, refer to the
-[Open Edge Platform documentation website](https://docs.openedgeplatform.intel.com/dev/ai-suite-education.html).
+[Open Edge Platform documentation website](https://docs.openedgeplatform.intel.com/2026.3/ai-suite-education.html).
 
 ## Contribute
 
@@ -46,7 +46,7 @@ For support, submit your bug report and feature request to [Github Issues](https
 
 ## License
 
-The **Education AI Suite** project is licensed under the [APACHE 2.0](LICENSE).  
+The **Education AI Suite** project is licensed under the [APACHE 2.0](LICENSE).
 
 ## Intended Use
 
@@ -56,5 +56,5 @@ Certain features, such as authentication, TLS termination, and external access c
 assumed to be covered at the infrastructure level.
 
 For more information, refer to the
-[Notes on Usage](https://docs.openedgeplatform.intel.com/dev/OEP-articles/notes-on-usage.html)
+[Notes on Usage](https://docs.openedgeplatform.intel.com/2026.3/OEP-articles/notes-on-usage.html)
 document.

@@ -2,10 +2,10 @@
 
 <!--hide_directive
 <div class="component_card_widget">
-  <a class="icon_github" href="https://github.com/open-edge-platform/education-ai-suite/tree/main/ai-teaching-assistant">
+  <a class="icon_github" href="https://github.com/open-edge-platform/education-ai-suite/tree/release-2026.3.0/ai-teaching-assistant">
      GitHub
   </a>
-  <a class="icon_document" href="https://github.com/open-edge-platform/education-ai-suite/blob/main/ai-teaching-assistant/README.md">
+  <a class="icon_document" href="https://github.com/open-edge-platform/education-ai-suite/blob/release-2026.3.0/ai-teaching-assistant/README.md">
      Readme
   </a>
 </div>

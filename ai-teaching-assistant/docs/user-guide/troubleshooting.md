@@ -64,10 +64,10 @@ If interrupted, rerun `start_ata.ps1` after connectivity is stable.
 
 ## UI Not Loading on 7860
 
-### Symptom
+**Symptom**:
 `http://127.0.0.1:7860` is unavailable.
 
-### Checks
+**Checks**:
 
 ```powershell
 curl http://127.0.0.1:7860/healthz
@@ -87,7 +87,7 @@ npm run build
 
 ## Microphone Permission Issues
 
-### Symptom
+**Symptom**:
 Mic button does nothing or browser shows permission errors.
 
 ### Fixes
@@ -97,10 +97,10 @@ Mic button does nothing or browser shows permission errors.
 
 ## Upload or Ingestion Failures
 
-### Symptom
+**Symptom**:
 File uploads fail or context stats do not increase.
 
-### Checks
+**Checks**:
 - Supported formats: `.txt`, `.md`, `.docx`, `.pdf`
 - Verify file size is within configured limits.
 - Clear context and retry upload.
@@ -131,20 +131,20 @@ output and verify storage paths are writable.
 
 ## No Audio Playback
 
-### Symptom
+**Symptom**:
 Transcript/answer text appears but no spoken audio.
 
-### Checks
+**Checks**:
 - Verify `text-to-speech` health: `curl http://127.0.0.1:8011/health`
 - Verify browser/tab volume and output device
 - Verify session snapshot contains `tts_audio_segments`
 
 ## Metrics Panel Errors
 
-### Symptom
+**Symptom**:
 Metrics cards show errors or blank values.
 
-### Checks
+**Checks**:
 
 ```powershell
 curl http://127.0.0.1:9000/health

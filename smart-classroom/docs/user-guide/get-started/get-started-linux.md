@@ -18,7 +18,7 @@ Make sure the following are installed. See [System Requirements](./system-requir
 
 Go to the target directory of your choice and clone the suite.
 If you want to clone a specific release branch, replace `main` with the desired tag.
-To learn more about partial cloning, see the [Repository Cloning guide](https://docs.openedgeplatform.intel.com/dev/OEP-articles/contribution-guide.html#repository-cloning-partial-cloning).
+To learn more about partial cloning, see the [Repository Cloning guide](https://docs.openedgeplatform.intel.com/2026.3/OEP-articles/contribution-guide.html#repository-cloning-partial-cloning).
 
 ```bash
 git clone --filter=blob:none --branch main https://github.com/open-edge-platform/education-ai-suite.git
@@ -34,7 +34,7 @@ Features are enabled or disabled through the `features:` block in `config.yaml`.
 ```yaml
 features:
   asr:                { enabled: true }   # Speech-to-text transcription
-  summary:            { enabled: true }   # AI class summary 
+  summary:            { enabled: true }   # AI class summary
   mindmap:            { enabled: true }   # Mind map generation
   topic_segmentation: { enabled: true }
   video_analytics:    { enabled: true }   # Video analytics

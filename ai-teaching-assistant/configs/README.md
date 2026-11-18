@@ -11,9 +11,9 @@ AI Teaching Assistant:
 In this Windows-native application flow, services run directly from the
 submodule source trees. The active runtime configs are read from:
 
-- [edge-ai-libraries/microservices/audio-analyzer/config.yaml](https://github.com/open-edge-platform/edge-ai-libraries/blob/main/microservices/audio-analyzer/config.yaml)
-- [edge-ai-libraries/microservices/text-to-speech/config.yaml](https://github.com/open-edge-platform/edge-ai-libraries/blob/main/microservices/text-to-speech/config.yaml)
-- [voice-enabled-interactions/smart-kiosk-assistant/rag-service/config.yaml](https://github.com/intel-retail/voice-enabled-interactions/blob/main/smart-kiosk-assistant/rag-service/config.yaml)
+- [edge-ai-libraries/microservices/audio-analyzer/config.yaml](https://github.com/open-edge-platform/edge-ai-libraries/blob/release-2026.3.0/microservices/audio-analyzer/config.yaml)
+- [edge-ai-libraries/microservices/text-to-speech/config.yaml](https://github.com/open-edge-platform/edge-ai-libraries/blob/release-2026.3.0/microservices/text-to-speech/config.yaml)
+- [voice-enabled-interactions/smart-kiosk-assistant/rag-service/config.yaml](https://github.com/intel-retail/voice-enabled-interactions/blob/release-2026.3.0/smart-kiosk-assistant/rag-service/config.yaml)
 
 If you change values here under `configs/`, copy those values to the runtime
 config files above before restarting services.

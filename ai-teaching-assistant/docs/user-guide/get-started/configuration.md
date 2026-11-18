@@ -11,8 +11,8 @@ This guide documents where to change each type.
 ## 1. Launcher-Level Environment Variables
 
 The
-[.env](https://github.com/open-edge-platform/education-ai-suite/blob/main/ai-teaching-assistant/.env) file is loaded by
-[start_ata.ps1](https://github.com/open-edge-platform/education-ai-suite/blob/main/ai-teaching-assistant/start_ata.ps1)
+[.env](https://github.com/open-edge-platform/education-ai-suite/blob/release-2026.3.0/ai-teaching-assistant/.env) file is loaded by
+[start_ata.ps1](https://github.com/open-edge-platform/education-ai-suite/blob/release-2026.3.0/ai-teaching-assistant/start_ata.ps1)
 
 Typical variables:
 
@@ -40,17 +40,17 @@ After `.env` changes, restart services.
 - **audio-analyzer**
 
   Active runtime file:
-  [edge-ai-libraries/microservices/audio-analyzer/config.yaml](https://github.com/open-edge-platform/edge-ai-libraries/blob/main/microservices/audio-analyzer/config.yaml)
+  [edge-ai-libraries/microservices/audio-analyzer/config.yaml](https://github.com/open-edge-platform/edge-ai-libraries/blob/release-2026.3.0/microservices/audio-analyzer/config.yaml)
 
 - **text-to-speech**
 
   Active runtime file:
-  [edge-ai-libraries/microservices/text-to-speech/config.yaml](https://github.com/open-edge-platform/edge-ai-libraries/blob/main/microservices/text-to-speech/config.yaml)
+  [edge-ai-libraries/microservices/text-to-speech/config.yaml](https://github.com/open-edge-platform/edge-ai-libraries/blob/release-2026.3.0/microservices/text-to-speech/config.yaml)
 
 - **rag-service**
 
   Active runtime file:
-  [voice-enabled-interactions/smart-kiosk-assistant/rag-service/config.yaml](https://github.com/intel-retail/voice-enabled-interactions/blob/main/smart-kiosk-assistant/rag-service/config.yaml)
+  [voice-enabled-interactions/smart-kiosk-assistant/rag-service/config.yaml](https://github.com/intel-retail/voice-enabled-interactions/blob/release-2026.3.0/smart-kiosk-assistant/rag-service/config.yaml)
 
   Key model fields in `rag-service/config.yaml`:
 
@@ -71,11 +71,11 @@ The React UI sends stream session options through
 - `silence_threshold`
 
 Defaults are defined in
-[assistant-react-ui/src/config.ts](https://github.com/open-edge-platform/education-ai-suite/blob/main/ai-teaching-assistant/assistant-react-ui/src/config.ts)
+[assistant-react-ui/src/config.ts](https://github.com/open-edge-platform/education-ai-suite/blob/release-2026.3.0/ai-teaching-assistant/assistant-react-ui/src/config.ts)
 
 ## UI Proxy Configuration
 
-The `ai-teaching-assistant ui` reverse-proxy routes are configured in [ata_ui_server.py](https://github.com/open-edge-platform/education-ai-suite/blob/main/ai-teaching-assistant/ata_ui_server.py).
+The `ai-teaching-assistant ui` reverse-proxy routes are configured in [ata_ui_server.py](https://github.com/open-edge-platform/education-ai-suite/blob/release-2026.3.0/ai-teaching-assistant/ata_ui_server.py).
 
 Below are environment variables for proxy:
 
