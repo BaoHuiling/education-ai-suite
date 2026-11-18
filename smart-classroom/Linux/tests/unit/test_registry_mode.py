@@ -40,7 +40,18 @@ def test_config_yaml_declares_registry_flag():
     assert isinstance(data.get("REGISTRY"), bool)
 
 
-@pytest.mark.parametrize("name", ["audio-analyzer", "model-downloader", "metrics-collector"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "app",
+        "ovms-provision",
+        "va-model-provision",
+        "video-analytics",
+        "audio-analyzer",
+        "model-downloader",
+        "metrics-collector",
+    ],
+)
 def test_local_build_override_replaces_pulled_image(name):
     """Each Docker Hub service builds locally (never pulls) under REGISTRY: false."""
     base = yaml.safe_load((_DOCKER_DIR / "docker-compose.yml").read_text(encoding="utf-8"))

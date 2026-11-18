@@ -11,6 +11,66 @@
 #     -f docker/docker-compose.local-build.yml up -d --build
 
 services:
+  app:
+    build:
+      context: ..
+      dockerfile: docker/app.Dockerfile
+      args:
+        VITE_API_BASE_URL: "${VITE_API_BASE_URL:-}"
+        # Forward the host proxy (if any) so npm/pip can fetch packages.
+        HTTP_PROXY: "${HTTP_PROXY:-${http_proxy:-}}"
+        HTTPS_PROXY: "${HTTPS_PROXY:-${https_proxy:-}}"
+        NO_PROXY: "${NO_PROXY:-${no_proxy:-}}"
+      # Optional corporate TLS-inspection CA, see app.Dockerfile and the
+      # `secrets.corporate_ca` entry in docker-compose.yml. No-op unless
+      # CORPORATE_CA_FILE points at a real PEM file.
+      secrets:
+        - corporate_ca
+      # On some TLS-inspecting corporate proxies (observed: Fortinet), large
+      # downloads through docker's NAT'd bridge build network intermittently
+      # get a 504 from the proxy (the same request succeeds from the host's
+      # own network) -- this affects the GPU-runtime .deb downloads in
+      # app.Dockerfile. `host` routes build RUN steps through the host's
+      # network stack instead, same as `docker build --network host`.
+      network: host
+    image: smart-classroom-app:local
+    pull_policy: build
+
+  ovms-provision:
+    build:
+      context: ..
+      dockerfile: docker/ovms-provision.Dockerfile
+      args:
+        HTTP_PROXY: "${HTTP_PROXY:-}"
+        HTTPS_PROXY: "${HTTPS_PROXY:-}"
+        NO_PROXY: "${NO_PROXY:-}"
+    image: sc-ovms-provision:local
+    pull_policy: build
+
+  va-model-provision:
+    build:
+      context: ../video-analytics
+      dockerfile: docker/Dockerfile.va-provision
+      args:
+        HTTP_PROXY: "${HTTP_PROXY:-}"
+        HTTPS_PROXY: "${HTTPS_PROXY:-}"
+        NO_PROXY: "${NO_PROXY:-}"
+      secrets:
+        - corporate_ca
+    image: sc-va-model-provision:local
+    pull_policy: build
+
+  video-analytics:
+    build:
+      context: ../video-analytics
+      dockerfile: docker/Dockerfile.va-pipeline
+      args:
+        HTTP_PROXY: "${HTTP_PROXY:-}"
+        HTTPS_PROXY: "${HTTPS_PROXY:-}"
+        NO_PROXY: "${NO_PROXY:-}"
+    image: sc-video-analytics:local
+    pull_policy: build
+
   audio-analyzer:
     build:
       context: ../edge-ai-libraries/microservices/audio-analyzer

@@ -35,28 +35,8 @@ services:
     networks: [smart-classroom]
 
   app:
-    build:
-      context: ..
-      dockerfile: docker/app.Dockerfile
-      args:
-        VITE_API_BASE_URL: "${VITE_API_BASE_URL:-}"
-        # Forward the host proxy (if any) so npm/pip can fetch packages.
-        HTTP_PROXY: "${HTTP_PROXY:-${http_proxy:-}}"
-        HTTPS_PROXY: "${HTTPS_PROXY:-${https_proxy:-}}"
-        NO_PROXY: "${NO_PROXY:-${no_proxy:-}}"
-      # Optional corporate TLS-inspection CA, see app.Dockerfile and the
-      # `secrets.corporate_ca` entry below. No-op unless CORPORATE_CA_FILE
-      # points at a real PEM file.
-      secrets:
-        - corporate_ca
-      # On some TLS-inspecting corporate proxies (observed: Fortinet), large
-      # downloads through docker's NAT'd bridge build network intermittently
-      # get a 504 from the proxy (the same request succeeds from the host's
-      # own network) -- this affects the GPU-runtime .deb downloads in
-      # app.Dockerfile. `host` routes build RUN steps through the host's
-      # network stack instead, same as `docker build --network host`.
-      network: host
-    image: smart-classroom-app:local
+    # Built locally from docker/app.Dockerfile under REGISTRY: false (docker-compose.local-build.yml).
+    image: ${SMART_CLASSROOM_APP_IMAGE:-intel/smart-classroom-app:${INTEL_IMAGE_TAG:-latest}}
     container_name: smart-classroom-app
     ports:
       - "8000:8000"
@@ -227,14 +207,8 @@ services:
 
   ovms-provision:
     profiles: ["text-gen"]
-    build:
-      context: ..
-      dockerfile: docker/ovms-provision.Dockerfile
-      args:
-        HTTP_PROXY: "${HTTP_PROXY:-}"
-        HTTPS_PROXY: "${HTTPS_PROXY:-}"
-        NO_PROXY: "${NO_PROXY:-}"
-    image: sc-ovms-provision:local
+    # Built locally from docker/ovms-provision.Dockerfile under REGISTRY: false (docker-compose.local-build.yml).
+    image: ${OVMS_PROVISION_IMAGE:-intel/smart-classroom-ovms-provision:${INTEL_IMAGE_TAG:-latest}}
     container_name: sc-ovms-provision
     environment:
       - OVMS_MODELS_ROOT=/opt/models/ovms
@@ -275,16 +249,8 @@ services:
 
   va-model-provision:  # one-shot: export VA OpenVINO IR models into the model volume
     profiles: ["va"]
-    build:
-      context: ../video-analytics
-      dockerfile: docker/Dockerfile.va-provision
-      args:
-        HTTP_PROXY: "${HTTP_PROXY:-}"
-        HTTPS_PROXY: "${HTTPS_PROXY:-}"
-        NO_PROXY: "${NO_PROXY:-}"
-      secrets:
-        - corporate_ca
-    image: sc-va-model-provision:local
+    # Built locally from video-analytics/docker/Dockerfile.va-provision under REGISTRY: false (docker-compose.local-build.yml).
+    image: ${VA_MODEL_PROVISION_IMAGE:-intel/smart-classroom-va-model-provision:${INTEL_IMAGE_TAG:-latest}}
     container_name: sc-va-model-provision
     environment:
       - HTTP_PROXY=${HTTP_PROXY:-}
@@ -318,14 +284,8 @@ services:
 
   video-analytics:     # DL Streamer VA pipeline engine (control API on :8020)
     profiles: ["va"]
-    build:
-      context: ../video-analytics
-      dockerfile: docker/Dockerfile.va-pipeline
-      args:
-        HTTP_PROXY: "${HTTP_PROXY:-}"
-        HTTPS_PROXY: "${HTTPS_PROXY:-}"
-        NO_PROXY: "${NO_PROXY:-}"
-    image: sc-video-analytics:local
+    # Built locally from video-analytics/docker/Dockerfile.va-pipeline under REGISTRY: false (docker-compose.local-build.yml).
+    image: ${VIDEO_ANALYTICS_IMAGE:-intel/smart-classroom-video-analytics:${INTEL_IMAGE_TAG:-latest}}
     container_name: sc-video-analytics
     environment:
       - VA_PORT=8020
