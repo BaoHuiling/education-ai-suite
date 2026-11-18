@@ -4,7 +4,11 @@
 """Resolve the config.yaml `REGISTRY` flag that selects the Docker image source.
 
   REGISTRY: true   -> pull the published Docker Hub images
-                      (intel/audio-analyzer, intel/model-download,
+                      (intel/smart-classroom-app,
+                      intel/smart-classroom-ovms-provision,
+                      intel/smart-classroom-va-model-provision,
+                      intel/smart-classroom-video-analytics,
+                      intel/audio-analyzer, intel/model-download,
                       intel/retail-benchmark)
   REGISTRY: false  -> build those images locally from the submodules by adding
                       docker/docker-compose.local-build.yml to the Compose command
