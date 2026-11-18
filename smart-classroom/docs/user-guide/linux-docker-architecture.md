@@ -14,13 +14,13 @@ All paths in this page are relative to `smart-classroom/Linux`.
 |---|---|---|
 | `docker/docker-compose.yml` | Base file. Defines every service, volume, and the `smart-classroom` bridge network. | Always |
 | `docker/docker-compose.gpu.yml` | Override that passes the Intel GPU (`/dev/dri`) and NPU (`/dev/accel`) into the accelerator-enabled services and swaps in the GPU model list. | Always on Linux. `setup.sh` adds it and sets `RENDER_GID`. |
-| `docker/docker-compose.local-build.yml` | Override that builds `audio-analyzer`, `model-downloader`, and `metrics-collector` locally from the `edge-ai-libraries` and `performance-tools` submodules instead of pulling them from Docker Hub. | Only when `REGISTRY: false` in `config.yaml`. `setup.sh` adds it automatically. |
+| `docker/docker-compose.local-build.yml` | Override that builds `app`, `ovms-provision`, `va-model-provision`, `video-analytics`, `audio-analyzer`, `model-downloader`, and `metrics-collector` locally instead of pulling them from Docker Hub. | Only when `REGISTRY: false` in `config.yaml`. `setup.sh` adds it automatically. |
 
-By default (`REGISTRY: true`), `audio-analyzer`, `model-downloader`, and `metrics-collector` use the Docker Hub
-images shown in the service table. For the manual commands, see
+By default (`REGISTRY: true`), these services use the Docker Hub images shown in the service table, tagged
+with `INTEL_IMAGE_TAG`. For the manual commands, see
 [Manual Docker Startup](./get-started/get-started-linux.md#manual-docker-startup-optional).
 
-The following images are always built locally:
+With `REGISTRY: false`, the local-build override builds these images instead:
 
 | Image | Dockerfile |
 |---|---|
@@ -28,6 +28,9 @@ The following images are always built locally:
 | `sc-ovms-provision:local` | `docker/ovms-provision.Dockerfile` |
 | `sc-video-analytics:local` | `video-analytics/docker/Dockerfile.va-pipeline` (based on `intel/dlstreamer`) |
 | `sc-va-model-provision:local` | `video-analytics/docker/Dockerfile.va-provision` |
+| `smart-classroom-audio-analyzer:local` | `edge-ai-libraries/microservices/audio-analyzer/docker/Dockerfile` |
+| `sc-model-downloader:local` | `edge-ai-libraries/microservices/model-download/docker/Dockerfile` |
+| `sc-metrics-collector:local` | `performance-tools/docker/Dockerfile` |
 
 ## Services in the Compose Flow
 
@@ -37,17 +40,17 @@ runs for you and stores in `COMPOSE_PROFILES` in `.env`.
 
 | Service | Container | Image | Profile | Type | Role |
 |---|---|---|---|---|---|
-| `app` | `smart-classroom-app` | `smart-classroom-app:local` | core | Long-running | The main backend. Serves the UI and the REST API, runs the audio pipeline, and hosts Content Search and Grading in-process. |
+| `app` | `smart-classroom-app` | `intel/smart-classroom-app` | core | Long-running | The main backend. Serves the UI and the REST API, runs the audio pipeline, and hosts Content Search and Grading in-process. |
 | `storage-permissions` | `sc-storage-permissions` | `python:3.12-slim` | core | One-shot | Creates `storage/smart-classroom` and `storage/content-search` and sets ownership for the `app` user (UID 10001). |
 | `metrics-collector` | `sc-metrics-collector` | `intel/retail-benchmark` | core | Long-running | Telemetry sidecar for CPU, GPU, NPU, memory, and power. Serves `/metrics` and `/platform-info`. Runs privileged with read-only host `/sys` mounts. |
 | `audio-analyzer` | `sc-audio-analyzer` | `intel/audio-analyzer` | `asr` | Long-running | Speech-to-text (Whisper or FunASR) and optional speaker diarization. Requests its model snapshots from `model-downloader` at startup; it does not download them itself. |
 | `model-cache-permissions` | `sc-model-cache-permissions` | `python:3.12-slim` | `asr`, `text-gen` | One-shot | Prepares ownership and permissions on the shared `model-cache` volume. |
 | `model-downloader` | `sc-model-downloader` | `intel/model-download` | `asr`, `text-gen` | Long-running | Shared model service. For `text-gen`, downloads and exports the VLM, embedding, and reranker models to OpenVINO™ IR based on `startup-models*.yaml`. For `asr`, serves `audio-analyzer`'s REST requests for Whisper sources (Hugging Face), FunASR/Paraformer (ModelScope), and diarization snapshots. |
-| `ovms-provision` | `sc-ovms-provision` | `sc-ovms-provision:local` | `text-gen` | One-shot | Waits for the downloader jobs to finish, then merges the exported models into `ovms/config.json`. |
+| `ovms-provision` | `sc-ovms-provision` | `intel/smart-classroom-ovms-provision` | `text-gen` | One-shot | Waits for the downloader jobs to finish, then merges the exported models into `ovms/config.json`. |
 | `ovms` | `sc-ovms` | `openvino/model_server:2026.4.1-gpu` | `text-gen` | Long-running | OpenVINO™ Model Server. Serves the text generation (VLM) model through an OpenAI-compatible API. |
-| `va-model-provision` | `sc-va-model-provision` | `sc-va-model-provision:local` | `va` | One-shot | Exports the video analytics (YOLO pose and related) models to OpenVINO™ IR into the `video-analytics-models` volume. |
+| `va-model-provision` | `sc-va-model-provision` | `intel/smart-classroom-va-model-provision` | `va` | One-shot | Exports the video analytics (YOLO pose and related) models to OpenVINO™ IR into the `video-analytics-models` volume. |
 | `mediamtx` | `sc-mediamtx` | `bluenviron/mediamtx` | `va` | Long-running | Media server. Receives annotated RTSP streams from video analytics and relays them to the browser over WebRTC or HLS. |
-| `video-analytics` | `sc-video-analytics` | `sc-video-analytics:local` | `va` | Long-running | DL Streamer pipeline engine for the front, back, and content camera pipelines. Control API on port 8020. |
+| `video-analytics` | `sc-video-analytics` | `intel/smart-classroom-video-analytics` | `va` | Long-running | DL Streamer pipeline engine for the front, back, and content camera pipelines. Control API on port 8020. |
 
 > [!NOTE]
 > Content Search (ChromaDB, file ingest, video preprocess, the search API) and Grading are **not** separate
@@ -312,7 +315,7 @@ to the host `/sys` to read hardware counters.
 | `RENDER_GID` | Host `render` group ID. Required. Set by `setup.sh`. |
 | `STORAGE_DIR` | Host path for the shared storage bind mount. Defaults to `Linux/storage`. |
 | `HF_TOKEN` | Hugging Face token for diarization and gated models. |
-| `INTEL_IMAGE_TAG` | Tag for `intel/model-download` and `intel/retail-benchmark`. |
+| `INTEL_IMAGE_TAG` | Docker Hub tag for the `intel/*` images pulled when `REGISTRY: true`. |
 | `OVMS_RELEASE_TAG` | OVMS release the downloader uses. Keep it aligned with the `ovms` image tag. |
 | `ENABLED_PLUGINS` | Model downloader plugins. Defaults to `huggingface,openvino,modelscope`. |
 | `STARTUP_MODELS_CONFIG` | Container path of the OVMS startup model list. Written by `utils/compose_profiles.py` only while `text-gen` is active; unset means no OVMS exports. |

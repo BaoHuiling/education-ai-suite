@@ -76,19 +76,19 @@ HF_TOKEN=hf_your_access_token_here
 
 ### D. Docker Image Source (Optional)
 
-The `REGISTRY` flag in `config.yaml` selects where `setup.sh` gets the third-party images:
+The `REGISTRY` flag in `config.yaml` selects where `setup.sh` gets the Smart Classroom and third-party images:
 
 ```yaml
 REGISTRY: true   # true: pull from Docker Hub (default); false: build locally
 ```
 
-| `REGISTRY` | `audio-analyzer`, `model-downloader`, `metrics-collector` | Compose files |
+| `REGISTRY` | `app`, `ovms-provision`, `va-model-provision`, `video-analytics`, `audio-analyzer`, `model-downloader`, `metrics-collector` | Compose files |
 |---|---|---|
-| `true` | Pulled from Docker Hub (`intel/audio-analyzer`, `intel/model-download`, `intel/retail-benchmark`) | `docker-compose.yml` |
-| `false` | Built locally from the `edge-ai-libraries` and `performance-tools` submodules | `docker-compose.yml` + `docker-compose.local-build.yml` |
+| `true` | Pulled from Docker Hub (`intel/smart-classroom-app`, `intel/smart-classroom-ovms-provision`, `intel/smart-classroom-va-model-provision`, `intel/smart-classroom-video-analytics`, `intel/audio-analyzer`, `intel/model-download`, `intel/retail-benchmark`) | `docker-compose.yml` |
+| `false` | Built locally from the Dockerfiles in this repository and the `edge-ai-libraries` and `performance-tools` submodules | `docker-compose.yml` + `docker-compose.local-build.yml` |
 
-The Smart Classroom app and video-analytics images are always built locally. For manual
-Compose commands, see [Manual Docker Startup](#manual-docker-startup-optional).
+Pulled images use the `INTEL_IMAGE_TAG` tag from `.env`. For manual Compose commands, see
+[Manual Docker Startup](#manual-docker-startup-optional).
 
 ## Step 4: Run the Setup Script
 
@@ -110,8 +110,7 @@ The script performs the following:
    `text-gen` is active (so an ASR-only stack's shared `model-downloader` skips the OVMS exports).
 7. Requires an Intel GPU (`/dev/dri`), sets `RENDER_GID` from the host's `render` group, and enables the GPU Compose configuration.
 8. Validates the compose config, then follows `REGISTRY` in `config.yaml`: pulls the
-   Docker Hub images when `true`, or builds them locally when `false`. The app and
-   video-analytics images are always built locally. Then starts the stack.
+   Docker Hub images when `true`, or builds them locally when `false`. Then starts the stack.
 9. Waits for the `smart-classroom-app` container to become healthy and, when search
    features are enabled, for Content Search aggregate readiness. Setup exits with
    an error rather than reporting success if either readiness check times out.
@@ -176,14 +175,17 @@ docker compose --env-file .env \
   up -d --build
 ```
 
-The default `REGISTRY: true` in `config.yaml` pulls `intel/audio-analyzer`,
-`intel/model-download` and `intel/retail-benchmark` from Docker Hub. When
-`REGISTRY: false`, add `-f docker/docker-compose.local-build.yml` to the Compose
-command, after the base file and before `up`. This override builds
+The default `REGISTRY: true` in `config.yaml` pulls `intel/smart-classroom-app`,
+`intel/smart-classroom-ovms-provision`, `intel/smart-classroom-va-model-provision`,
+`intel/smart-classroom-video-analytics`, `intel/audio-analyzer`, `intel/model-download`
+and `intel/retail-benchmark` from Docker Hub. When `REGISTRY: false`, add
+`-f docker/docker-compose.local-build.yml` to the Compose command, after the base file
+and before `up`. This override builds `smart-classroom-app:local`,
+`sc-ovms-provision:local`, `sc-va-model-provision:local`, `sc-video-analytics:local`,
 `smart-classroom-audio-analyzer:local`, `sc-model-downloader:local` and
-`sc-metrics-collector:local` from the `edge-ai-libraries` and `performance-tools`
-submodules instead of pulling them. To pull the registry images explicitly first,
-run the same command with `pull --ignore-buildable` instead of `up -d --build`.
+`sc-metrics-collector:local` from the repository Dockerfiles and the `edge-ai-libraries`
+and `performance-tools` submodules instead of pulling them. To pull the registry images
+explicitly first, run the same command with `pull --ignore-buildable` instead of `up -d --build`.
 
 `RENDER_GID` gives the container GPU access. Export it in each new terminal or
 save its numeric value in `.env`. The image includes the Intel GPU runtime;
@@ -218,7 +220,7 @@ The script lists what it will remove and asks for confirmation before it changes
 | UI dev server | The process started by `setup.sh`, plus `ui/node_modules`, `ui/vite-dev.log`, and `ui/vite-dev.pid`. |
 | Containers and network | Every service of the `smart-classroom` Compose project, in all profiles. |
 | Docker volumes | `model-cache` (downloaded and exported models, the largest item), `video-analytics-models`, the `audio-analyzer-*` volumes, and `metrics`. |
-| Docker images | The images that the stack pulled or built, including the locally built app and video-analytics images. |
+| Docker images | The images that the stack pulled, or built locally when `REGISTRY: false`. |
 
 By default the script keeps `storage/` (session data and Content Search data), `.env`, and the source tree.
 
