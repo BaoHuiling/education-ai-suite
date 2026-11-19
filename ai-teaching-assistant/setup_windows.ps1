@@ -485,17 +485,20 @@ function Invoke-NativeInstallCommand {
     # the process exit code as the source of truth.
     $SavedEAP = $ErrorActionPreference
     $SavedPSNative = $null
+    $HasLongPathError = $false
     $ErrorActionPreference = 'Continue'
     if ($Script:HasPSNativeCommandUseErrorActionPreference) {
         $SavedPSNative = $Global:PSNativeCommandUseErrorActionPreference
         $Global:PSNativeCommandUseErrorActionPreference = $false
     }
     try {
-        if ($Quiet) {
-            & $ScriptBlock *> $null
-        }
-        else {
-            & $ScriptBlock
+        & $ScriptBlock 2>&1 | ForEach-Object {
+            if ("$_" -match '\[WinError 206\]|https://pip\.pypa\.io/warnings/enable-long-paths') {
+                $HasLongPathError = $true
+            }
+            if (-not $Quiet) {
+                Write-Host $_
+            }
         }
     }
     finally {
@@ -506,7 +509,12 @@ function Invoke-NativeInstallCommand {
     }
 
     if ($LASTEXITCODE -ne 0) {
-        throw "$Command failed with exit code $LASTEXITCODE"
+        $InstallErrorMessage = "$Command failed with exit code $LASTEXITCODE"
+        if ($HasLongPathError) {
+            $InstallErrorMessage += "`nWindows path-length limit exceeded."
+            $InstallErrorMessage += "`nSee docs/user-guide/troubleshooting.md for instructions to enable Windows long-path support."
+        }
+        throw $InstallErrorMessage
     }
 }
 
