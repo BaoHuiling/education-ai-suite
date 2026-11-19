@@ -11,7 +11,7 @@ This page lists the hardware, software, and platform requirements, and the suppo
 <!--hide_directive :sync: windows hide_directive-->
 
 - **OS**: Windows 11
-- **Recommended processor**: Intel® Core™ Ultra Series 1, 2, and 3 processors (with integrated GPU support)
+- **Recommended processor**: Intel® Core™ Ultra Series 1, 2, 3, and 4 processors (with integrated GPU support)
 - **Memory**: 32 GB RAM (minimum recommended)
 - **Storage**: At least 50 GB free (for models and logs)
 - **GPU/Accelerator**: Intel® iGPU (Intel® Core™ Ultra Series 1, Intel® Arc™ GPU, or higher) for summarization acceleration
@@ -26,7 +26,7 @@ This page lists the hardware, software, and platform requirements, and the suppo
 <!--hide_directive :sync: linux hide_directive-->
 
 - **OS**: Ubuntu 24.04 LTS
-- **Recommended processor**: Intel® Core™ Ultra Series 1, 2, and 3 processors (with integrated GPU support)
+- **Recommended processor**: Intel® Core™ Ultra Series 1, 2, 3, and 4 processors (with integrated GPU support)
 - **Memory**: 32 GB RAM (minimum recommended)
 - **Storage**: At least 50 GB free (for models, Docker images, and logs)
 - **GPU/Accelerator**: Intel® iGPU (Intel® Core™ Ultra Series 1, Intel® Arc™ GPU, or higher) required for Content Search reranking and used for summarization acceleration
