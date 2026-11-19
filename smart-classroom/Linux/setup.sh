@@ -207,10 +207,10 @@ if [[ "$app_status" == "healthy" ]]; then
 else
   log "⚠️  App did not become healthy within ${HEALTH_TIMEOUT_S}s (last status: ${app_status})."
   log "    First-run model downloads can take a long time — it may still finish; re-check with:"
-  log "      docker compose -f docker/docker-compose.yml ps"
+  log "      docker compose --env-file .env -f docker/docker-compose.yml ps"
   log "    Inspect logs with:"
-  log "      docker compose -f docker/docker-compose.yml logs -f app"
-  log "      docker compose -f docker/docker-compose.yml logs -f model-downloader audio-analyzer ovms"
+  log "      docker compose --env-file .env -f docker/docker-compose.yml logs -f app"
+  log "      docker compose --env-file .env -f docker/docker-compose.yml logs -f model-downloader audio-analyzer ovms"
   die "App startup failed; resolve the errors above before using the UI."
 fi
 

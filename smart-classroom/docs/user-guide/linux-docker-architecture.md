@@ -330,23 +330,25 @@ Run these from `smart-classroom/Linux`.
 
 ```bash
 # List the services and their health
-docker compose -f docker/docker-compose.yml -f docker/docker-compose.gpu.yml ps
+docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.gpu.yml ps
 
 # Show which services the current COMPOSE_PROFILES will start
 docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.gpu.yml config --services
 
 # Follow logs for one or more services
-docker compose -f docker/docker-compose.yml -f docker/docker-compose.gpu.yml logs -f app
-docker compose -f docker/docker-compose.yml -f docker/docker-compose.gpu.yml logs -f model-downloader ovms
+docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.gpu.yml logs -f app
+docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.gpu.yml logs -f model-downloader ovms
 
 # Stop the stack (keeps volumes and images; ./uninstall.sh removes them)
 docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.gpu.yml down
 ```
 
 > [!NOTE]
-> Include the same `-f` files that `setup.sh` uses. Otherwise Compose does not see the GPU override and
-> `RENDER_GID` is not applied consistently. When `REGISTRY: false`, also add
-> `-f docker/docker-compose.local-build.yml`.
+> Always pass `--env-file .env` and include the same `-f` files that `setup.sh` uses. `docker-compose.yml`
+> lives in `docker/`, so without `--env-file .env`, Compose looks for its own `.env` there instead of the
+> one `setup.sh` wrote at the `Linux` application root, and `RENDER_GID` fails to resolve. Without the
+> matching `-f` files, Compose also does not see the GPU override and `RENDER_GID` is not applied
+> consistently. When `REGISTRY: false`, also add `-f docker/docker-compose.local-build.yml`.
 
 ## Learn More
 

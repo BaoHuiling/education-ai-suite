@@ -138,10 +138,15 @@ To see which containers `setup.sh` starts, how they depend on each other, and wh
 Check status and logs:
 
 ```bash
-docker compose -f docker/docker-compose.yml ps
-docker compose -f docker/docker-compose.yml logs -f app
-docker compose -f docker/docker-compose.yml logs -f model-downloader ovms
+docker compose --env-file .env -f docker/docker-compose.yml ps
+docker compose --env-file .env -f docker/docker-compose.yml logs -f app
+docker compose --env-file .env -f docker/docker-compose.yml logs -f model-downloader ovms
 ```
+
+> [!NOTE]
+> `--env-file .env` is required: `docker-compose.yml` lives in `docker/`, so Compose otherwise looks for
+> an `.env` file there instead of the one `setup.sh` wrote at the `Linux` application root, and fails to
+> resolve the required `RENDER_GID`.
 
 Stop the services:
 
