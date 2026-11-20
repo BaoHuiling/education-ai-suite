@@ -1,0 +1,6 @@
+bin/
+obj/
+activation-host/bin/
+activation-host/obj/
+activation-host/AppPackages/
+wake-access.local.json

@@ -32,6 +32,9 @@ Typical variables:
 | `KIOSK_CORE_IDENTITY_ENABLED` | Face/voice identity (disabled for teaching) |
 | `KIOSK_CORE_QUEUE_SERVICE_ENABLED` | Queue service (disabled for teaching) |
 | `KIOSK_CORE_DIARIZATION_ENABLED` | Speaker diarization (disabled for teaching) |
+| `ATA_WAKEWORD_BACKEND` | Wake-word backend: `software` ("hey jarvis", default) or `hardware` ("Cortana" via Intel DSP) |
+| `ATA_WAKEWORD_FALLBACK` | Backend `start_wakeword.ps1` uses when hardware is unavailable: `software` (default, also when empty) or another value such as `none` to disable |
+| `ATA_WAKEWORD_AGENT_AUMID` | App ID of the installed wake agent; written by `wakeword-agent\package.ps1 -Install` |
 
 After `.env` changes, restart services.
 

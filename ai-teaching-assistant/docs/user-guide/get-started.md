@@ -91,6 +91,27 @@ http://127.0.0.1:7860
 
 You should see the AI Teaching Assistant interface.
 
+### Optional: Hardware Wake Word
+
+Software wake ("hey jarvis") and the manual microphone do not need a Microsoft
+hardware-wake token. For "Cortana" on a supported Intel DSP device, follow the
+[hardware wake-agent guide](../../wakeword-agent/README.md#setup-first-time).
+It covers Microsoft approval, private token/attestation configuration, package
+installation, reboot, and verification. Never publish the token or put it in
+tracked source or the root `.env`.
+
+After installation and private configuration, start ATA normally and run this
+from a second PowerShell at `ai-teaching-assistant` **after every sign-in**:
+
+```powershell
+.\start_wakeword.ps1
+```
+
+This opens the installed host to arm Windows keyword activation. Keep the browser
+UI open, allow microphone access, click the page once, then say "Cortana" and wait
+for recording before asking the question. The complete sequence and expected logs
+are in the [daily startup instructions](../../wakeword-agent/README.md#every-sign-in).
+
 ## Step 7: Ingest Course Materials
 
 1. In the browser, go to the **"Knowledge Base"** panel

@@ -1,0 +1,7 @@
+# Restored SDK build tools (MakeAppx/SignTool) - re-fetched via: dotnet restore tools.csproj
+packages/
+# Build output
+stage/
+out/
+# Dev signing material - never commit
+*.pfx

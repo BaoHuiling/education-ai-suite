@@ -18,6 +18,9 @@ Browser-facing same-origin proxy (recommended for UI):
 - `/api/tts/*` -> `text-to-speech`
 - `/api/analyzer/*` -> `audio-analyzer`
 
+The UI server also serves its own `/api/wakeword/*` endpoints (see
+[Hardware Wake-Word APIs](#hardware-wake-word-apis-ui-server)).
+
 ## Health
 
 ### kiosk-core
@@ -284,6 +287,59 @@ Returns retrieval and LLM latency summaries.
 ### ASR Performance
 
 `GET /v1/performance` on `audio-analyzer`
+
+## Hardware Wake-Word APIs (UI server)
+
+Served by `ai-teaching-assistant ui` on port 7860.
+
+### Wake Status
+
+`GET /api/wakeword/status`
+
+Polled by the browser UI (about every 0.7 s). A poll in the last 3 seconds marks
+the browser UI as open, so hardware wakes are recorded by the browser.
+
+Response:
+
+```json
+{
+  "backend": "hardware",
+  "state": "detected",
+  "session_id": null,
+  "detected_at": 1794929000.12,
+  "capture": "browser"
+}
+```
+
+- `backend`: value of `ATA_WAKEWORD_BACKEND`. When it is not `hardware`, `state` is `disabled`.
+- `state`: `disabled`, `not_armed` (keyword not bound to the agent), `waiting`, `detected`, or `failed`.
+- `capture`: `browser` (the UI records the question) or `host` (kiosk-core records from the host microphone).
+
+### Report Wake Event
+
+`POST /api/wakeword/activation`
+
+Called by the wake agent. Accepted from localhost only (`403` otherwise).
+
+Request:
+
+```json
+{"event": "detected"}
+```
+
+or, after a host-microphone session was started:
+
+```json
+{"event": "session_started", "session_id": "..."}
+```
+
+Response:
+
+```json
+{"status": "accepted", "capture": "browser"}
+```
+
+The agent skips the host-microphone session when `capture` is `browser`.
 
 ## Recommended Polling Pattern
 

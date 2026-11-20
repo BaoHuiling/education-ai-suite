@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Release</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">x64</Platform>
+    <ProjectGuid>{89CC0E76-7FCE-4EC6-86E6-BAB898BC5F74}</ProjectGuid>
+    <OutputType>AppContainerExe</OutputType>
+    <RootNamespace>AtaWakeAgent.ActivationHost</RootNamespace>
+    <AssemblyName>AtaWakeActivationHost</AssemblyName>
+    <DefaultLanguage>en-US</DefaultLanguage>
+    <TargetPlatformIdentifier>UAP</TargetPlatformIdentifier>
+    <TargetPlatformVersion>10.0.26100.0</TargetPlatformVersion>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <MinimumVisualStudioVersion>15</MinimumVisualStudioVersion>
+    <EnableDotNetNativeCompatibleProfile>true</EnableDotNetNativeCompatibleProfile>
+    <AppxPackage>false</AppxPackage>
+    <AppxBundle>Never</AppxBundle>
+    <UseDotNetNativeToolchain>false</UseDotNetNativeToolchain>
+    <OutputPath>bin\$(Platform)\$(Configuration)\</OutputPath>
+    <PlatformTarget>x64</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+    <DefineConstants>TRACE;NETFX_CORE;WINDOWS_UAP</DefineConstants>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\WakeAccess.cs">
+      <Link>WakeAccess.cs</Link>
+    </Compile>
+    <Compile Include="App.xaml.cs">
+      <DependentUpon>App.xaml</DependentUpon>
+    </Compile>
+    <ApplicationDefinition Include="App.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </ApplicationDefinition>
+    <Content Include="obj\PackageAssets\Square44x44Logo.png">
+      <Link>Assets\Square44x44Logo.png</Link>
+    </Content>
+    <Content Include="obj\PackageAssets\Square150x150Logo.png">
+      <Link>Assets\Square150x150Logo.png</Link>
+    </Content>
+    <Content Include="obj\PackageAssets\StoreLogo.png">
+      <Link>Assets\StoreLogo.png</Link>
+    </Content>
+    <AppxManifest Include="..\Package.appxmanifest">
+      <SubType>Designer</SubType>
+    </AppxManifest>
+  </ItemGroup>
+  <!-- The self-contained full-trust worker is packaged under AtaWakeAgent\ so the UWP
+       toolchain produces a complete MSIX (with native apphost) in one build. -->
+  <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)..\bin\Release\net8.0-windows10.0.26100.0\win-x64\publish')">
+    <Content Include="$(MSBuildThisFileDirectory)..\bin\Release\net8.0-windows10.0.26100.0\win-x64\publish\**\*">
+      <Link>AtaWakeAgent\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETCore.UniversalWindowsPlatform" Version="6.2.14" />
+  </ItemGroup>
+  <ItemGroup>
+    <SDKReference Include="WindowsDesktop, Version=10.0.26100.0">
+      <Name>Windows Desktop Extensions for the UWP</Name>
+    </SDKReference>
+  </ItemGroup>
+  <PropertyGroup Condition=" '$(VisualStudioVersion)' == '' or '$(VisualStudioVersion)' &lt; '15.0' ">
+    <VisualStudioVersion>15.0</VisualStudioVersion>
+  </PropertyGroup>
+  <Import Project="$(MSBuildExtensionsPath)\Microsoft\WindowsXaml\v$(VisualStudioVersion)\Microsoft.Windows.UI.Xaml.CSharp.targets" />
+</Project>
