@@ -95,8 +95,10 @@ export default function App() {
     recording,
     processing,
     wakewordEnabled,
+    softwareWakewordAvailable,
     wakewordListening,
     wakewordScore,
+    hardwareWakeStatus,
     status,
     messages,
     partialUser,
@@ -158,28 +160,47 @@ export default function App() {
           <section className="rounded-xl border border-blue-200 bg-white p-4 shadow-xl">
             <DeviceSelector value={deviceId} onChange={setDeviceId} disabled={recording} />
             <div className="mt-3 border-t border-blue-100 pt-3">
-              <label className="flex cursor-pointer items-center justify-between gap-3">
+              <label className={`flex items-center justify-between gap-3 ${recording || !softwareWakewordAvailable ? "cursor-not-allowed" : "cursor-pointer"}`}>
                 <div>
-                  <p className="text-sm font-semibold text-black">Wake-word mode</p>
+                  <p className="text-sm font-semibold text-black">
+                    {hardwareWakeStatus?.backend === "hardware" ? "Software wake word" : "Wake-word mode"}
+                  </p>
                 </div>
                 <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
                   <input
                     type="checkbox"
-                    checked={wakewordEnabled}
+                    checked={softwareWakewordAvailable && wakewordEnabled}
                     onChange={(e) => setWakewordEnabled(e.target.checked)}
-                    disabled={recording}
+                    disabled={recording || !softwareWakewordAvailable}
                     className="peer sr-only"
                   />
                   <span className="absolute inset-0 rounded-full bg-gray-300 transition-colors peer-checked:bg-intel-blue peer-disabled:opacity-50" />
-                  <span className="absolute left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5" />
+                  <span className="absolute left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5 peer-disabled:opacity-50" />
                 </span>
               </label>
-              {wakewordListening && (
+              {softwareWakewordAvailable && wakewordListening && (
                 <p className="mt-2 text-xs font-medium text-intel-blue">Listening for wake word...</p>
               )}
-              <p className="mt-2 text-xs text-black/70">
-                score: <span className="font-semibold text-intel-blue">{wakewordScore.toFixed(2)}</span>
-              </p>
+              {hardwareWakeStatus?.backend === "hardware" && (
+                <p
+                  role="status"
+                  aria-live="polite"
+                  className={`mt-2 text-xs font-semibold ${hardwareWakeStatus.state === "detected" ? "text-green-700" : hardwareWakeStatus.state === "not_armed" ? "text-red-700" : "text-intel-blue"}`}
+                >
+                  {hardwareWakeStatus.state === "detected"
+                    ? "Hardware wake detected - speak now"
+                    : hardwareWakeStatus.state === "failed"
+                      ? "Hardware wake detected - microphone unavailable"
+                      : hardwareWakeStatus.state === "not_armed"
+                        ? "Cortana wake agent is not armed"
+                        : "Hardware wake - waiting for Cortana"}
+                </p>
+              )}
+              {softwareWakewordAvailable && (
+                <p className="mt-2 text-xs text-black/70">
+                  score: <span className="font-semibold text-intel-blue">{wakewordScore.toFixed(2)}</span>
+                </p>
+              )}
             </div>
           </section>
 
@@ -246,6 +267,23 @@ export default function App() {
           </div>
 
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 shadow-md">
+            {hardwareWakeStatus?.backend === "hardware" && (
+              <div role="status" aria-live="polite" className={`mb-3 border-l-4 p-3 text-sm ${hardwareWakeStatus.state === "failed" || hardwareWakeStatus.state === "not_armed" ? "border-red-600 bg-red-50 text-red-800" : hardwareWakeStatus.state === "detected" ? "border-green-600 bg-green-50 text-green-800" : "border-intel-blue bg-blue-50 text-intel-blue"}`}>
+                <p className="font-semibold">
+                  {hardwareWakeStatus.state === "detected"
+                    ? "Wakeword detected - ATA session active"
+                    : hardwareWakeStatus.state === "failed"
+                      ? "Wakeword detected - microphone unavailable"
+                      : hardwareWakeStatus.state === "not_armed"
+                        ? "Cortana wake agent is not armed"
+                        : "Waiting for keyword - Cortana"}
+                </p>
+                {hardwareWakeStatus.detected_at && (
+                  <p>Last detection: {new Date(hardwareWakeStatus.detected_at * 1000).toLocaleTimeString()}</p>
+                )}
+                {hardwareWakeStatus.error && <p className="break-words">{hardwareWakeStatus.error}</p>}
+              </div>
+            )}
             <p className="text-sm text-black/80">{status}</p>
 
             <div className="mt-4">

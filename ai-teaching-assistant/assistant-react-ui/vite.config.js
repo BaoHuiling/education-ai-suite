@@ -7,6 +7,7 @@ export default defineConfig({
     server: {
         port: 5173,
         proxy: {
+            "/api/wakeword": { target: "http://127.0.0.1:7860", changeOrigin: true },
             "/api/kiosk": { target: "http://127.0.0.1:8012", changeOrigin: true, rewrite: function (p) { return p.replace(/^\/api\/kiosk/, ""); } },
             "/api/rag": { target: "http://127.0.0.1:8020", changeOrigin: true, rewrite: function (p) { return p.replace(/^\/api\/rag/, ""); } },
             "/api/tts": { target: "http://127.0.0.1:8011", changeOrigin: true, rewrite: function (p) { return p.replace(/^\/api\/tts/, ""); } },

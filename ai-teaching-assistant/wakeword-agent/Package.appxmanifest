@@ -1,0 +1,47 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Target MSIX manifest for the ATA Wake Agent.
+
+  package.ps1 builds the UWP activation host and full-trust worker, then signs
+  and installs the MSIX. The signing certificate subject must match Publisher.
+-->
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10" xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10" xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10" xmlns:desktop6="http://schemas.microsoft.com/appx/manifest/desktop/windows10/6" xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities" IgnorableNamespaces="uap desktop desktop6 rescap">
+  <Identity Name="Intel.ATA.WakeAgent" Publisher="CN=ATAWakeAgentDev" Version="1.0.0.0" ProcessorArchitecture="x64" />
+  <Properties>
+    <DisplayName>AI Teaching Assistant Wake Agent</DisplayName>
+    <PublisherDisplayName>AI Teaching Assistant</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+    <!-- Write the voice-activation config to the real HKCU (not a virtualized copy). -->
+    <desktop6:RegistryWriteVirtualization>disabled</desktop6:RegistryWriteVirtualization>
+  </Properties>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Universal" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" />
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" />
+    <PackageDependency Name="Microsoft.VCLibs.140.00" MinVersion="14.0.33519.0" Publisher="CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US" />
+    <PackageDependency Name="Microsoft.NET.CoreRuntime.2.2" MinVersion="2.2.31331.1" Publisher="CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US" />
+    <PackageDependency Name="Microsoft.NET.CoreFramework.Debug.2.2" MinVersion="2.2.31327.1" Publisher="CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US" />
+  </Dependencies>
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+  <Applications>
+    <Application Id="AtaWakeAgent" Executable="AtaWakeActivationHost.exe" EntryPoint="AtaWakeAgent.ActivationHost.App">
+      <uap:VisualElements DisplayName="AI Teaching Assistant Wake Agent" Description="Wakes the AI Teaching Assistant via the Intel always-on DSP." BackgroundColor="transparent" Square150x150Logo="Assets\Square150x150Logo.png" Square44x44Logo="Assets\Square44x44Logo.png" AppListEntry="none" />
+      <Extensions>
+        <uap:Extension Category="windows.personalAssistantLaunch" />
+        <uap:Extension Category="windows.aboveLockScreen" />
+        <desktop:Extension Category="windows.fullTrustProcess" Executable="AtaWakeAgent\AtaWakeAgent.exe">
+          <desktop:FullTrustProcess>
+            <desktop:ParameterGroup GroupId="Arm" Parameters="--arm" />
+            <desktop:ParameterGroup GroupId="Wake" Parameters="--wake" />
+          </desktop:FullTrustProcess>
+        </desktop:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+    <rescap:Capability Name="unvirtualizedResources" />
+    <DeviceCapability Name="microphone" />
+  </Capabilities>
+</Package>

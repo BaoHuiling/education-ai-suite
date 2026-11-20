@@ -2,6 +2,7 @@ import { API } from "./config";
 import type {
   BatchIngestResponse,
   ContextStats,
+  HardwareWakeStatus,
   PlatformInfo,
   ServicePerformancePayload,
   SessionSnapshot,
@@ -36,6 +37,10 @@ export interface CaptureModeInfo {
 
 export async function getCaptureMode(): Promise<CaptureModeInfo> {
   return asJson<CaptureModeInfo>(await fetch(`${API.kiosk}/api/v1/capture-mode`));
+}
+
+export async function getHardwareWakeStatus(): Promise<HardwareWakeStatus> {
+  return asJson<HardwareWakeStatus>(await fetch("/api/wakeword/status", { cache: "no-store" }));
 }
 
 /** Encode a UI-selected device for the host-capture endpoints. Browser

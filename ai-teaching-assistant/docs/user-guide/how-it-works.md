@@ -127,6 +127,48 @@ As `kiosk-core` receives answer tokens:
 - Knowledge base persists for future questions
 - Conversation history used for follow-up questions
 
+## Wake-Word Activation
+
+A wake word replaces the mic-button click. Everything after it (steps 2–8
+above) is unchanged, and in both backends the question is recorded by the
+browser.
+
+### Software ("hey jarvis")
+
+With **Wake-word mode** on, the browser streams short WAV chunks to
+`kiosk-core` (`/api/v1/wakeword/{id}/audio`), which scores them with
+openWakeWord on the CPU. On detection the UI starts a normal turn.
+
+### Hardware ("Cortana", Intel DSP)
+
+```mermaid
+sequenceDiagram
+    participant DSP as Intel DSP + Detection Verification
+    participant AAR as Windows AarSvc
+    participant Host as ATA wake agent (host + worker)
+    participant UI as ai-teaching-assistant ui (7860)
+    participant Browser as Browser UI
+    Browser->>UI: GET /api/wakeword/status (every ~0.7 s)
+    DSP->>AAR: keyword "Cortana" detected
+    AAR->>Host: background activation (ConversationalAgentTrigger)
+    Host->>UI: POST /api/wakeword/activation {"event":"detected"}
+    UI-->>Host: {"capture":"browser"}
+    Browser->>UI: GET /api/wakeword/status -> state=detected, capture=browser
+    Browser->>Browser: start mic-button turn (steps 2-8)
+```
+
+- The keyword model ships in the Intel Smart Sound driver; ATA only references it.
+- Windows' Agent Activation Runtime (`AarSvc_*`) binds the keyword to ATA's
+  packaged agent through `C:\aarlog\aarconfig.txt`.
+- The agent (`wakeword-agent/`) is a UWP activation host plus a full-trust .NET
+  worker. It never processes audio.
+- If no browser UI is open, the worker falls back to
+  `POST /api/v1/sessions/start` on `kiosk-core`, which records from the host
+  microphone.
+
+Setup and operation are described in
+[wakeword-agent/README.md](../../wakeword-agent/README.md).
+
 ## Multi-File Knowledge Base Ingestion
 
 When uploading course materials:

@@ -3,6 +3,7 @@ import { AUDIO, INACTIVITY_RESET_MS, POLL_INTERVAL_MS, WAKEWORD } from "../confi
 import {
   endAudioStream,
   getCaptureMode,
+  getHardwareWakeStatus,
   getSession,
   pushBrowserWakewordAudio,
   pushAudioChunk,
@@ -15,7 +16,7 @@ import {
 } from "../api";
 import { MicRecorder } from "../audio/MicRecorder";
 import { ResponsePlayer } from "../audio/ResponsePlayer";
-import type { ChatMessage, SessionPerfSnapshot } from "../types";
+import type { ChatMessage, HardwareWakeStatus, SessionPerfSnapshot } from "../types";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const MAX_SESSION_POINTS = 90;
@@ -53,6 +54,8 @@ export function useVoiceSession(deviceId?: string) {
   const [wakewordEnabled, setWakewordEnabled] = useState<boolean>(WAKEWORD.enabledByDefault);
   const [wakewordListening, setWakewordListening] = useState(false);
   const [wakewordScore, setWakewordScore] = useState(0);
+  const [hardwareWakeStatus, setHardwareWakeStatus] = useState<HardwareWakeStatus | null>(null);
+  const softwareWakewordAvailable = hardwareWakeStatus?.backend === "software";
   // Preferred audio capture source. Resolved once on mount from kiosk-core:
   // "host" when HOST_MIC is enabled on the backend, otherwise "browser".
   // Tracked via captureModeRef; no state needed since only the ref is read.
@@ -91,9 +94,19 @@ export function useVoiceSession(deviceId?: string) {
   messagesRef.current = messages;
 
   const setWakewordEnabledSafe = useCallback((enabled: boolean) => {
-    wakewordEnabledRef.current = enabled;
-    setWakewordEnabled(enabled);
-  }, []);
+    const nextEnabled = enabled && softwareWakewordAvailable;
+    wakewordEnabledRef.current = nextEnabled;
+    setWakewordEnabled(nextEnabled);
+  }, [softwareWakewordAvailable]);
+
+  useEffect(() => {
+    if (!softwareWakewordAvailable) {
+      wakewordEnabledRef.current = false;
+      wakewordAbortRef.current = true;
+      wakewordCancelVersionRef.current += 1;
+      setWakewordEnabled(false);
+    }
+  }, [softwareWakewordAvailable]);
 
   // Probe kiosk-core once to decide host-mic vs browser-mic capture.
   useEffect(() => {
@@ -116,6 +129,25 @@ export function useVoiceSession(deviceId?: string) {
     })();
     return () => {
       cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer: number | undefined;
+    const poll = async () => {
+      try {
+        const status = await getHardwareWakeStatus();
+        if (!cancelled) setHardwareWakeStatus(status);
+      } catch {
+        if (!cancelled) setHardwareWakeStatus(null);
+      }
+      if (!cancelled) timer = window.setTimeout(() => void poll(), 700);
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
     };
   }, []);
 
@@ -671,7 +703,7 @@ export function useVoiceSession(deviceId?: string) {
   }, [wakewordEnabled]);
 
   useEffect(() => {
-    if (!wakewordEnabled) {
+    if (!wakewordEnabled || !softwareWakewordAvailable) {
       wakewordAbortRef.current = true;
       setWakewordListening(false);
       return;
@@ -725,7 +757,22 @@ export function useVoiceSession(deviceId?: string) {
       wakewordClosingRef.current = false;
       setWakewordListening(false);
     };
-  }, [wakewordEnabled, runWakewordTurn, recording, responseActive, processing]);
+  }, [wakewordEnabled, softwareWakewordAvailable, runWakewordTurn, recording, responseActive, processing]);
+
+  // A hardware (DSP) wake handed to the browser starts the same turn as the mic button.
+  const handledHardwareWakeRef = useRef<number | null>(null);
+  useEffect(() => {
+    const wake = hardwareWakeStatus;
+    if (wake?.backend !== "hardware" || wake.state !== "detected") return;
+    if (wake.capture !== "browser" || !wake.detected_at) return;
+    if (handledHardwareWakeRef.current === wake.detected_at) return;
+    handledHardwareWakeRef.current = wake.detected_at;
+    // Ignore a detection that predates this page load or arrived long ago.
+    if (Date.now() / 1000 - wake.detected_at > 8) return;
+    if (recordingRef.current || sendingTextRef.current || processing || responseActive) return;
+    wakewordCancelVersionRef.current += 1;
+    void start(deviceIdRef.current);
+  }, [hardwareWakeStatus, start, processing, responseActive]);
 
   // Instantly clears the current conversation so the next question starts a
   // brand-new session. Because conversation history lives client-side and is
@@ -803,8 +850,10 @@ export function useVoiceSession(deviceId?: string) {
     recording,
     processing,
     wakewordEnabled,
+    softwareWakewordAvailable,
     wakewordListening,
     wakewordScore,
+    hardwareWakeStatus,
     status,
     messages,
     partialUser,

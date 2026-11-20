@@ -48,16 +48,77 @@ cd ai-teaching-assistant;
 
 Open `http://127.0.0.1:7860`.
 
-## Wake-Word Voice Activation (Jarvis)
+## Wake-Word Voice Activation
 
-You can run host-microphone wake-word activation with openwakeword:
+A wake word starts a voice turn hands-free. Two backends are available, selected
+with `ATA_WAKEWORD_BACKEND` in [.env](.env):
+
+| Backend | Value | Wake word | Notes |
+|---|---|---|---|
+| Software (default) | `software` | "hey jarvis" | openWakeWord on the CPU. Works on any machine. Turn on **Wake-word mode** in the UI. |
+| Hardware | `hardware` | "Cortana" | Intel always-on DSP through ATA's packaged Windows voice agent. Requires an Intel device whose Smart Sound driver provides the keyword model. |
+
+`setup_windows.ps1` prompts for this during setup. After changing `.env`,
+restart ATA (`stop_ata.ps1`, then `start_ata.ps1`).
+
+### Software wake word ("hey jarvis")
+
+Open the UI, turn on **Wake-word mode**, and say "hey jarvis", then your question.
+The browser records the audio and `kiosk-core` runs openWakeWord on it.
+
+### Hardware wake word ("Cortana")
+
+In both backends the question is recorded by the **browser**, exactly like the
+mic button. In hardware mode, the DSP detects "Cortana", Windows starts ATA's
+wake agent, and the agent tells the UI server, which makes the open browser UI
+start the turn.
+
+The software wake-word toggle is disabled in hardware mode. The Cortana status
+shows hardware wake activity; the software detection score is hidden.
+
+Hardware wake requires Microsoft LAF approval and private local configuration.
+Follow the [complete hardware setup](wakeword-agent/README.md#setup-first-time),
+including the [token requirements](wakeword-agent/README.md#microsoft-approval-and-private-access-configuration).
+Do not place a token in source or ATA's `.env`.
+
+From the `ai-teaching-assistant` directory, install once in elevated PowerShell:
 
 ```powershell
-cd education-ai-suite/ai-teaching-assistant
-python mic_session.py --wakeword --wakeword-model "hey jarvis"
+.\wakeword-agent\package.ps1 -Install
 ```
 
-This arms detection and opens a normal voice session after the wake word is detected.
+Reboot, then provision the private file described in the hardware guide, using
+normal Windows PowerShell as the signed-in user:
+
+```powershell
+.\wakeword-agent\configure-access.ps1
+```
+
+After every sign-in, start ATA with `start_ata.ps1`, wait for the services to be
+ready, and run this in a second terminal at `ai-teaching-assistant`:
+
+```powershell
+.\start_wakeword.ps1
+```
+
+Open the UI, allow microphone access, and click on the page. Say "Cortana", wait
+for recording, then ask the question. Installation alone does not arm the keyword
+after sign-in.
+
+See [wakeword-agent/README.md](wakeword-agent/README.md) for how it works,
+verification, updating, and how to restore the previous keyword binding.
+
+### Switching backends
+
+| To | Steps |
+|---|---|
+| Software | Set `ATA_WAKEWORD_BACKEND=software`, restart ATA, turn on **Wake-word mode** in the UI. To stop "Cortana" waking the agent, don't run `start_wakeword.ps1` after signing in, or give the keyword back with `register-keyword.ps1 -Restore`. |
+| Hardware | Set `ATA_WAKEWORD_BACKEND=hardware`, restart ATA, run `start_wakeword.ps1`, reload the UI and click on the page. |
+
+`mic_session.py --wakeword` also runs "hey jarvis" detection from a terminal
+on the host microphone. On some microphone arrays host capture is much less
+accurate than browser capture, so prefer the UI toggle.
+
 
 ## Documentation Map
 

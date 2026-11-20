@@ -63,6 +63,9 @@ Once material is ingested, ask a question in one of three ways:
   after a short silence, or you can stop it manually.
 - **Enable Wake-word mode** and say "hey jarvis" to start a voice session
   hands-free.
+- On a device set up for the **hardware wake word**, say **"Cortana"**. The
+  UI starts the same recording as the mic button; ask your question when the
+  status shows `🎙 Listening — speak now`.
 
 ### Step 4 — Get the answer
 
@@ -90,6 +93,21 @@ The status line under the chat reflects each stage.
   for the wake word.
 - **score** — A live confidence value (0–1) indicating how close the incoming
   audio is to the wake word. It rises as you say "hey jarvis".
+
+#### Hardware wake word (Cortana)
+
+Shown only when `ATA_WAKEWORD_BACKEND=hardware` in `.env`.
+
+- **"Waiting for keyword — Cortana"** — The DSP keyword is armed. Say
+  "Cortana" to start a turn.
+- **"Wakeword detected — speak now"** — The keyword was heard; the browser is
+  recording your question.
+- **"Cortana wake agent is not armed"** — The keyword is not bound to ATA's
+  wake agent. See [Troubleshooting](./troubleshooting.md#hardware-wake-word-cortana).
+- A banner above the chat also shows the last detection time and any error.
+
+After loading the page, click anywhere on it once: the browser only plays the
+spoken answer after a user interaction.
 
 #### Knowledge base
 

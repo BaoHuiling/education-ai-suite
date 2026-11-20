@@ -27,6 +27,15 @@ export interface SessionSnapshot {
   llm_metrics?: Record<string, unknown>;
 }
 
+export interface HardwareWakeStatus {
+  backend: string;
+  state: "disabled" | "not_armed" | "waiting" | "detected" | "failed";
+  session_id: string | null;
+  detected_at?: number;
+  capture?: "browser" | "host" | null;
+  error?: string | null;
+}
+
 export interface IngestResponse {
   chunks_added: number;
   source: string;
