@@ -131,9 +131,9 @@ services:
       # HF_TOKEN is only needed when the service runs diarization (gated models).
       HF_TOKEN: "${HF_TOKEN:-}"
       AUDIO_ANALYZER_SERVER_PORT: "8010"
-      HTTP_PROXY: "${HTTP_PROXY:-}"
-      HTTPS_PROXY: "${HTTPS_PROXY:-}"
-      NO_PROXY: "model-downloader,localhost,127.0.0.1,${NO_PROXY:-}"
+      HTTP_PROXY: "${HTTP_PROXY:-${http_proxy:-}}"
+      HTTPS_PROXY: "${HTTPS_PROXY:-${https_proxy:-}}"
+      NO_PROXY: "model-downloader,localhost,127.0.0.1,${NO_PROXY:-${no_proxy:-}}"
     volumes:
       # Editable service config (ASR provider/model/device, diarization).
       - ../edge-ai-libraries/microservices/audio-analyzer/config.yaml:/app/audio_analyzer/config.yaml:ro
@@ -182,9 +182,9 @@ services:
       # startup exports (ASR-only stacks still get a downloader for snapshots).
       - STARTUP_MODELS_CONFIG
       - OVMS_RELEASE_TAG=${OVMS_RELEASE_TAG:-v2026.4.1}
-      - HTTP_PROXY=${HTTP_PROXY:-}
-      - HTTPS_PROXY=${HTTPS_PROXY:-}
-      - NO_PROXY=${NO_PROXY:-}
+      - HTTP_PROXY=${HTTP_PROXY:-${http_proxy:-}}
+      - HTTPS_PROXY=${HTTPS_PROXY:-${https_proxy:-}}
+      - NO_PROXY=${NO_PROXY:-${no_proxy:-}}
       - TRANSFORMERS_VERBOSITY=error
       - PYTHONWARNINGS=ignore
       - HF_HUB_DISABLE_PROGRESS_BARS=1
@@ -253,12 +253,12 @@ services:
     image: ${VA_MODEL_PROVISION_IMAGE:-intel/smart-classroom-va-model-provision:${INTEL_IMAGE_TAG:-latest}}
     container_name: sc-va-model-provision
     environment:
-      - HTTP_PROXY=${HTTP_PROXY:-}
-      - HTTPS_PROXY=${HTTPS_PROXY:-}
-      - http_proxy=${HTTP_PROXY:-}
-      - https_proxy=${HTTPS_PROXY:-}
-      - NO_PROXY=${NO_PROXY:-}
-      - no_proxy=${NO_PROXY:-}
+      - HTTP_PROXY=${HTTP_PROXY:-${http_proxy:-}}
+      - HTTPS_PROXY=${HTTPS_PROXY:-${https_proxy:-}}
+      - http_proxy=${HTTP_PROXY:-${http_proxy:-}}
+      - https_proxy=${HTTPS_PROXY:-${https_proxy:-}}
+      - NO_PROXY=${NO_PROXY:-${no_proxy:-}}
+      - no_proxy=${NO_PROXY:-${no_proxy:-}}
     volumes:
       - video-analytics-models:/app/models
     restart: "no"
@@ -272,8 +272,8 @@ services:
       # Inter-container RTSP must bypass any corporate proxy baked into the
       # dlstreamer image, or rtspclientsink's connect fails with
       # "HTTP proxy connection failed".
-      - no_proxy=mediamtx,video-analytics,localhost,127.0.0.1,${NO_PROXY:-}
-      - NO_PROXY=mediamtx,video-analytics,localhost,127.0.0.1,${NO_PROXY:-}
+      - no_proxy=mediamtx,video-analytics,localhost,127.0.0.1,${NO_PROXY:-${no_proxy:-}}
+      - NO_PROXY=mediamtx,video-analytics,localhost,127.0.0.1,${NO_PROXY:-${no_proxy:-}}
     ports:
       - "${VA_MEDIAMTX_RTSP_PORT:-8554}:8554"            # RTSP (publish + read)
       - "${VA_MEDIAMTX_HLS_PORT:-8888}:8888"             # HLS (browser playback)
@@ -289,12 +289,12 @@ services:
     container_name: sc-video-analytics
     environment:
       - VA_PORT=8020
-      - HTTP_PROXY=${HTTP_PROXY:-}
-      - HTTPS_PROXY=${HTTPS_PROXY:-}
-      - http_proxy=${HTTP_PROXY:-}
-      - https_proxy=${HTTPS_PROXY:-}
-      - no_proxy=mediamtx,video-analytics,localhost,127.0.0.1,${NO_PROXY:-}
-      - NO_PROXY=mediamtx,video-analytics,localhost,127.0.0.1,${NO_PROXY:-}
+      - HTTP_PROXY=${HTTP_PROXY:-${http_proxy:-}}
+      - HTTPS_PROXY=${HTTPS_PROXY:-${https_proxy:-}}
+      - http_proxy=${HTTP_PROXY:-${http_proxy:-}}
+      - https_proxy=${HTTPS_PROXY:-${https_proxy:-}}
+      - no_proxy=mediamtx,video-analytics,localhost,127.0.0.1,${NO_PROXY:-${no_proxy:-}}
+      - NO_PROXY=mediamtx,video-analytics,localhost,127.0.0.1,${NO_PROXY:-${no_proxy:-}}
       # VA pipeline behaviour; unset -> defaults baked into
       # va_pipeline_service.py's __init__.
       - VA_RTSP_CODEC=${VA_RTSP_CODEC:-h264}

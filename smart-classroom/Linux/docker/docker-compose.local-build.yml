@@ -41,9 +41,9 @@ services:
       context: ..
       dockerfile: docker/ovms-provision.Dockerfile
       args:
-        HTTP_PROXY: "${HTTP_PROXY:-}"
-        HTTPS_PROXY: "${HTTPS_PROXY:-}"
-        NO_PROXY: "${NO_PROXY:-}"
+        HTTP_PROXY: "${HTTP_PROXY:-${http_proxy:-}}"
+        HTTPS_PROXY: "${HTTPS_PROXY:-${https_proxy:-}}"
+        NO_PROXY: "${NO_PROXY:-${no_proxy:-}}"
     image: sc-ovms-provision:local
     pull_policy: build
 
@@ -52,9 +52,9 @@ services:
       context: ../video-analytics
       dockerfile: docker/Dockerfile.va-provision
       args:
-        HTTP_PROXY: "${HTTP_PROXY:-}"
-        HTTPS_PROXY: "${HTTPS_PROXY:-}"
-        NO_PROXY: "${NO_PROXY:-}"
+        HTTP_PROXY: "${HTTP_PROXY:-${http_proxy:-}}"
+        HTTPS_PROXY: "${HTTPS_PROXY:-${https_proxy:-}}"
+        NO_PROXY: "${NO_PROXY:-${no_proxy:-}}"
       secrets:
         - corporate_ca
     image: sc-va-model-provision:local
@@ -65,9 +65,9 @@ services:
       context: ../video-analytics
       dockerfile: docker/Dockerfile.va-pipeline
       args:
-        HTTP_PROXY: "${HTTP_PROXY:-}"
-        HTTPS_PROXY: "${HTTPS_PROXY:-}"
-        NO_PROXY: "${NO_PROXY:-}"
+        HTTP_PROXY: "${HTTP_PROXY:-${http_proxy:-}}"
+        HTTPS_PROXY: "${HTTPS_PROXY:-${https_proxy:-}}"
+        NO_PROXY: "${NO_PROXY:-${no_proxy:-}}"
     image: sc-video-analytics:local
     pull_policy: build
 
@@ -77,9 +77,9 @@ services:
       dockerfile: docker/Dockerfile
       args:
         INSTALL_CJK: "${INSTALL_CJK:-true}"
-        HTTP_PROXY: "${HTTP_PROXY:-}"
-        HTTPS_PROXY: "${HTTPS_PROXY:-}"
-        NO_PROXY: "${NO_PROXY:-}"
+        HTTP_PROXY: "${HTTP_PROXY:-${http_proxy:-}}"
+        HTTPS_PROXY: "${HTTPS_PROXY:-${https_proxy:-}}"
+        NO_PROXY: "${NO_PROXY:-${no_proxy:-}}"
       secrets:
         - corporate_ca
     image: smart-classroom-audio-analyzer:local
@@ -90,9 +90,9 @@ services:
       context: ../edge-ai-libraries/microservices/model-download
       dockerfile: docker/Dockerfile
       args:
-        HTTP_PROXY: "${HTTP_PROXY:-}"
-        HTTPS_PROXY: "${HTTPS_PROXY:-}"
-        NO_PROXY: "${NO_PROXY:-}"
+        HTTP_PROXY: "${HTTP_PROXY:-${http_proxy:-}}"
+        HTTPS_PROXY: "${HTTPS_PROXY:-${https_proxy:-}}"
+        NO_PROXY: "${NO_PROXY:-${no_proxy:-}}"
     image: sc-model-downloader:local
     pull_policy: build
 
@@ -101,8 +101,8 @@ services:
       context: ../performance-tools
       dockerfile: docker/Dockerfile
       args:
-        HTTP_PROXY: "${HTTP_PROXY:-}"
-        HTTPS_PROXY: "${HTTPS_PROXY:-}"
-        NO_PROXY: "${NO_PROXY:-}"
+        HTTP_PROXY: "${HTTP_PROXY:-${http_proxy:-}}"
+        HTTPS_PROXY: "${HTTPS_PROXY:-${https_proxy:-}}"
+        NO_PROXY: "${NO_PROXY:-${no_proxy:-}}"
     image: sc-metrics-collector:local
     pull_policy: build
