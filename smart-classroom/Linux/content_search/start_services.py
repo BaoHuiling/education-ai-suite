@@ -147,6 +147,10 @@ def _build_env(extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
         existing = env.get(key, "")
         env[key] = f"{existing},{_no_proxy_locals}" if existing else _no_proxy_locals
 
+    # NLTK refuses proxied downloads by default, which blocks `unstructured`
+    # from fetching punkt_tab/tagger data when the image lacks it.
+    env.setdefault("NLTK_ALLOW_PROXIED_URLOPEN", "1")
+
     if extra:
         env.update(extra)
     return env
