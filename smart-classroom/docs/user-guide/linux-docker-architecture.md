@@ -320,7 +320,7 @@ to the host `/sys` to read hardware counters.
 | `ENABLED_PLUGINS` | Model downloader plugins. Defaults to `huggingface,openvino,modelscope`. |
 | `STARTUP_MODELS_CONFIG` | Container path of the OVMS startup model list. Written by `utils/compose_profiles.py` only while `text-gen` is active; unset means no OVMS exports. |
 | `AUDIO_ANALYZER_MODEL_DOWNLOAD_TIMEOUT_SEC` | How long `audio-analyzer` waits for each snapshot from `model-downloader`. Defaults to `1800`. |
-| `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` | Proxy settings forwarded to builds and containers. |
+| `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` | Proxy settings forwarded to builds and containers. When unset, Compose uses the lowercase `http_proxy`, `https_proxy`, and `no_proxy`. |
 | `CORPORATE_CA_FILE` | Optional PEM file for TLS-inspecting corporate proxies. Used only at build time. |
 | `VA_*` | Video analytics device, codec, pose-tuning, and MediaMTX port settings. |
 

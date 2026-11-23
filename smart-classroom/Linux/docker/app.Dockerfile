@@ -106,6 +106,16 @@ COPY requirements.txt ./requirements.txt
 RUN HTTP_PROXY="$HTTP_PROXY" HTTPS_PROXY="$HTTPS_PROXY" NO_PROXY="$NO_PROXY" \
     pip install --no-cache-dir -r requirements.txt
 
+# `unstructured` needs the NLTK punkt_tab tokenizer and POS tagger to partition
+# Markdown/text/HTML/PDF. Bake them into a root-owned dir on NLTK's default
+# search path so ingest works offline and behind a proxy. NLTK refuses proxied
+# downloads unless NLTK_ALLOW_PROXIED_URLOPEN=1.
+RUN HTTP_PROXY="$HTTP_PROXY" HTTPS_PROXY="$HTTPS_PROXY" NO_PROXY="$NO_PROXY" \
+    http_proxy="$HTTP_PROXY" https_proxy="$HTTPS_PROXY" no_proxy="$NO_PROXY" \
+    NLTK_ALLOW_PROXIED_URLOPEN=1 \
+    python -c "import nltk; [nltk.download(p, download_dir='/usr/local/share/nltk_data', quiet=True, raise_on_error=True) for p in ('punkt_tab', 'averaged_perceptron_tagger_eng')]" \
+    && python -c "import nltk; nltk.data.find('tokenizers/punkt_tab/english/'); nltk.data.find('taggers/averaged_perceptron_tagger_eng/')"
+
 # Non-root runtime user.
 RUN useradd --create-home --uid 10001 app
 WORKDIR /app

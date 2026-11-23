@@ -50,6 +50,52 @@ from providers.file_ingest_and_retrieve.utils import (
 
 logger = logging.getLogger(__name__)
 
+# NLTK resources that `unstructured` needs for sentence tokenization and POS
+# tagging when partitioning Markdown/text/HTML/PDF. When missing, partition()
+# raises LookupError ("Resource 'punkt_tab' not found") and the ingest fails.
+_NLTK_REQUIRED = (
+    ("tokenizers/punkt_tab", "punkt_tab"),
+    ("taggers/averaged_perceptron_tagger_eng", "averaged_perceptron_tagger_eng"),
+)
+
+
+def _ensure_nltk_data() -> None:
+    """Download missing NLTK data at runtime, including behind a proxy.
+
+    The Docker image bakes these resources into /usr/local/share/nltk_data, so
+    this only downloads when running from an image built without them.
+    """
+    try:
+        import nltk
+    except ImportError:
+        logger.warning("nltk not installed; document parsing may fail.")
+        return
+
+    missing = []
+    for resource_path, package in _NLTK_REQUIRED:
+        try:
+            nltk.data.find(resource_path)
+        except LookupError:
+            missing.append(package)
+    if not missing:
+        return
+
+    # NLTK refuses proxied downloads unless this is set.
+    os.environ.setdefault("NLTK_ALLOW_PROXIED_URLOPEN", "1")
+    # NLTK also refuses group/world-writable download dirs (the storage volume
+    # is group-writable); ~/nltk_data is private and on NLTK's search path.
+    data_dir = str(Path.home() / "nltk_data")
+    for package in missing:
+        try:
+            nltk.download(package, download_dir=data_dir, quiet=True, raise_on_error=True)
+            logger.info("Provisioned NLTK resource '%s' into %s", package, data_dir)
+        except Exception as e:
+            logger.warning(
+                "Failed to provision NLTK resource '%s' (%s); Markdown/text/PDF "
+                "ingest will fail. Behind a proxy, ensure HTTP(S)_PROXY is set.",
+                package, e,
+            )
+
 # Sentence boundary pattern for both Chinese and English.
 # Splits after: 。！？；…… \n\n  or  . ! ? followed by whitespace
 _SENT_SPLIT_RE = re.compile(r'(?<=[。！？；…\n])|(?<=[.!?])(?=\s)')
@@ -141,6 +187,8 @@ class DocumentParser:
             semantic_min_chunk_size: Minimum characters per chunk when using semantic splitting.
                                      Chunks shorter than this are merged into the next chunk (default: 400).
         """
+        _ensure_nltk_data()
+
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self.extract_images = extract_images
