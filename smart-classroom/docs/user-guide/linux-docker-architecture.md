@@ -122,6 +122,12 @@ Only these ports are reachable from the host. Everything else stays on the inter
 The MediaMTX ports can be changed with `VA_MEDIAMTX_RTSP_PORT`, `VA_MEDIAMTX_HLS_PORT`,
 `VA_MEDIAMTX_WEBRTC_PORT`, and `VA_MEDIAMTX_WEBRTC_ICE_PORT` in `.env`.
 
+For live video in a browser on another machine, MediaMTX must advertise the
+host IP for WebRTC. `setup.sh` sets `VA_WEBRTC_ADDITIONAL_HOSTS` in `.env` to the
+host's default-route IP when it is blank. On a host with several network
+interfaces, or when clients reach it through another address, set it yourself
+(comma-separated). The browser must also be able to reach UDP port `8189`.
+
 ### Internal-Only Endpoints
 
 | Service | Address used by `app` | Environment variable |

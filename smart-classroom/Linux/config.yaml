@@ -153,7 +153,10 @@ va_pipeline:          # on/off lives in features.video_analytics; these are tuni
   rtsp_codec: h264                       # h264 or h265
   output_rtsp_url: rtsp://mediamtx:8554  # inter-container RTSP relay (NOT 127.0.0.1)
   completion_timeout_sec: 3600
-  # Browser-facing stream bases (published by the mediamtx side-car).
+  # Browser-facing stream bases (published by the mediamtx side-car). A
+  # localhost host is replaced by the host the browser used to reach the app,
+  # so the UI opened as http://<host-ip>:8000 plays from <host-ip>. Put a real
+  # host name here to override that.
   stream_protocol: webrtc                # webrtc or hls
   webrtc_base_url: http://localhost:8889
   hls_base_url: http://localhost:8888

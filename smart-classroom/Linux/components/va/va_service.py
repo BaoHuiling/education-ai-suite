@@ -66,10 +66,30 @@ def _stream_protocol() -> str:
     return str(_va_pipeline_cfg("stream_protocol", "webrtc"))
 
 
-def _stream_base_url(protocol: str) -> str:
+_LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+
+def _stream_base_url(protocol: str, client_host: Optional[str] = None) -> str:
+    """Browser-facing mediamtx base URL for ``protocol``.
+
+    The configured bases default to ``localhost``, which only resolves to the
+    server for a browser running on it. When the base is loopback and the
+    request came in on another host name (the UI opened as
+    ``http://<server-ip>:8000``), swap in that host, keeping scheme and port,
+    so the browser connects to the server's mediamtx, not its own machine.
+    """
     if protocol == "webrtc":
-        return str(_va_pipeline_cfg("webrtc_base_url", "http://localhost:8889"))
-    return str(_va_pipeline_cfg("hls_base_url", "http://localhost:8888"))
+        base = str(_va_pipeline_cfg("webrtc_base_url", "http://localhost:8889"))
+    else:
+        base = str(_va_pipeline_cfg("hls_base_url", "http://localhost:8888"))
+    if not client_host or client_host.lower() in _LOOPBACK_HOSTS:
+        return base
+    parsed = urlparse(base)
+    if (parsed.hostname or "").lower() not in _LOOPBACK_HOSTS:
+        return base  # an explicit host in config wins
+    host = f"[{client_host}]" if ":" in client_host else client_host
+    netloc = f"{host}:{parsed.port}" if parsed.port else host
+    return parsed._replace(netloc=netloc).geturl()
 
 
 class _SessionVA:
@@ -156,8 +176,13 @@ class VideoAnalyticsService:
 
     # ── launch ────────────────────────────────────────────────────────────
     def start_pipelines(
-        self, session_id: str, requests: List[VideoAnalyticsRequest]
+        self,
+        session_id: str,
+        requests: List[VideoAnalyticsRequest],
+        client_host: Optional[str] = None,
     ) -> List[Dict]:
+        """``client_host`` is the host name the caller used to reach the app;
+        it replaces a loopback host in the returned ``stream_url``."""
         sv = self._session(session_id)
         output_dir = self._va_dir(session_id)
         os.makedirs(output_dir, exist_ok=True)
@@ -166,7 +191,7 @@ class VideoAnalyticsService:
         threshold = _va_threshold()
         output_rtsp = _output_rtsp_url()
         protocol = _stream_protocol()
-        stream_base = _stream_base_url(protocol)
+        stream_base = _stream_base_url(protocol, client_host)
 
         results: List[Dict] = []
         with sv.lock:
