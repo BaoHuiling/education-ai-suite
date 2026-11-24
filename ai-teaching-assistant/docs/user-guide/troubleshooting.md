@@ -37,9 +37,8 @@ with an error such as:
 ERROR: Could not install packages due to an OSError: [WinError 206] The filename or extension is too long
 ```
 
-Deeply nested paths inside the PyTorch package can exceed the Windows path-length
-limit, even when the repository is cloned under a relatively short path such as
-`C:\rc1`. Setup exits before all dependencies are installed.
+Deeply nested files can exceed Windows' path-length limit, causing setup to stop
+before all dependencies are installed.
 
 **Fix**:
 
@@ -168,6 +167,39 @@ message; do not create an empty XML file or delete working models to suppress it
 If any model warmup fails, setup reports `SETUP INCOMPLETE` and exits with code 1.
 A package metadata check alone does not verify native DLL imports or model
 readiness. Resolve the reported error and rerun setup before starting services.
+
+## Persistent Smart App Control Blocks
+
+If the native-import error persists after the checks above and Smart App Control
+is confirmed as the cause, you can optionally turn it off in Windows 11.
+Prefer keeping it enabled when possible. Turning it off removes its protection
+against untrusted or malicious apps across the system, not just for Teaching
+Assistant; Smart App Control does not support per-app exceptions.
+
+1. Open **Windows Security** from the Start menu.
+2. Select **App & browser control** > **Smart App Control settings**.
+3. Check the current state. If it is **On**, select **Off** and confirm the prompt.
+4. Rerun the affected native-import check in a fresh process. If setup was
+  incomplete, rerun `.\setup_windows.ps1` and confirm model warmup succeeds
+  before starting services with `.\start_ata.ps1`.
+
+If it is already **Off**, do not disable other security features to
+resolve this error. Another application-control policy may be responsible;
+use the Code Integrity events shown above.
+
+
+## RAG Warmup Skips the Local LLM
+
+For the local Windows configuration, warmup must use the same `.env` as
+`start_ata.ps1`. Setup now loads that file before warming models. Previously it
+created the file without loading it, allowing RAG to use its default `ovms`
+backend and skip the local LLM export despite
+`SMART_KIOSK_RAG__MODELS__LLM__BACKEND=openvino` being configured in `.env`.
+
+Update setup and rerun it. With the local backend selected, the log should show
+the local LLM export or cached export and model loading, followed by `WARMUP_OK`,
+not `LLM backend=ovms` and `skipping local model export`. The first local export
+can take several minutes even if an earlier warmup reported success.
 
 ## Port Conflicts
 
