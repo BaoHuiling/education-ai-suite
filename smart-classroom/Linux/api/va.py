@@ -9,7 +9,7 @@ import logging
 import re
 from typing import List, Optional
 
-from fastapi import APIRouter, File, Form, Header, HTTPException, UploadFile, status
+from fastapi import APIRouter, File, Form, Header, HTTPException, Request, UploadFile, status
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from components.va.schemas import VideoAnalyticsRequest, VideoAnalyticsStopRequest
@@ -69,13 +69,16 @@ def upload_video(
 @va_router.post("/start-video-analytics-pipeline")
 def start_video_analytics_pipeline(
     requests: List[VideoAnalyticsRequest],
+    request: Request,
     x_session_id: Optional[str] = Header(None),
 ):
     """Start one or more video analytics pipelines for a session.
 
     Body: list of {pipeline_name, source, output_stream}. Returns per-pipeline
     results with HLS/WebRTC ``stream_url`` + ``stream_protocol`` when
-    ``output_stream`` is true.
+    ``output_stream`` is true. A loopback host in the configured stream base
+    is replaced by the host this request was addressed to, so a browser on
+    another machine gets a URL that points at this server.
     """
     session_id = _require_session(x_session_id)
     if not requests:
@@ -95,7 +98,9 @@ def start_video_analytics_pipeline(
             )
 
     try:
-        results = get_service().start_pipelines(session_id, requests)
+        results = get_service().start_pipelines(
+            session_id, requests, client_host=request.url.hostname
+        )
     except Exception as exc:  # noqa: BLE001
         logger.error("Error starting video analytics pipelines: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))

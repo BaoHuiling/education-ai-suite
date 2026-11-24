@@ -147,6 +147,23 @@ else
   printf 'RENDER_GID=%s\n' "$RENDER_GID" >> "$ENV_FILE"
 fi
 log "GPU required: /dev/dri detected; set RENDER_GID=${RENDER_GID} in .env."
+
+# --- WebRTC host candidate for the live VA stream --------------------------
+# Fill VA_WEBRTC_ADDITIONAL_HOSTS with the default-route IP only when blank, so
+# a value the user set (multi-NIC, NAT) is kept.
+if ! grep -qE '^VA_WEBRTC_ADDITIONAL_HOSTS=.+' "$ENV_FILE" 2>/dev/null; then
+  HOST_IP="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i < NF; i++) if ($i == "src") { print $(i + 1); exit }}')"
+  if [[ -n "$HOST_IP" ]]; then
+    if grep -qE '^VA_WEBRTC_ADDITIONAL_HOSTS=' "$ENV_FILE" 2>/dev/null; then
+      sed -i "s/^VA_WEBRTC_ADDITIONAL_HOSTS=.*/VA_WEBRTC_ADDITIONAL_HOSTS=${HOST_IP}/" "$ENV_FILE"
+    else
+      printf 'VA_WEBRTC_ADDITIONAL_HOSTS=%s\n' "$HOST_IP" >> "$ENV_FILE"
+    fi
+    log "WebRTC: advertising ${HOST_IP} for live VA streams (VA_WEBRTC_ADDITIONAL_HOSTS in .env)."
+  else
+    log "⚠️  Could not detect the host IP; set VA_WEBRTC_ADDITIONAL_HOSTS in .env so remote browsers can play live VA streams."
+  fi
+fi
 COMPOSE_FILES+=(-f docker/docker-compose.gpu.yml)
 
 # --- Image source: config.yaml REGISTRY (true = Docker Hub, false = local build) ---
