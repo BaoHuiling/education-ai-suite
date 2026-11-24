@@ -284,6 +284,17 @@ Written under `<session>/raw/va/` in the shared storage volume (host:
 `stream_protocol` (config: `va_pipeline.stream_protocol`) selects which base URL
 `start-video-analytics-pipeline` returns.
 
+If the base URL host is `localhost`, the response uses the host the request was
+sent to instead. For example, a UI opened as `http://10.0.0.5:8000` gets
+`http://10.0.0.5:8889/front_stream`. Set a different host in the base URL to
+override this.
+
+WebRTC from another machine also needs the host IP as an ICE candidate. Inside
+the Docker network, MediaMTX knows only its container IP, so a remote session
+times out and the player stays black. `setup.sh` writes the host's default-route
+IP to `VA_WEBRTC_ADDITIONAL_HOSTS` in `.env` (comma-separated, kept if already
+set), and Compose passes it to MediaMTX as `MTX_WEBRTCADDITIONALHOSTS`.
+
 ---
 
 ## Internal side-car control API (reference)

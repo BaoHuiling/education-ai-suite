@@ -274,6 +274,11 @@ services:
       # "HTTP proxy connection failed".
       - no_proxy=mediamtx,video-analytics,localhost,127.0.0.1,${NO_PROXY:-${no_proxy:-}}
       - NO_PROXY=mediamtx,video-analytics,localhost,127.0.0.1,${NO_PROXY:-${no_proxy:-}}
+      # WebRTC ICE: inside the bridge network mediamtx only sees its container
+      # IP, which a browser on another machine cannot reach, so the session
+      # times out and the player stays black. Advertise the host's LAN IP(s)
+      # as extra candidates (setup.sh fills this in; comma-separated).
+      - MTX_WEBRTCADDITIONALHOSTS=${VA_WEBRTC_ADDITIONAL_HOSTS:-}
     ports:
       - "${VA_MEDIAMTX_RTSP_PORT:-8554}:8554"            # RTSP (publish + read)
       - "${VA_MEDIAMTX_HLS_PORT:-8888}:8888"             # HLS (browser playback)

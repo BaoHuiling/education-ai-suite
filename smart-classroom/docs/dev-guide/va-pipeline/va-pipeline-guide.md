@@ -282,6 +282,8 @@ Windows build so the UI is unchanged). Every route takes an `x-session-id` heade
 result carries `status`, `pipeline_name`, `session_id`, and — when
 `output_stream` is true — a browser-playable `stream_url`
 (`{webrtc_base_url}/{name}_stream` or the HLS equivalent) and `stream_protocol`.
+A `localhost` base host is replaced by the host the request came in on, so a
+browser on another machine gets the server's address.
 
 ---
 
