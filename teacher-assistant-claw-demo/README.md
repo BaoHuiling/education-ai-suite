@@ -55,7 +55,7 @@ Perform the following steps to setup OpenClaw agent for the Teacher Assistant de
 Clone the repository and navigate to the Teacher Assistant demo directory. All subsequent commands assume you are in this directory.
 
 ```bash
-git clone --filter=blob:none --sparse --branch main https://github.com/open-edge-platform/education-ai-suite.git &&
+git clone --filter=blob:none --sparse --branch release-2026.3.0 https://github.com/open-edge-platform/education-ai-suite.git &&
 cd education-ai-suite &&
 git sparse-checkout set teacher-assistant-claw-demo &&
 cd teacher-assistant-claw-demo

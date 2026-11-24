@@ -282,7 +282,7 @@ content_search:
 
 ```powershell
 # Clone the repository (if not already done)
-git clone -b main https://github.com/open-edge-platform/education-ai-suite.git
+git clone -b release-2026.3.0 https://github.com/open-edge-platform/education-ai-suite.git
 cd education-ai-suite
 ```
 

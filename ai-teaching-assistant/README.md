@@ -38,7 +38,7 @@ See [docs/user-guide/get-started.md](docs/user-guide/get-started.md) for the com
 At a high level:
 
 ```powershell
-git clone --filter=blob:none --sparse -b main https://github.com/open-edge-platform/education-ai-suite.git;
+git clone --filter=blob:none --sparse -b release-2026.3.0 https://github.com/open-edge-platform/education-ai-suite.git;
 cd education-ai-suite;
 git sparse-checkout set ai-teaching-assistant;
 cd ai-teaching-assistant;
