@@ -14,7 +14,8 @@
 # =============================================================================
 
 param(
-    [switch]$Silent = $false  # Set to $true for silent/automated mode
+    [switch]$Silent = $false,  # Set to $true for silent/automated mode
+    [string]$CorporateCaFile = $env:CORPORATE_CA_FILE
 )
 
 $ErrorActionPreference = "Stop"
@@ -53,6 +54,45 @@ function Write-Step {
     Write-Host "`n-> $Message" -ForegroundColor Cyan
 }
 
+function Install-CorporateCa {
+    param([string]$CertificateFile)
+
+    if ([string]::IsNullOrWhiteSpace($CertificateFile)) { return }
+
+    $ResolvedFile = Resolve-Path -LiteralPath $CertificateFile -ErrorAction Stop
+    if ($ResolvedFile.Provider.Name -ne "FileSystem") {
+        throw "CorporateCaFile must be a local certificate file."
+    }
+    $ContentType = [System.Security.Cryptography.X509Certificates.X509Certificate2]::GetCertContentType($ResolvedFile.ProviderPath)
+    if ($ContentType -ne [System.Security.Cryptography.X509Certificates.X509ContentType]::Cert) {
+        throw "CorporateCaFile must contain a single public root CA certificate, not a private key or certificate bundle."
+    }
+
+    $Certificate = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($ResolvedFile.ProviderPath)
+    try {
+        $Constraints = $Certificate.Extensions | Where-Object { $_.Oid.Value -eq "2.5.29.19" }
+        if (-not $Constraints -or -not $Constraints.CertificateAuthority -or $Certificate.Subject -ne $Certificate.Issuer) {
+            throw "CorporateCaFile must be an approved root CA certificate, not a server or intermediate certificate."
+        }
+        $Now = Get-Date
+        if ($Certificate.NotBefore -gt $Now -or $Certificate.NotAfter -lt $Now) {
+            throw "Corporate CA certificate is expired or not yet valid."
+        }
+
+        $StorePath = "Cert:\CurrentUser\Root\$($Certificate.Thumbprint)"
+        if (Test-Path -LiteralPath $StorePath) {
+            Write-Info "Corporate CA is already trusted: $($Certificate.Subject)"
+            return
+        }
+        Write-Info "Trusting supplied corporate CA for the current user: $($Certificate.Subject) (thumbprint: $($Certificate.Thumbprint))"
+        Import-Certificate -FilePath $ResolvedFile.ProviderPath -CertStoreLocation "Cert:\CurrentUser\Root" -ErrorAction Stop | Out-Null
+        Write-Success "Corporate CA installed in the current user's trusted roots. TLS verification remains enabled."
+    }
+    finally {
+        $Certificate.Dispose()
+    }
+}
+
 # Get script directory and root directory
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path   # ai-teaching-assistant (ATA) root
 $RootDir = Split-Path -Parent $ScriptDir                       # edge-ai-suites (git superproject)
@@ -60,8 +100,10 @@ $EdgeAIDir = Join-Path $ScriptDir "edge-ai-libraries"          # submodule: TTS 
 $VeiDir = Join-Path $ScriptDir "voice-enabled-interactions"    # submodule: rag-service + kiosk_core
 $KioskDir = Join-Path $VeiDir "smart-kiosk-assistant"          # kiosk-core (main.py) + rag-service
 
-Write-Header "SMART KIOSK ASSISTANT - WINDOWS 11 SETUP"
+Write-Header "Smart AI Teaching Assistant"
 Write-Info "Setup directory: $ScriptDir"
+
+Install-CorporateCa -CertificateFile $CorporateCaFile
 
 # =============================================================================
 # STEP 0: Ensure edge-ai-libraries submodule (sparse checkout)
@@ -337,12 +379,85 @@ catch {
 # STEP 2: Check/Install FFmpeg
 # =============================================================================
 
+function Update-SessionPath {
+    $PathEntries = @(
+        $env:Path
+        [Environment]::GetEnvironmentVariable("Path", "Machine")
+        [Environment]::GetEnvironmentVariable("Path", "User")
+    ) -join ";"
+    $env:Path = ($PathEntries -split ";" | Where-Object { $_ } | Select-Object -Unique) -join ";"
+}
+
+function Install-FfmpegFromGyan {
+    $DownloadUrl = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+    $DownloadOptions = @{ UseBasicParsing = $true; ErrorAction = "Stop" }
+    if ($env:HTTPS_PROXY) {
+        $DownloadOptions.Proxy = $env:HTTPS_PROXY
+    }
+    elseif ($env:HTTP_PROXY) {
+        $DownloadOptions.Proxy = $env:HTTP_PROXY
+    }
+    $TempDir = Join-Path ([IO.Path]::GetTempPath()) ("ata-ffmpeg-" + [guid]::NewGuid().ToString())
+    $ProgressPreference = "SilentlyContinue"
+    try {
+        New-Item -ItemType Directory -Path $TempDir -ErrorAction Stop | Out-Null
+        $Checksum = (Invoke-WebRequest -Uri "$DownloadUrl.sha256" @DownloadOptions).Content
+        if ($Checksum -is [byte[]]) {
+            $Checksum = [Text.Encoding]::UTF8.GetString($Checksum)
+        }
+        if ($Checksum.Trim() -notmatch "^([a-fA-F0-9]{64})(?:\s+.*)?$") {
+            throw "Invalid SHA-256 response from the FFmpeg publisher."
+        }
+        $ExpectedHash = $matches[1]
+        $ArchivePath = Join-Path $TempDir "ffmpeg.zip"
+        Write-Info "Downloading FFmpeg Essentials directly from gyan.dev..."
+        Invoke-WebRequest -Uri $DownloadUrl -OutFile $ArchivePath @DownloadOptions
+        if ((Get-FileHash -LiteralPath $ArchivePath -Algorithm SHA256).Hash -ne $ExpectedHash) {
+            throw "FFmpeg archive SHA-256 mismatch; installation aborted."
+        }
+        Write-Success "FFmpeg archive SHA-256 verified"
+
+        $ExtractPath = Join-Path $TempDir "extracted"
+        Expand-Archive -LiteralPath $ArchivePath -DestinationPath $ExtractPath -ErrorAction Stop
+        $Executables = @(Get-ChildItem -Path (Join-Path $ExtractPath "*\bin\ffmpeg.exe") -File)
+        if ($Executables.Count -ne 1) {
+            throw "FFmpeg archive does not contain the expected executable."
+        }
+        $VersionOutput = @(& $Executables[0].FullName -version 2>$null)
+        if ($LASTEXITCODE -ne 0 -or $VersionOutput.Count -eq 0) {
+            throw "Downloaded FFmpeg failed its version check."
+        }
+
+        $InstallDir = Join-Path $env:LOCALAPPDATA "AI-Teaching-Assistant\ffmpeg"
+        New-Item -ItemType Directory -Path $InstallDir -Force -ErrorAction Stop | Out-Null
+        Copy-Item -Path (Join-Path $Executables[0].Directory.Parent.FullName "*") -Destination $InstallDir -Recurse -Force -ErrorAction Stop
+        $BinDir = Join-Path $InstallDir "bin"
+        $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+        if (($UserPath -split ";") -notcontains $BinDir) {
+            [Environment]::SetEnvironmentVariable("Path", ((@($UserPath, $BinDir) | Where-Object { $_ }) -join ";"), "User")
+        }
+        Update-SessionPath
+        $InstalledVersion = @(ffmpeg -version 2>$null)
+        if ($LASTEXITCODE -ne 0 -or $InstalledVersion.Count -eq 0) {
+            throw "Installed FFmpeg is not usable from PATH."
+        }
+        Write-Success "FFmpeg installed from gyan.dev: $($InstalledVersion[0])"
+    }
+    finally {
+        if (Test-Path -LiteralPath $TempDir) {
+            Remove-Item -LiteralPath $TempDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 Write-Step "Checking FFmpeg installation..."
+Update-SessionPath
 
 $FFmpegExists = $false
 try {
-    $FFmpegVersion = ffmpeg -version 2>$null | Select-Object -First 1
-    if ($FFmpegVersion) {
+    $FFmpegOutput = @(ffmpeg -version 2>$null)
+    if ($LASTEXITCODE -eq 0 -and $FFmpegOutput.Count -gt 0) {
+        $FFmpegVersion = $FFmpegOutput[0]
         Write-Success "FFmpeg found: $FFmpegVersion"
         $FFmpegExists = $true
     }
@@ -353,47 +468,64 @@ if (-not $FFmpegExists) {
     Write-Info "FFmpeg not found. Attempting to install..."
     
     # Try winget (preferred)
+    $WingetExitCode = "not available"
     try {
         Write-Info "Installing FFmpeg via Windows Package Manager..."
-        winget install ffmpeg -e -h --accept-source-agreements 2>$null | Out-Null
-        Start-Sleep -Seconds 2
+        winget install --id Gyan.FFmpeg --exact --source winget --silent --accept-source-agreements --accept-package-agreements *> $null
+        $WingetExitCode = $LASTEXITCODE
+        Update-SessionPath
         
-        $FFmpegVersion = ffmpeg -version 2>$null | Select-Object -First 1
-        if ($FFmpegVersion) {
+        $FFmpegOutput = @(ffmpeg -version 2>$null)
+        if ($LASTEXITCODE -eq 0 -and $FFmpegOutput.Count -gt 0) {
+            $FFmpegVersion = $FFmpegOutput[0]
             Write-Success "FFmpeg installed successfully: $FFmpegVersion"
         }
         else {
-            throw "Installation verification failed"
+            throw "FFmpeg verification failed after WinGet (installer exit code: $WingetExitCode)."
         }
     }
     catch {
-        # Try Chocolatey
+        Write-Verbose "WinGet FFmpeg installation failed (installer exit code: $WingetExitCode): $_"
         try {
-            Write-Info "Trying Chocolatey package manager..."
-            $ChocoExists = choco --version 2>$null
-            if ($ChocoExists) {
-                choco install ffmpeg -y 2>$null | Out-Null
-                Start-Sleep -Seconds 2
-                
-                $FFmpegVersion = ffmpeg -version 2>$null | Select-Object -First 1
-                if ($FFmpegVersion) {
-                    Write-Success "FFmpeg installed via Chocolatey: $FFmpegVersion"
-                }
-                else {
-                    throw "Installation verification failed"
-                }
-            }
-            else {
-                throw "Chocolatey not found"
-            }
+            Install-FfmpegFromGyan
+            $FFmpegExists = $true
         }
         catch {
-            Write-Error-Custom "Could not auto-install FFmpeg"
-            Write-Info "Please install manually:"
-            Write-Info "  Option 1: winget install ffmpeg"
-            Write-Info "  Option 2: choco install ffmpeg"
-            Write-Info "  Option 3: Download from https://ffmpeg.org/download.html"
-            exit 1
+            Write-Verbose "Direct FFmpeg download failed: $_"
+        }
+        if (-not $FFmpegExists) {
+            $ChocoExitCode = "not available"
+            try {
+                Write-Info "Trying Chocolatey package manager..."
+                $ChocoExists = choco --version 2>$null
+                if ($ChocoExists) {
+                    choco install ffmpeg -y *> $null
+                    $ChocoExitCode = $LASTEXITCODE
+                    Update-SessionPath
+
+                    $FFmpegOutput = @(ffmpeg -version 2>$null)
+                    if ($LASTEXITCODE -eq 0 -and $FFmpegOutput.Count -gt 0) {
+                        $FFmpegVersion = $FFmpegOutput[0]
+                        Write-Success "FFmpeg installed via Chocolatey: $FFmpegVersion"
+                    }
+                    else {
+                        throw "FFmpeg verification failed after Chocolatey (installer exit code: $ChocoExitCode)."
+                    }
+                }
+                else {
+                    throw "Chocolatey not found"
+                }
+            }
+            catch {
+                Write-Verbose "Chocolatey FFmpeg installation failed (installer exit code: $ChocoExitCode): $_"
+                Write-Error-Custom "Could not auto-install FFmpeg"
+                Write-Verbose "For corporate CA trust errors, rerun with -CorporateCaFile pointing to your IT-approved root CA certificate."
+                Write-Info "Please install manually:"
+                Write-Info "  Option 1: winget install ffmpeg"
+                Write-Info "  Option 2: choco install ffmpeg"
+                Write-Info "  Option 3: Download from https://ffmpeg.org/download.html"
+                exit 1
+            }
         }
     }
 }
@@ -872,6 +1004,16 @@ KIOSK_CORE_DIARIZATION_ENABLED=false
 else {
     Write-Info ".env file already exists"
 }
+
+if (-not (Test-Path $EnvFile)) {
+    throw "Cannot warm up models without environment configuration: $EnvFile"
+}
+Get-Content $EnvFile | ForEach-Object {
+    if ($_ -match "^([^=]+)=(.*)$") {
+        [Environment]::SetEnvironmentVariable($matches[1], $matches[2])
+    }
+}
+Write-Success "Environment variables loaded from .env"
 
 # =============================================================================
 # STEP 6.5: Pre-build / warm up AI models
