@@ -72,3 +72,10 @@ def test_asr_shares_single_model_downloader_container():
     assert "model-cache:/opt/models" in downloader["volumes"]
     assert "audio-analyzer-models" not in compose["volumes"]
     assert not any(v.startswith("audio-analyzer-models:") for v in analyzer["volumes"])
+
+
+def test_report_alone_needs_asr_and_text_gen(monkeypatch):
+    # report consumes ASR-derived outputs and calls text_gen; it must not pull
+    # in the opt-in VA side-car profile.
+    monkeypatch.setattr(compose_profiles, "config", _features("report"))
+    assert compose_profiles.resolve_profiles() == ["asr", "text-gen"]

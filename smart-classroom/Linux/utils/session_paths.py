@@ -95,3 +95,23 @@ class SessionPaths:
     @staticmethod
     def topics_path(session_id: str) -> Path:
         return SessionPaths.result_dir(session_id) / "topics.json"
+
+    @staticmethod
+    def report_md_path(session_id: str) -> Path:
+        return SessionPaths.result_dir(session_id) / "class_report.md"
+
+    @staticmethod
+    def report_docx_path(session_id: str) -> Path:
+        return SessionPaths.result_dir(session_id) / "class_report.docx"
+
+    @staticmethod
+    def report_pdf_path(session_id: str) -> Path:
+        return SessionPaths.result_dir(session_id) / "class_report.pdf"
+
+    @staticmethod
+    def report_fields_path(session_id: str) -> Path:
+        return SessionPaths.result_dir(session_id) / "class_report_fields.json"
+
+    @staticmethod
+    def mindmap_png_path(session_id: str) -> Path:
+        return SessionPaths.result_dir(session_id) / "mindmap_report.png"
