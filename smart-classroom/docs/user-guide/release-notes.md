@@ -1,10 +1,14 @@
 # Release Notes: Smart Classroom
 
-## Deprecation Notice
+## Version 2026.3
 
-- **Browser UI on Windows**: the desktop app is now the default way to run Smart
-  Classroom on Windows, and `start-smart-classroom.ps1` launches it unless `-WebUI` is
-  passed. The browser UI path (`setup-smart-classroom.ps1`,
+**Release Date**: December 7, 2026
+
+**Improved**:
+
+- **Browser UI on Windows**: the desktop application is now the default way to run Smart
+  Classroom on Windows, and `start-smart-classroom.ps1` launches it unless you pass
+  `-WebUI`. The browser UI path (`setup-smart-classroom.ps1`,
   `start-smart-classroom.ps1 -WebUI`, and the Vite UI at <http://localhost:5173>) is
   deprecated and will be removed after release 2027.0.0. See
   [Get Started on Windows](./get-started/get-started-windows.md). The Linux setup is
