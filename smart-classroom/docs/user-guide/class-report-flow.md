@@ -36,6 +36,11 @@ When processing finishes, the report is generated automatically in the backgroun
 field selection, so it is usually ready when you open the panel. The button then reads
 **⚡ Regenerate Report**. Use the steps below to change the fields or generate it again.
 
+> **Linux (Docker) deployment:** the report is not generated automatically. Once processing
+> finishes, open the panel and click **⚡ Generate Report**. Content segmentation runs only for
+> uploaded audio files, so for microphone recordings **Generate** becomes available as soon as the
+> mind map is ready.
+
 ## Step 1: Select Report Fields
 
 The **Report Fields** section lists every data point the report can contain, organized into
@@ -103,6 +108,8 @@ Open the **📥 Download** menu and choose a format:
 - **Word document (`.docx`)** - Always available.
 - **PDF document (`.pdf`)** - Available when LibreOffice is installed on the server. When it is
   missing, the item is disabled with an install hint (`soffice` must be on the `PATH`).
+  The Linux (Docker) app image does not include LibreOffice, so there only the Word document is
+  available.
 
 ![Download Menu](./_assets/report-download.png)
 

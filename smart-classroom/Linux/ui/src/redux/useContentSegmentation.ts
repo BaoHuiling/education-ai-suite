@@ -4,7 +4,6 @@ import {
   startContentSegmentation, 
   contentSegmentationSuccess, 
   contentSegmentationFailed,
-  startReport,
 } from '../redux/slices/uiSlice';
 import { setVideoMetadataProcessed, resetMediaValidation } from '../redux/slices/mediaValidationSlice';
 import { generateContentSegmentation, markVideoUsage, uploadVideoMetadata } from '../services/api';
@@ -164,9 +163,8 @@ export const useContentSegmentation = () => {
         .then(() => {
           console.log('✅ Content segmentation completed');
           dispatch(contentSegmentationSuccess());
-          // Keep report triggering in the same UI orchestration chain as
-          // summary -> mindmap -> content segmentation.
-          dispatch(startReport());
+          // No report auto-start: on Linux the teacher generates the report
+          // from the report panel once processing is done.
         })
         .catch((error) => {
           const errorMsg = error.message || '';

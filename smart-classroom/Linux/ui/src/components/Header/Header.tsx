@@ -77,9 +77,10 @@ interface HeaderBarProps {
   projectName: string;
   setProjectName: (name: string) => void;
   featureGuard: FeatureGuard;
+  onViewReport?: () => void;
 }
 
-const HeaderBar: React.FC<HeaderBarProps> = ({ projectName, featureGuard }) => {
+const HeaderBar: React.FC<HeaderBarProps> = ({ projectName, featureGuard, onViewReport }) => {
   const [showToast, setShowToast] = useState(false);
   const [audioNotification, setAudioNotification] = useState('');
   const [videoNotification, setVideoNotification] = useState('');
@@ -122,6 +123,7 @@ const HeaderBar: React.FC<HeaderBarProps> = ({ projectName, featureGuard }) => {
 
   // Check if video_analytics feature is enabled in backend
   const hasVideoAnalyticsFeature = featureGuard.hasFeature('video_analytics');
+  const hasReportFeature = featureGuard.hasFeature('report');
   
   // Check if audio features are enabled
   const hasAudioFeatures = featureGuard.hasFeature('asr') ||
@@ -883,6 +885,18 @@ const HeaderBar: React.FC<HeaderBarProps> = ({ projectName, featureGuard }) => {
       </div>
 
       <div className="navbar-right">
+        {/* Opens a slide-over about the session this bar reports on, so it sits
+            beside the session info rather than in the navigation menu. */}
+        {hasReportFeature && onViewReport && (
+          <button
+            className="navbar-action-btn"
+            onClick={onViewReport}
+            title={t('reportPanel.title', 'View Report')}
+          >
+            <span className="action-icon">📊</span>
+            <span className="action-label">{t('reportPanel.short', 'Report')}</span>
+          </button>
+        )}
         <ProjectNameDisplay projectName={projectName} />
       </div>
 
