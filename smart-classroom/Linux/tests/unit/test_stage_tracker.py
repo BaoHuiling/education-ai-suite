@@ -30,3 +30,15 @@ def test_failure_writes_failed_event_and_reraises():
     assert args[2] == "failed"
     assert kwargs.get("error_class") == "ValueError"
     assert kwargs.get("error_detail") == "boom"
+
+
+def test_in_band_failure_via_handle_writes_failed_event_without_raising():
+    with patch("utils.stage_tracker.StageEventWriter.write") as mw:
+        with stage_tracker("s1", "report") as stage:
+            stage.fail(RuntimeError("bad template"))
+            stage.fail(ValueError("second error is ignored"))
+    args, kwargs = mw.call_args
+    assert mw.call_count == 1
+    assert args[1:3] == ("report", "failed")
+    assert kwargs.get("error_class") == "RuntimeError"
+    assert kwargs.get("error_detail") == "bad template"

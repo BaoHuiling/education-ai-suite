@@ -69,6 +69,8 @@ _FEATURE_PROFILES: Dict[str, FrozenSet[str]] = {
     "content_search":      frozenset({"text-gen"}),
     "qa":                  frozenset({"text-gen"}),
     "video_analytics":     frozenset({"va"}),
+    # Reads ASR-derived outputs (summary/mindmap/transcript) and calls text_gen.
+    "report":              frozenset({"asr", "text-gen"}),
 }
 
 # Known profile names, for validating/ordering output deterministically.

@@ -13,6 +13,7 @@ features:
   content_search:     { enabled: true }
   video_analytics:    { enabled: true }    
   qa:                 { enabled: true }
+  report:             { enabled: true }
 
 monitoring:
   logs_dir: ./monitoring/logs
@@ -165,6 +166,12 @@ va_pipeline:          # on/off lives in features.video_analytics; these are tuni
     center_dist_threshold: 0.1           # box proximity to treat as the same person (0..1)
     unidentified_max: 50                 # max unidentified students tracked
     stale_unidentified_threshold: 30     # drop an unidentified student after unseen for N frames
+
+report:               # on/off lives in features.report; these are tuning knobs
+  max_keywords: 8
+  max_difficulty_points: 4
+  pacing_slow_max: 260
+  pacing_fast_min: 520
 
 content_search:
   host_addr: "127.0.0.1"

@@ -40,6 +40,7 @@ features:
   video_analytics:    { enabled: true }   # Video analytics
   content_search:     { enabled: true }   # Multimodal search + RAG service (port 9011)
   qa:                 { enabled: true }   # RAG-based Q&A over uploaded materials
+  report:             { enabled: true }   # Class report (DOCX); needs summary, mindmap, topic_segmentation
 ```
 
 ### B. Default Configuration

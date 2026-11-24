@@ -3,6 +3,7 @@ import TopPanel from './components/TopPanel/TopPanel';
 import HeaderBar from './components/Header/Header';
 import Body from './components/common/Body';
 import Footer from './components/Footer/Footer';
+import ReportPanel from './components/ReportPanel';
 import './App.css';
 import './assets/css/HeaderBar.css';
 import MetricsPoller from './components/common/MetricsPoller';
@@ -21,6 +22,7 @@ const App: React.FC = () => {
   const { t } = useTranslation();
   const [projectName, setProjectName] = useState<string>('');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isReportOpen, setIsReportOpen] = useState(false);
   const [backendStatus, setBackendStatus] = useState<'checking' | 'available' | 'unavailable'>('checking');
   const [activeScreen, setActiveScreen] = useState<'main' | 'content-search'>('main');
   useVideoPipelineMonitor();
@@ -161,7 +163,12 @@ const App: React.FC = () => {
         hasMainFeatures={hasMainFeatures}
       />
       <div style={{ display: activeScreen === 'main' ? 'contents' : 'none' }}>
-        <HeaderBar projectName={projectName} setProjectName={setProjectName} featureGuard={guard} />
+        <HeaderBar
+          projectName={projectName}
+          setProjectName={setProjectName}
+          featureGuard={guard}
+          onViewReport={() => setIsReportOpen(true)}
+        />
       </div>
       {activeScreen === 'content-search' && (
         <div className="content-search-subheader">
@@ -172,6 +179,13 @@ const App: React.FC = () => {
         <Body isModalOpen={isSettingsOpen} activeScreen={activeScreen} featureGuard={guard} hasMainFeatures={hasMainFeatures} />
       </div>
       <Footer />
+      {/* Mounted for the app's lifetime (it returns null while closed) so a
+          report keeps streaming in if the teacher closes the panel. */}
+      <ReportPanel
+        isOpen={isReportOpen}
+        onClose={() => setIsReportOpen(false)}
+        featureGuard={guard}
+      />
     </div>
   );
 };

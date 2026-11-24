@@ -239,6 +239,8 @@ Notes:
 Additional PDF notes:
 - Requires `LibreOffice` (`soffice`) installed on the server.
 - Returns `501` when `soffice` is unavailable.
+- The Linux (Docker) app image does not include LibreOffice, so there `pdf_export` is `false` and
+  `format=pdf` returns `501`; DOCX is always available.
 - Reuses cached PDF when it exists and is up-to-date.
 
 ---
