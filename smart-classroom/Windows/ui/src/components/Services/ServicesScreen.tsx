@@ -5,8 +5,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../../assets/css/Services.css';
 import type { ServiceSnapshot } from '../../types/services';
+import { runningDownload } from '../../services/downloadProgress';
 import { revealLogs, useServiceLogs, useServices } from '../../services/serviceManager';
-import LogViewer from './LogViewer';
+import { Banner, Button, DownloadBar, LogViewer, PageHeader, Row, RowList, type StatusState } from '../ui';
 
 const STATUS_LABELS: Record<string, string> = {
   stopped: 'services.status.stopped',
@@ -15,6 +16,16 @@ const STATUS_LABELS: Record<string, string> = {
   degraded: 'services.status.degraded',
   stopping: 'services.status.stopping',
   failed: 'services.status.failed',
+};
+
+// The shared marks for a service's state; stopping counts as in progress.
+const STATE: Record<string, StatusState> = {
+  stopped: 'pending',
+  starting: 'running',
+  healthy: 'ok',
+  degraded: 'warn',
+  stopping: 'running',
+  failed: 'failed',
 };
 
 function formatUptime(ms: number | null): string {
@@ -48,8 +59,14 @@ function buildTree(services: ServiceSnapshot[]): TreeNode[] {
   return nodes;
 }
 
-const ServicesScreen: React.FC = () => {
+interface ServicesScreenProps {
+  /** Setup, where what keeps the backend from starting is fixed. */
+  onOpenSetup?: () => void;
+}
+
+const ServicesScreen: React.FC<ServicesScreenProps> = ({ onOpenSetup }) => {
   const { t } = useTranslation();
+  const openSetup = onOpenSetup && <Button onClick={onOpenSetup}>{t('services.openSetup', 'Open Setup')}</Button>;
   const { services, error, busyId, start, stop, restart } = useServices();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Held here rather than inside LogViewer, which is now shared with Setup.
@@ -79,94 +96,95 @@ const ServicesScreen: React.FC = () => {
     return (
       <div className="services-actions" key={service.id}>
         {controllable.length > 1 && <span className="services-actions-label">{service.label}</span>}
-        <button className="services-btn" disabled={busy || running || !service.runnable || blocked} onClick={() => start(service.id)}>
+        <Button disabled={busy || running || !service.runnable || blocked} onClick={() => start(service.id)}>
           {t('services.start', 'Start')}
-        </button>
-        <button className="services-btn" disabled={busy || !running} onClick={() => stop(service.id)}>
+        </Button>
+        <Button disabled={busy || !running} onClick={() => stop(service.id)}>
           {t('services.stop', 'Stop')}
-        </button>
-        <button
-          className="services-btn"
-          disabled={busy || service.external || !service.runnable || blocked}
-          onClick={() => restart(service.id)}
-        >
+        </Button>
+        <Button disabled={busy || service.external || !service.runnable || blocked} onClick={() => restart(service.id)}>
           {t('services.restart', 'Restart')}
-        </button>
+        </Button>
       </div>
     );
   };
 
   return (
     <div className="services-screen">
-      <div className="services-header">
-        <div className="services-heading">
-          <h3 className="services-title">{t('services.title', 'Services')}</h3>
-          <span className="services-subtitle">
-            {t('services.subtitle', 'Start, stop and inspect the backend processes.')}
-          </span>
-        </div>
-        {controllable.map(renderControls)}
-      </div>
+      <PageHeader
+        title={t('services.title', 'Services')}
+        subtitle={t('services.subtitle', 'Start, stop and inspect the backend processes.')}
+        actions={controllable.map(renderControls)}
+      />
 
-      {error && <div className="services-error">{error}</div>}
+      {error && <Banner tone="error">{error}</Banner>}
 
       {/* Setup first: an environment being created is "not runnable" until
           its interpreter exists, and "missing" would tell the user to create
           what is already being created. */}
       {controllable.some((service) => service.startBlockedBy === 'setup') ? (
-        <div className="services-banner">
-          {t(
-            'services.setupRunning',
-            'Setup is preparing the Python environment. Start the backend when it finishes; progress is on the Setup screen.'
-          )}
-        </div>
-      ) : controllable.some((service) => !service.runnable) && (
-        <div className="services-banner">
-          {t(
-            'services.needsSetup',
-            'The Python environment is missing. Create it on the Setup screen before starting the backend.'
-          )}
-        </div>
+        <Banner actions={openSetup}>
+          {t('services.setupRunning', 'Setup is preparing the Python environment. Start the backend when it finishes.')}
+        </Banner>
+      ) : (
+        controllable.some((service) => !service.runnable) && (
+          <Banner actions={openSetup}>
+            {t('services.needsSetup', 'The Python environment is missing, so the backend cannot start yet.')}
+          </Banner>
+        )
       )}
 
       <div className="services-split">
         <div className="services-pane">
           <div className="services-list">
-            {tree.map(({ service, depth }) => (
-              <div
-                key={service.id}
-                className={`services-row${selectedId === service.id ? ' selected' : ''}`}
-                onClick={() => setSelectedId(service.id)}
-              >
-                <div className="services-row-top" style={{ paddingLeft: depth * 14 }}>
-                  {depth > 0 && <span className="services-tree-branch">└</span>}
-                  <span className={`services-dot status-${service.status}`} />
-                  <span className="services-row-name">{service.label}</span>
-                  {service.external && <span className="services-badge">{t('services.external', 'external')}</span>}
-                  <span className="services-row-status">
-                    {t(STATUS_LABELS[service.status] ?? service.status, service.status)}
-                  </span>
-                </div>
-                <div className="services-row-meta" style={{ paddingLeft: depth * 14 }}>
-                  {[
-                    service.port ? `:${service.port}` : null,
-                    service.pid ? `pid ${service.pid}` : null,
-                    service.uptimeMs ? formatUptime(service.uptimeMs) : null,
-                  ]
-                    .filter(Boolean)
-                    .join('  ·  ') || '—'}
-                </div>
-              </div>
-            ))}
+            <RowList label={t('services.title', 'Services')}>
+              {tree.map(({ service, depth }) => {
+                const download = runningDownload(service.download);
+                return (
+                  <Row
+                    key={service.id}
+                    state={STATE[service.status] ?? 'pending'}
+                    title={
+                      <span style={{ paddingLeft: depth * 14 }}>
+                        {depth > 0 && <span className="services-tree-branch">└ </span>}
+                        {service.label}
+                      </span>
+                    }
+                    badge={service.external ? t('services.external', 'external') : undefined}
+                    meta={t(STATUS_LABELS[service.status] ?? service.status, service.status)}
+                    detail={
+                      <>
+                        <span className="services-row-meta" style={{ paddingLeft: depth * 14 }}>
+                          {[
+                            service.port ? `:${service.port}` : null,
+                            service.pid ? `pid ${service.pid}` : null,
+                            service.uptimeMs ? formatUptime(service.uptimeMs) : null,
+                          ]
+                            .filter(Boolean)
+                            .join('  ·  ') || '—'}
+                        </span>
+                        {download && (
+                          <div style={{ paddingLeft: depth * 14 }}>
+                            <DownloadBar progress={download} named />
+                          </div>
+                        )}
+                      </>
+                    }
+                    selected={selectedId === service.id}
+                    onSelect={() => setSelectedId(service.id)}
+                  />
+                );
+              })}
+            </RowList>
           </div>
 
           {visible.some((service) => service.error) && (
-            <div className="services-error">
+            <Banner tone="error">
               {visible
                 .filter((service) => service.error)
                 .map((service) => `${service.label}: ${service.error}`)
                 .join(' · ')}
-            </div>
+            </Banner>
           )}
 
           {disabled.length > 0 && (

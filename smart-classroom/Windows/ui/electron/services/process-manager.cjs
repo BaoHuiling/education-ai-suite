@@ -16,6 +16,7 @@ const registry = require('./registry.cjs');
 const config = require('./config-store.cjs');
 const paths = require('./paths.cjs');
 const proc = require('./win-proc.cjs');
+const { PROGRESS_ENV, isProgressLine, parseProgressLine } = require('./download-progress.cjs');
 
 const HEALTH_INTERVAL_MS = 2000;
 const HEALTH_TIMEOUT_MS = 3000;
@@ -77,7 +78,11 @@ class ServiceManager extends EventEmitter {
     super();
     this.logs = logs;
     this.logs.setRoute(registry.routeLogLine);
+    this.logs.setTap((id, text) => this.takeProgress(id, text));
     this.children = new Map(); // id -> ChildProcess
+    // id -> the latest model download progress the service reported, until it
+    // starts again, exits or stops (download-progress.cjs).
+    this.downloads = new Map();
     this.state = new Map();
     this.timer = null;
     this.ticking = false;
@@ -137,8 +142,37 @@ class ServiceManager extends EventEmitter {
         exitCode: state.exitCode,
         error: state.error,
         logFile: this.logs.logFile(service.id),
+        download: this.downloads.get(service.id) ?? null,
       };
     });
+  }
+
+  /**
+   * A line of a service's output that reports download progress: kept on the
+   * service for the screens and taken out of the log. Others go on to the log.
+   */
+  takeProgress(id, text) {
+    if (!isProgressLine(text)) return false;
+    const progress = parseProgressLine(text);
+    if (progress && this.state.has(id)) {
+      this.downloads.set(id, progress);
+      this.emitChanged();
+    }
+    return true;
+  }
+
+  /**
+   * Forget the download progress of `id` and of the services it runs, whose
+   * output comes through it: a download they were in ends with them.
+   */
+  clearDownloads(id) {
+    const ids = [id];
+    for (let index = 0; index < ids.length; index += 1) {
+      for (const service of registry.SERVICES) {
+        if (service.ownedBy === ids[index]) ids.push(service.id);
+      }
+    }
+    for (const each of ids) this.downloads.delete(each);
   }
 
   emitChanged() {
@@ -296,6 +330,8 @@ class ServiceManager extends EventEmitter {
         // Lets content_search accept /ingest-path (real file paths from the
         // desktop UI). Browser launches never set it, so the endpoint stays off.
         CS_ENABLE_PATH_INGEST: '1',
+        // Model downloads report byte-level progress, kept on the snapshot.
+        ...PROGRESS_ENV,
         PYTHONUNBUFFERED: '1',
         PYTHONIOENCODING: 'utf-8',
       },
@@ -306,6 +342,7 @@ class ServiceManager extends EventEmitter {
     });
 
     this.children.set(id, child);
+    this.clearDownloads(id);
     this.setStatus(id, STATUS.STARTING, {
       pid: child.pid,
       external: false,
@@ -331,6 +368,7 @@ class ServiceManager extends EventEmitter {
       const state = this.state.get(id);
       this.logs.note(id, `Process exited (code ${code}, signal ${signal ?? 'none'})`);
       this.logs.closeSink(id);
+      this.clearDownloads(id);
       if (state.status === STATUS.STOPPING) return;
       this.setStatus(id, STATUS.FAILED, {
         pid: null,
@@ -382,6 +420,7 @@ class ServiceManager extends EventEmitter {
       throw new Error(error);
     }
 
+    this.clearDownloads(id);
     this.setStatus(id, STATUS.STOPPED, { pid: null, external: false, startedAt: null, error: null, strikes: 0 });
     this.emitChanged();
     return { stopped: true, ports };

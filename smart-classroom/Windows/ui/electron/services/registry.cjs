@@ -164,6 +164,9 @@ function describe(service) {
 
 module.exports = {
   SERVICES,
+  // Also decides which setup steps apply, so a prerequisite follows the same
+  // rule as the services it serves.
+  effectivelyEnabled,
   get,
   ownedPorts,
   describe,

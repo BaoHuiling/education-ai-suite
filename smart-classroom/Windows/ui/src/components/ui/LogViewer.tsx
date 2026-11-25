@@ -4,6 +4,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { LogLine } from '../../types/services';
+import Button from './Button';
 
 // Presentational on purpose: the Services screen feeds it one service's log and
 // the Setup screen feeds it the setup log, so filter/follow/clear/open-folder
@@ -32,39 +33,39 @@ const LogViewer: React.FC<LogViewerProps> = ({ lines, title, onClear, onReveal }
   }, [visible, follow]);
 
   return (
-    <div className="services-logs">
-      <div className="services-logs-header">
-        <span className="services-logs-title">
+    <div className="ui-log">
+      <div className="ui-log-header">
+        <span className="ui-log-title">
           {t('services.logs.title', 'Logs')}
           {title ? ` — ${title}` : ''}
         </span>
         <input
-          className="services-logs-filter"
+          className="ui-log-filter"
           value={filter}
           placeholder={t('services.logs.filter', 'Filter…')}
           onChange={(event) => setFilter(event.target.value)}
         />
-        <label className="services-logs-follow">
+        <label className="ui-log-follow">
           <input type="checkbox" checked={follow} onChange={(event) => setFollow(event.target.checked)} />
           {t('services.logs.follow', 'Follow')}
         </label>
-        <button className="services-btn" onClick={onClear} disabled={!onClear}>
+        <Button onClick={onClear} disabled={!onClear}>
           {t('services.logs.clear', 'Clear')}
-        </button>
+        </Button>
         {onReveal && (
-          <button className="services-btn" onClick={onReveal}>
+          <Button onClick={onReveal}>
             {t('services.logs.openFolder', 'Open folder')}
-          </button>
+          </Button>
         )}
       </div>
-      <div className="services-logs-body" ref={bodyRef}>
+      <div className="ui-log-body" ref={bodyRef}>
         {visible.length === 0 ? (
-          <div className="services-logs-empty">{t('services.logs.empty', 'No output captured yet.')}</div>
+          <div className="ui-log-empty">{t('services.logs.empty', 'No output captured yet.')}</div>
         ) : (
           visible.map((line) => (
-            <div key={line.seq} className={`services-log-line stream-${line.stream}`}>
-              <span className="services-log-time">{new Date(line.ts).toLocaleTimeString()}</span>
-              <span className="services-log-text">{line.text}</span>
+            <div key={line.seq} className={`ui-log-line stream-${line.stream}`}>
+              <span className="ui-log-time">{new Date(line.ts).toLocaleTimeString()}</span>
+              <span className="ui-log-text">{line.text}</span>
             </div>
           ))
         )}

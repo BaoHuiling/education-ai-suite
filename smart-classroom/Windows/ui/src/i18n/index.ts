@@ -10,7 +10,9 @@ i18n
       en: { translation: en },
       zh: { translation: zh }
     },
-    lng: 'en',
+    // Electron says which: the last choice, else the Windows display language.
+    // The plain web app keeps English.
+    lng: window.electronAPI?.initialLanguage ?? 'en',
     fallbackLng: 'en',
     interpolation: { escapeValue: false }
   });

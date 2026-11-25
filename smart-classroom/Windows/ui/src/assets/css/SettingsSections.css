@@ -1,0 +1,95 @@
+/* SPDX-FileCopyrightText: (C) 2026 Intel Corporation */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+/* The shared settings sections (src/components/setup): the feature picker and
+   the proxy settings. Built on the kit's colours (ui.css). */
+
+/* --- feature picker --- */
+
+/* One section per group, divided by a rule: a heading row whose checkbox
+   turns the whole group on or off, then its settings, always shown. */
+.feature-picker {
+  display: flex;
+  flex-direction: column;
+}
+
+.feature-group {
+  padding: 16px 0;
+  border-top: 1px solid var(--sc-border);
+}
+
+.feature-group:first-child {
+  padding-top: 0;
+  border-top: none;
+}
+
+.feature-group:last-child {
+  padding-bottom: 0;
+}
+
+.feature-group-head {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.feature-group-head input {
+  width: 16px;
+  height: 16px;
+  margin: 1px 0 0;
+}
+
+.feature-group-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.feature-group-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-gray-900);
+}
+
+.feature-group-detail,
+.feature-group-count {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--color-gray-700);
+}
+
+.feature-group-count {
+  color: var(--color-theme);
+}
+
+/* Under the title, clear of the checkbox. */
+.feature-group-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-left: 28px;
+}
+
+/* --- proxy settings --- */
+
+.proxy-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.proxy-settings > .ui-note {
+  margin: 0;
+}
+
+.proxy-test {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}

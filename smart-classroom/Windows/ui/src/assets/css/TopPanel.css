@@ -124,6 +124,7 @@ body.electron .top-panel select {
 }
 
 .nav-menu-toggle {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -140,6 +141,32 @@ body.electron .top-panel select {
 .nav-menu-toggle:hover {
   background: rgba(255, 255, 255, 0.2);
   border-color: rgba(255, 255, 255, 0.5);
+}
+
+/* Something on the Setup screen needs fixing: a dot on the closed menu, the
+   count on its Setup entry. */
+.nav-menu-dot {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--color-theme, #0071c5);
+  border-radius: 50%;
+  background: var(--sc-failed, #d9534f);
+}
+
+.nav-menu-badge {
+  margin-left: auto;
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: var(--sc-failed, #d9534f);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 20px;
+  text-align: center;
 }
 
 .hamburger-icon {

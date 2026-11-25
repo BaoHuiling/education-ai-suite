@@ -1,0 +1,181 @@
+/* SPDX-FileCopyrightText: (C) 2026 Intel Corporation */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+/* The setup assistant's own layout: the window's title bar, and the rail
+   beside the pages. Everything on the pages comes from the shared kit
+   (ui.css) and the shared sections (SettingsSections.css). */
+
+/* The first run takes the whole window. */
+.assistant {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-width: 0;
+  background: #f5f7fa;
+  font-family: var(--font-text);
+  color: var(--color-dark);
+}
+
+/* --- first-run title bar --- */
+
+.assistant-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-shrink: 0;
+  height: 64px;
+  padding: 0 2rem;
+  box-sizing: border-box;
+  background: var(--color-theme);
+  color: var(--color-light);
+  font-family: var(--font-display);
+}
+
+/* The native window controls are painted over the right of this bar. */
+body.electron .assistant-header {
+  -webkit-app-region: drag;
+  padding-right: calc(2rem + (100vw - env(titlebar-area-width, 100vw)));
+}
+
+body.electron .assistant-header select,
+body.electron .assistant-header button {
+  -webkit-app-region: no-drag;
+}
+
+.assistant-logo {
+  height: 28px;
+}
+
+.assistant-title {
+  font-size: 18px;
+}
+
+.assistant-header-actions {
+  margin-left: auto;
+}
+
+/* --- rail and pages --- */
+
+.assistant-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.assistant-rail {
+  flex-shrink: 0;
+  width: 210px;
+  padding: 20px 0 20px 16px;
+  box-sizing: border-box;
+  border-right: 1px solid var(--sc-border);
+  background: #fff;
+}
+
+.assistant-rail ol {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.assistant-rail-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  font-size: 13px;
+  color: var(--color-gray-700);
+}
+
+.assistant-rail-item.current {
+  color: var(--color-theme);
+  font-weight: 600;
+}
+
+.assistant-rail-item.complete {
+  color: var(--color-gray-900);
+}
+
+.assistant-rail-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border: 2px solid #c5ccd3;
+  border-radius: 50%;
+  box-sizing: border-box;
+  font-size: 10px;
+  color: #fff;
+}
+
+.assistant-rail-item.current .assistant-rail-mark {
+  border-color: var(--color-theme);
+  background: var(--color-theme);
+}
+
+.assistant-rail-item.complete .assistant-rail-mark {
+  border-color: var(--sc-ok);
+  background: var(--sc-ok);
+}
+
+.assistant-main {
+  flex: 1;
+  min-width: 0;
+  padding: 20px 28px 32px;
+  overflow: auto;
+}
+
+.assistant-page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 820px;
+}
+
+/* --- page parts --- */
+
+.assistant-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.assistant-actions-end {
+  margin-left: auto;
+}
+
+.assistant-countdown {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.assistant-countdown progress {
+  flex: 1;
+  min-width: 80px;
+  height: 6px;
+  accent-color: var(--color-theme);
+}
+
+.assistant-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.assistant-radios {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.assistant-log {
+  height: 280px;
+}

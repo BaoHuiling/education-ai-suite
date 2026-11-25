@@ -1,326 +1,365 @@
 // SPDX-FileCopyrightText: (C) 2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+// What is not working on this PC, and one button that fixes it; when nothing
+// is, that said in the middle of the screen. Below it, closed until asked for,
+// every check with its own actions, and the setup output.
+
+import React, { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../../assets/css/Setup.css';
-// The log pane is shared with the Services screen, and its classes live there.
-import '../../assets/css/Services.css';
-import { SETUP_ERROR, type SetupStep } from '../../types/setup';
-import { copyText, revealSetupLogs, useSetup, useSetupLogs } from '../../services/setupManager';
+import type { ConfigProblem } from '../../types/config';
+import { SETUP_ERROR, type AutomaticRunResult, type SetupStep } from '../../types/setup';
+import { fieldLabel } from '../../i18n/settingsText';
+import { NO_CHANGES, useConfig, useConfigProblems } from '../../services/configManager';
+import { runningDownload } from '../../services/downloadProgress';
+import { toMessage } from '../../services/ipcResult';
+import { fixable, listedSteps, ownRepair, rowState, runError, willRun, type RowState } from '../../services/problemList';
 import { useServices } from '../../services/serviceManager';
-import LogViewer from '../Services/LogViewer';
+import { classifyFailure, isNetworkCause } from '../../services/setupFailure';
+import { copyText, revealSetupLogs, runAutomaticSetup, useSetup, useSetupLogs } from '../../services/setupManager';
+import { blockedBy, iconOf, isActing, isRunning } from '../../services/setupStatus';
+import { formatElapsed, useNow, useStartTimes } from '../../hooks/useNow';
+import SetupStepList from '../setup/SetupStepList';
+import { useFailureText } from '../setup/failureText';
+import { Banner, Button, DownloadBar, LogViewer, PageHeader, Row, RowList, type StatusState } from '../ui';
 
-const STATUS_LABELS: Record<string, string> = {
-  unknown: 'setup.status.unknown',
-  ok: 'setup.status.ok',
-  warn: 'setup.status.warn',
-  outdated: 'setup.status.outdated',
-  missing: 'setup.status.missing',
-  running: 'setup.status.running',
-  failed: 'setup.status.failed',
-};
+const MARK: Partial<Record<RowState, StatusState>> = { waiting: 'pending', fixing: 'running', fixed: 'ok' };
 
-/** Statuses that stand between the machine and being ready to run. */
-const NEEDS_WORK = ['missing', 'failed', 'outdated'];
-
-/**
- * The action a bulk "fix" run would use. The step names it — only the check
- * knows which action addresses what it found — and a destructive one is dropped,
- * because deleting an environment must stay a deliberate click with its own
- * confirmation rather than one item in a queue.
- */
-const repairAction = (step: SetupStep) =>
-  step.repair ? step.actions.find((action) => action.id === step.repair && !action.destructive) : undefined;
+/** Where the proxy settings are: Configuration opens their group at this field. */
+const PROXY_FIELD = 'httpsProxy';
 
 interface SetupScreenProps {
-  /** Where to hand over once there is nothing left to fix. */
-  onOpenScreen?: (screen: 'services' | 'ready') => void;
-  /** Step to scroll to and flag on arrival, when opened from Get started. */
-  focusStepId?: string | null;
+  /** Services, to watch the backend; Configuration, at one setting. */
+  onOpenScreen?: (screen: 'services' | 'config', target?: string) => void;
 }
 
-const SetupScreen: React.FC<SetupScreenProps> = ({ onOpenScreen, focusStepId }) => {
+const SetupScreen: React.FC<SetupScreenProps> = ({ onOpenScreen }) => {
   const { t } = useTranslation();
-  const { sections, steps, error, errorCode, busyId, checking, check, run, cancel } = useSetup();
+  const failureText = useFailureText();
+  const { sections, steps, error, errorCode, busyId, checking, check, run, cancel, clearError } = useSetup();
   const { services, start } = useServices();
   const { lines, clear: clearLogs } = useSetupLogs();
-  const [runningAll, setRunningAll] = useState(false);
+  const { description } = useConfig();
+  // The saved settings, without pending edits: this is about what runs.
+  const { messages: settingProblems } = useConfigProblems(NO_CHANGES, description);
+
+  // The Fix run this screen started: its queue while it runs, then what failed.
+  const [queue, setQueue] = useState<string[] | null>(null);
+  const [failed, setFailed] = useState<AutomaticRunResult['failed']>([]);
+  const [fixError, setFixError] = useState('');
+  const [showChecks, setShowChecks] = useState(false);
+  const [showOutput, setShowOutput] = useState(false);
   const [copied, setCopied] = useState(false);
-  const stepRefs = useRef<Record<string, HTMLDivElement | null>>({});
-  const consumedFocus = useRef<string | null>(null);
-  const [flashed, setFlashed] = useState<string | null>(null);
-
-  // Fourteen rows is enough to have to hunt for the one Get started meant.
-  // steps.length is a dependency because the rows may not exist yet on arrival.
-  useEffect(() => {
-    if (!focusStepId || consumedFocus.current === focusStepId) return;
-    const node = stepRefs.current[focusStepId];
-    if (!node) return;
-    consumedFocus.current = focusStepId;
-
-    node.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    setFlashed(focusStepId);
-    const timer = setTimeout(() => setFlashed(null), 2200);
-    return () => clearTimeout(timer);
-  }, [focusStepId, steps.length]);
-
-  const pending = useMemo(
-    () => steps.map((step) => ({ step, action: repairAction(step) })).filter((entry) => entry.action),
-    [steps]
-  );
-  const grouped = useMemo(
-    () =>
-      sections
-        .map((section) => ({ section, items: steps.filter((step) => step.section === section.id) }))
-        .filter((entry) => entry.items.length > 0),
-    [sections, steps]
-  );
-  // A running step counts even when this screen did not start it: the main
-  // process runs setup on its own at launch, and a click into that would only
-  // fail with "another step is already running".
-  const busy = !!busyId || runningAll || steps.some((step) => step.status === 'running');
-
-  // "Nothing left to fix", not "a run finished": a fully prepared machine gets
-  // the same confirmation the first time it opens this screen.
-  //
-  // Measured against what still needs work rather than against `pending`, which
-  // counts only what the Fix button can run. An outdated environment whose one
-  // cure is Recreate is not in `pending`, and settling over it is exactly the
-  // "nothing left to fix" beside a live button that this split is here to end.
-  const checked = steps.some((step) => step.status !== 'unknown');
-  const working = busy || checking || steps.some((step) => step.status === 'running');
-  const needsWork = useMemo(() => steps.filter((step) => NEEDS_WORK.includes(step.status)), [steps]);
-  const settled = checked && !working && !needsWork.length;
-
-  // Rows that need work but that the Fix button will not touch, because their
-  // repair is destructive. Named in the banner so the one click they do need is
-  // not left to be discovered.
-  const manual = useMemo(() => needsWork.filter((step) => !repairAction(step)), [needsWork]);
-
-  // Advisory only, now that anything actionable is `outdated`: no NPU, too
-  // little memory, a driver this app cannot update. Worth showing, never worth
-  // counting, and not a reason to withhold "everything is ready".
-  const warnings = steps.filter((step) => step.status === 'warn');
-
-  // Steps that cannot run yet because something they need is not OK. Without
-  // this the buttons are live and fail with "Create the Python environment
-  // first" only after being clicked.
-  //
-  // Neither a warning nor an outdated row is one of those things. Both mean the
-  // step below works but is not ideal.
-  const blockedBy = useMemo(() => {
-    const byId = new Map(steps.map((step) => [step.id, step]));
-    const map: Record<string, string[]> = {};
-    for (const step of steps) {
-      const unmet = step.requires
-        .map((id) => byId.get(id))
-        .filter(
-          (required): required is SetupStep =>
-            !!required && !['ok', 'warn', 'outdated'].includes(required.status)
-        )
-        .map((required) => required.label);
-      if (unmet.length) map[step.id] = unmet;
-    }
-    return map;
-  }, [steps]);
-
-  const diagnostics = () => {
-    const rows = steps.map(
-      (step) => `${step.status.padEnd(8)} ${step.label}${step.optional ? ' (optional)' : ''}\n           ${step.detail}`
-    );
-    return [
-      `Smart Classroom setup — ${new Date().toISOString()}`,
-      `${navigator.userAgent}`,
-      '',
-      ...rows,
-    ].join('\n');
-  };
 
   const backend = services.find((service) => service.id === 'backend');
-  const backendHealthy = backend?.status === 'healthy';
-  const backendStartable =
-    !!backend?.runnable && (backend.status === 'stopped' || backend.status === 'failed');
+  // Setup at work, whoever started it: a row's action, Fix, or the repair the
+  // app makes by itself at launch. Between two steps of a run no step is
+  // acting, but the services still cannot start, which says it is not over.
+  const working = !!busyId || !!queue || steps.some(isActing) || services.some((service) => service.startBlockedBy === 'setup');
+  // A whole run, as opposed to one row's action.
+  const autoRun = working && !busyId;
 
-  // Sequential on purpose: later steps depend on earlier ones (the environment
-  // must exist before packages install into it).
-  const runAll = async () => {
-    setRunningAll(true);
+  // Cancel is disabled once clicked, until the work ends: an administrator
+  // task under way cannot be stopped and runs to its end first, which can
+  // take minutes (cancel() in setup-runner.cjs).
+  const [cancelling, setCancelling] = useState(false);
+  if (cancelling && !working) setCancelling(false);
+  const requestCancel = () => {
+    setCancelling(true);
+    cancel().catch(() => setCancelling(false));
+  };
+  // A check this screen did not start, such as the one at launch.
+  const checkingNow = checking || (!working && steps.some(isRunning));
+  const checked = steps.some((step) => step.status !== 'unknown');
+
+  // Sticky across checks and runs (see listedSteps). Adjusted while rendering
+  // rather than in an effect, so no frame shows an empty list, which would
+  // read as "nothing needs fixing".
+  const [listed, setListed] = useState({ steps: [] as SetupStep[], hold: false, ids: [] as string[] });
+  if (listed.steps !== steps || listed.hold !== autoRun) {
+    setListed({ steps, hold: autoRun, ids: listedSteps(steps, listed.ids, autoRun) });
+  }
+  const rows = useMemo(
+    () => listed.ids.map((id) => steps.find((step) => step.id === id)).filter((step): step is SetupStep => !!step),
+    [listed.ids, steps]
+  );
+
+  const fixes = steps.filter(fixable);
+  const blocked = blockedBy(steps);
+  const outstanding = rows.filter((step) => rowState(step, false) !== 'fixed').length + settingProblems.length;
+  const clear = checked && !working && !checkingNow && !outstanding;
+
+  const runningId = rows.find(isActing)?.id ?? null;
+  const startedAt = useStartTimes(runningId);
+  const now = useNow(!!runningId, 1000);
+  const lastLine = lines.length ? lines[lines.length - 1].text : '';
+  const tail = useMemo(() => lines.slice(-80).map((line) => line.text), [lines]);
+
+  const fix = async () => {
+    setQueue(fixes.map((step) => step.id));
+    setFailed([]);
+    setFixError('');
+    clearError();
     try {
-      for (const { step, action } of pending) {
-        if (!(await run(step.id, action!.id))) break;
-      }
+      // Administrator tasks included: someone is here to approve them.
+      setFailed((await runAutomaticSetup(true)).failed);
+    } catch (e) {
+      setFixError(toMessage(e));
     } finally {
-      setRunningAll(false);
+      setQueue(null);
     }
   };
+
+  const diagnostics = () => {
+    const report = steps.map(
+      (step) => `${step.status.padEnd(8)} ${step.label}${step.optional ? ' (optional)' : ''}\n           ${step.detail}`
+    );
+    return [`Smart Classroom setup — ${new Date().toISOString()}`, `${navigator.userAgent}`, '', ...report].join('\n');
+  };
+
+  // Nothing to fix says so itself, in the middle of the screen.
+  const subtitle = !checked || (checkingNow && !rows.length)
+    ? t('setup.summary.checking', 'Checking this PC…')
+    : autoRun
+      ? t('setup.summary.fixing', 'Fixing what is missing. This can take a while.')
+      : outstanding
+        ? t('setup.summary.problems', '{{count}} thing needs fixing.', { count: outstanding })
+        : undefined;
+
+  const stepRow = (step: SetupStep) => {
+    const state = rowState(step, autoRun && willRun(step, queue));
+    const ranInto = state === 'problem' ? runError(step, failed) : null;
+    const cause = ranInto ? classifyFailure([ranInto, ...tail]) : null;
+    const repair = state === 'problem' ? ownRepair(step) : undefined;
+    // A model download shows how far it is; anything else its last line.
+    const download = runningDownload(step.progress);
+    const meta =
+      state === 'fixing'
+        ? startedAt[step.id] && formatElapsed(now - startedAt[step.id])
+        : state === 'waiting'
+          ? t('setup.row.waiting', 'Waiting')
+          : state === 'fixed'
+            ? t('setup.row.fixed', 'Fixed')
+            : state === 'checking'
+              ? t('setup.checking', 'Checking…')
+              : null;
+
+    return (
+      <Row
+        key={step.id}
+        state={MARK[state] ?? iconOf(step)}
+        title={step.label}
+        badge={
+          step.repairKind === 'elevated' && state !== 'fixed'
+            ? t('setup.needsAdmin', 'needs administrator')
+            : step.optional
+              ? t('setup.optional', 'optional')
+              : undefined
+        }
+        meta={meta}
+        detail={
+          <>
+            {step.detail && step.detail !== ranInto && <span>{step.detail}</span>}
+            {cause && <span className="ui-row-cause">{failureText(cause)}</span>}
+            {ranInto && <span className="ui-mono">{ranInto}</span>}
+            {state === 'fixing' &&
+              (download ? <DownloadBar progress={download} named /> : lastLine && <span className="ui-row-line">{lastLine}</span>)}
+            {(state === 'problem' || state === 'waiting') && blocked[step.id] && (
+              <span className="ui-row-blocked">
+                {t('setup.blockedBy', 'Needs {{items}} first.', { items: blocked[step.id].join(', ') })}
+              </span>
+            )}
+          </>
+        }
+        actions={
+          state === 'problem' && (repair || cause) ? (
+            <>
+              {cause && isNetworkCause(cause) && (
+                <Button onClick={() => onOpenScreen?.('config', PROXY_FIELD)}>{t('setup.proxySettings', 'Proxy settings')}</Button>
+              )}
+              {cause === 'backendRunning' && (
+                <Button onClick={() => onOpenScreen?.('services')}>{t('setup.openServices', 'Open Services')}</Button>
+              )}
+              {repair && (
+                <Button
+                  variant={repair.destructive ? 'danger' : 'secondary'}
+                  disabled={working || checkingNow || !!blocked[step.id]}
+                  onClick={() => void run(step.id, repair.id)}
+                >
+                  {repair.label}
+                </Button>
+              )}
+            </>
+          ) : undefined
+        }
+      />
+    );
+  };
+
+  const settingRow = (problem: ConfigProblem) => {
+    const field = description?.fields.find((entry) => entry.file === problem.file && entry.path === problem.path);
+    return (
+      <Row
+        key={problem.rule}
+        state="warn"
+        title={field ? fieldLabel(t, field) : problem.summary}
+        detail={<span>{problem.message}</span>}
+        actions={<Button onClick={() => onOpenScreen?.('config', problem.path)}>{t('config.showSetting', 'Show setting')}</Button>}
+      />
+    );
+  };
+
+  const backendStartable = !!backend?.runnable && (backend.status === 'stopped' || backend.status === 'failed');
+  const healthy = backend?.status === 'healthy';
+
+  const more = (
+    <div className="setup-more">
+      <Button variant="link" aria-expanded={showOutput} onClick={() => setShowOutput((open) => !open)}>
+        {showOutput ? t('setup.hideOutput', 'Hide output') : t('setup.showOutput', 'Show output')}
+      </Button>
+      <Button variant="link" aria-expanded={showChecks} onClick={() => setShowChecks((open) => !open)}>
+        {showChecks ? t('setup.hideChecks', 'Hide all checks') : t('setup.showChecks', 'All checks ({{count}})', { count: steps.length })}
+      </Button>
+    </div>
+  );
 
   return (
     <div className="setup-screen">
-      <div className="setup-header">
-        <div className="setup-heading">
-          <h3 className="setup-title">{t('setup.title', 'Setup')}</h3>
-          <span className="setup-subtitle">
-            {t('setup.subtitle', 'Check prerequisites and prepare the Python environment and models.')}
-          </span>
-        </div>
-        <div className="setup-actions">
-          <button className="setup-btn" disabled={busy || checking} onClick={check}>
-            {checking ? t('setup.checking', 'Checking…') : t('setup.recheck', 'Re-check')}
-          </button>
-          <button
-            className="setup-btn"
-            disabled={!checked}
-            onClick={async () => {
-              await copyText(diagnostics()).catch(() => undefined);
-              setCopied(true);
-              setTimeout(() => setCopied(false), 1800);
-            }}
+      {/* Centred in the screen while nothing below it is open. */}
+      <div className={`setup-body${clear && !showOutput && !showChecks ? ' centered' : ''}`}>
+        <PageHeader
+          title={t('setup.title', 'Setup')}
+          subtitle={subtitle}
+          actions={
+            <>
+              <Button disabled={working || checkingNow} onClick={check}>
+                {checkingNow ? t('setup.checking', 'Checking…') : t('setup.recheck', 'Re-check')}
+              </Button>
+              {working ? (
+                <Button disabled={cancelling} onClick={requestCancel}>
+                  {cancelling ? t('setup.cancelling', 'Cancelling…') : t('setup.cancel', 'Cancel')}
+                </Button>
+              ) : (
+                fixes.length > 0 && (
+                  <Button variant="primary" disabled={checkingNow} onClick={() => void fix()}>
+                    {t('setup.runAll', 'Fix {{count}} item', { count: fixes.length })}
+                  </Button>
+                )
+              )}
+            </>
+          }
+        />
+
+        {(error || fixError) && (
+          <Banner
+            tone="error"
+            actions={
+              errorCode === SETUP_ERROR.BACKEND_RUNNING && (
+                <Button onClick={() => onOpenScreen?.('services')}>{t('setup.openServices', 'Open Services')}</Button>
+              )
+            }
           >
-            {copied ? t('setup.copied', 'Copied') : t('setup.copyDiagnostics', 'Copy diagnostics')}
-          </button>
-          {busy ? (
-            <button className="setup-btn" onClick={() => cancel().catch(() => undefined)}>
-              {t('setup.cancel', 'Cancel')}
-            </button>
-          ) : (
-            <button className="setup-btn setup-btn-primary" disabled={!pending.length} onClick={runAll}>
-              {t('setup.runAll', 'Fix {{count}} item', { count: pending.length })}
-            </button>
-          )}
-        </div>
-      </div>
+            {error || fixError}
+          </Banner>
+        )}
 
-      {error && (
-        <div className="setup-error">
-          <span>{error}</span>
-          {errorCode === SETUP_ERROR.BACKEND_RUNNING && onOpenScreen && (
-            <button className="setup-btn" onClick={() => onOpenScreen('services')}>
-              {t('setup.openServices', 'Open Services')}
-            </button>
-          )}
-        </div>
-      )}
+        {clear ? (
+          <div className="setup-ready" role="status">
+            <span className="setup-ready-mark" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="40" height="40">
+                <path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </span>
+            <h4 className="setup-ready-title">
+              {healthy ? t('setup.clear.working', 'Everything is working') : t('setup.clear.installed', 'Everything is installed')}
+            </h4>
+            <p className="setup-ready-text">
+              {healthy
+                ? t('setup.clear.workingText', 'This PC has everything Smart Classroom needs, and the backend is running.')
+                : backendStartable
+                  ? t('setup.clear.stoppedText', 'Start the backend to use Smart Classroom.')
+                  : t('setup.clear.installedText', 'The backend is not running yet. Services shows how it is doing.')}
+            </p>
+            {(backendStartable || (backend && !healthy)) && (
+              <div className="setup-ready-actions">
+                {backendStartable ? (
+                  <Button
+                    variant="primary"
+                    onClick={() => {
+                      // Startup is slow; Services is where its output is.
+                      void start('backend');
+                      onOpenScreen?.('services');
+                    }}
+                  >
+                    {t('setup.startBackend', 'Start backend')}
+                  </Button>
+                ) : (
+                  <Button onClick={() => onOpenScreen?.('services')}>{t('setup.openServices', 'Open Services')}</Button>
+                )}
+              </div>
+            )}
+            {more}
+          </div>
+        ) : (
+          (rows.length > 0 || settingProblems.length > 0) && (
+            <RowList label={t('setup.problems', 'What needs fixing')}>
+              {rows.map(stepRow)}
+              {settingProblems.map(settingRow)}
+            </RowList>
+          )
+        )}
 
-      {/* The environment is what everything else waits on, so lead with it. */}
-      {steps.some((step) => step.id === 'venv' && (step.status === 'missing' || step.status === 'failed')) && (
-        <div className="setup-banner">
-          {t(
-            'setup.firstRun',
-            'The Python environment is missing, so the backend cannot start. Select Fix to create it — the first run downloads several gigabytes.'
-          )}
-        </div>
-      )}
+        {!working && rows.some((step) => step.repairKind === 'elevated' && rowState(step, false) === 'problem') && (
+          <p className="ui-note">
+            {t(
+              'setup.adminNote',
+              'Windows asks an administrator to approve the items marked “needs administrator”, once for all of them. The prompt names Windows PowerShell.'
+            )}
+          </p>
+        )}
 
-      {/* Rows the Fix button skips. Without this they read as amber with no
-          explanation of why the count above does not include them. */}
-      {!working && manual.length > 0 && (
-        <div className="setup-banner">
-          {t(
-            'setup.manualFix',
-            '{{items}} cannot be brought up to date automatically. Use the button on that row — it rebuilds from scratch, so it asks for confirmation first.',
-            { items: manual.map((step) => step.label).join(', ') }
-          )}
-        </div>
-      )}
+        {!clear && more}
 
-      {/* Finishing the last step otherwise just leaves the user staring at a
-          log. Offer the next move rather than navigating for them: they may
-          still be reading the output. */}
-      {settled && (
-        <div className="setup-banner setup-banner-done">
-          <span>
-            {backendHealthy
-              ? t('setup.allReadyRunning', 'Everything is ready and the backend is running.')
-              : warnings.length
-                ? t('setup.settledWithWarnings', 'Nothing left to fix — {{count}} warning remains.', {
-                    count: warnings.length,
-                  })
-                : t('setup.allReady', 'Everything is ready.')}
-          </span>
-          <div className="setup-actions">
-            {backendStartable && (
-              <button
-                className="setup-btn setup-btn-primary"
-                onClick={() => {
-                  // Startup is slow; Services is where the logs are.
-                  void start('backend');
-                  onOpenScreen?.('services');
+        {/* The output first: it is short, and it is what matters while a fix runs. */}
+        {showOutput && (
+          <div className="setup-output">
+            <LogViewer
+              lines={lines}
+              title={t('setup.output', 'Output')}
+              onClear={clearLogs}
+              onReveal={() => revealSetupLogs().catch(() => undefined)}
+            />
+          </div>
+        )}
+
+        {showChecks && (
+          <section className="setup-checks" aria-label={t('setup.allChecks', 'All checks')}>
+            <div className="setup-checks-tools">
+              <Button
+                disabled={!checked}
+                onClick={async () => {
+                  await copyText(diagnostics()).catch(() => undefined);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1800);
                 }}
               >
-                {t('setup.startBackend', 'Start backend')}
-              </button>
-            )}
-            <button className="setup-btn" onClick={() => onOpenScreen?.('ready')}>
-              {t('setup.backToGetStarted', 'Back to Get started')}
-            </button>
-          </div>
-        </div>
-      )}
-
-      <div className="setup-split">
-        <div className="setup-list">
-          {grouped.map(({ section, items }) => (
-            <section className="setup-section" key={section.id}>
-              <h4 className="setup-section-title">{t(`setup.sections.${section.id}`, section.label)}</h4>
-              {items.map((step) => (
-                <div
-                  key={step.id}
-                  ref={(node) => {
-                    stepRefs.current[step.id] = node;
-                  }}
-                  className={`setup-step status-${step.status}${flashed === step.id ? ' flashed' : ''}`}
-                >
-                  <div className="setup-step-top">
-                    <span className={`setup-dot status-${step.status}`} />
-                    <span className="setup-step-label">{step.label}</span>
-                    {step.optional && <span className="setup-badge">{t('setup.optional', 'optional')}</span>}
-                    <span className="setup-step-status">
-                      {t(STATUS_LABELS[step.status] ?? step.status, step.status)}
-                    </span>
-                  </div>
-                  <div className="setup-step-detail">{step.detail}</div>
-                  {step.hint &&
-                    (/^https?:\/\//.test(step.hint) ? (
-                      // target=_blank hits the main process window-open handler,
-                      // which sends it to the OS browser instead of the app window.
-                      <a className="setup-step-link" href={step.hint} target="_blank" rel="noreferrer">
-                        {step.hint}
-                      </a>
-                    ) : (
-                      <code className="setup-step-hint">{step.hint}</code>
-                    ))}
-                  {blockedBy[step.id] && (
-                    <div className="setup-step-blocked">
-                      {t('setup.blockedBy', 'Needs {{items}} first.', { items: blockedBy[step.id].join(', ') })}
-                    </div>
-                  )}
-                  {step.actions.length > 0 && busyId !== step.id && (
-                    <div className="setup-step-actions">
-                      {step.actions.map((action) => (
-                        <button
-                          key={action.id}
-                          className={`setup-btn${action.destructive ? ' setup-btn-danger' : ''}`}
-                          disabled={busy || step.status === 'unknown' || !!blockedBy[step.id]}
-                          onClick={() => run(step.id, action.id)}
-                        >
-                          {action.label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </section>
-          ))}
-        </div>
-
-        <LogViewer
-          lines={lines}
-          title={t('setup.output', 'Output')}
-          onClear={clearLogs}
-          onReveal={() => revealSetupLogs().catch(() => undefined)}
-        />
+                {copied ? t('setup.copied', 'Copied') : t('setup.copyDiagnostics', 'Copy diagnostics')}
+              </Button>
+            </div>
+            <SetupStepList
+              steps={steps}
+              groupBy="section"
+              sections={sections}
+              hints="all"
+              actions={{
+                disabled: working || checkingNow,
+                hiddenFor: busyId,
+                onRun: (stepId, actionId) => void run(stepId, actionId),
+              }}
+            />
+          </section>
+        )}
       </div>
     </div>
   );

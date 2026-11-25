@@ -7,17 +7,20 @@ import { isServiceManagerAvailable } from '../../services/serviceManager';
 import type { FeatureGuard } from '../../utils/featureGuards';
 
 interface TopPanelProps {
-  activeScreen: 'main' | 'content-search' | 'grading' | 'services' | 'config' | 'setup' | 'ready';
-  setActiveScreen: (screen: 'main' | 'content-search' | 'grading' | 'services' | 'config' | 'setup' | 'ready') => void;
+  activeScreen: 'main' | 'content-search' | 'grading' | 'services' | 'config' | 'setup';
+  setActiveScreen: (screen: 'main' | 'content-search' | 'grading' | 'services' | 'config' | 'setup') => void;
   featureGuard: FeatureGuard;
   hasMainFeatures: boolean;
+  /** Setup checks that need fixing, counted on the menu so they show from every screen. */
+  setupAttention?: number;
 }
 
 const TopPanel: React.FC<TopPanelProps> = ({
   activeScreen,
   setActiveScreen,
   featureGuard,
-  hasMainFeatures
+  hasMainFeatures,
+  setupAttention = 0
 }) => {
   const navMenuRef = useRef<HTMLDivElement>(null);
   const navToggleRef = useRef<HTMLButtonElement>(null);
@@ -81,6 +84,7 @@ const TopPanel: React.FC<TopPanelProps> = ({
           <span></span>
           <span></span>
         </span>
+        {hasServiceManager && setupAttention > 0 && <span className="nav-menu-dot" aria-hidden="true" />}
       </button>
       {isNavMenuOpen && (
         <div className="nav-menu-dropdown">
@@ -112,24 +116,19 @@ const TopPanel: React.FC<TopPanelProps> = ({
             {/* Report and Session history are not here: they open slide-over
                 panels rather than navigating, so they are buttons on the header
                 bar, next to the audio/video status they belong with. */}
-            {/* Electron only: supervision of the Python backend processes */}
+            {/* Electron only: what is not working, prerequisite checks and environment preparation */}
             {hasServiceManager && (
               <li
-                className={`nav-menu-tools${activeScreen === 'ready' ? ' active' : ''}`}
-                onClick={() => handleNavItemClick(() => setActiveScreen('ready'))}
-              >
-                <span className="menu-icon">🧭</span>
-                <span>{t('getStarted.title', 'Get started')}</span>
-              </li>
-            )}
-            {/* Electron only: prerequisite checks and environment preparation */}
-            {hasServiceManager && (
-              <li
-                className={activeScreen === 'setup' ? 'active' : ''}
+                className={`nav-menu-tools${activeScreen === 'setup' ? ' active' : ''}`}
                 onClick={() => handleNavItemClick(() => setActiveScreen('setup'))}
               >
                 <span className="menu-icon">🧰</span>
                 <span>{t('setup.title', 'Setup')}</span>
+                {setupAttention > 0 && (
+                  <span className="nav-menu-badge" title={t('setup.menuBadge', '{{count}} item needs fixing', { count: setupAttention })}>
+                    {setupAttention}
+                  </span>
+                )}
               </li>
             )}
             {/* Electron only: schema-guarded editor for config.yaml and friends */}

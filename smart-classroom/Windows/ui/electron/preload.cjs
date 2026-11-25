@@ -81,6 +81,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     logs: (options) => ipcRenderer.invoke('setup:logs', options),
     clearLogs: () => ipcRenderer.invoke('setup:clearLogs'),
     revealLogs: () => ipcRenderer.invoke('setup:revealLogs'),
+    // What an automatic run would do, in order.
+    plan: (options) => ipcRenderer.invoke('setup:plan', options),
+    // Run it: every repair that needs nobody, plus approved elevated ones.
+    runAutomatic: (options) => ipcRenderer.invoke('setup:runAutomatic', options),
     // Subscribe to step status changes; returns an unsubscribe function.
     onChanged: (callback) => {
       const listener = (_event, snapshot) => callback(snapshot);
@@ -88,6 +92,29 @@ contextBridge.exposeInMainWorld('electronAPI', {
       return () => ipcRenderer.removeListener('setup:changed', listener);
     },
   },
+
+  // The first-run wizard's flow, which the main process owns. `send` takes
+  // 'customize', 'installNow' (with { includeElevated }), 'approveElevated' or
+  // 'manual'.
+  firstRun: {
+    get: () => ipcRenderer.invoke('firstRun:get'),
+    send: (choice, options) => ipcRenderer.invoke('firstRun:send', choice, options),
+    onChanged: (callback) => {
+      const listener = (_event, snapshot) => callback(snapshot);
+      ipcRenderer.on('firstRun:changed', listener);
+      return () => ipcRenderer.removeListener('firstRun:changed', listener);
+    },
+  },
+
+  // Test proxy values typed on the wizard's Network page.
+  network: {
+    probe: (values) => ipcRenderer.invoke('network:probe', values),
+  },
+
+  // The UI language to start in, and remembering an explicit choice. Read
+  // once, synchronously, so the first render is already in the right language.
+  initialLanguage: ipcRenderer.sendSync('app:initialLanguage'),
+  saveLanguage: (language) => ipcRenderer.invoke('app:saveLanguage', language),
 
   // Copy through the main process: navigator.clipboard needs a secure context,
   // which a packaged build loaded over file:// is not.

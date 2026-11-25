@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Tuple
 
+from utils.download_progress import hf_kwargs, ms_kwargs, reporting, track
 from utils.ensure_model import ModelDownloadError
 from utils.model_hub import HF, MS, get_model_hub, warn_if_not_configured_hub
 
@@ -76,20 +77,26 @@ def download_snapshot(hub: str, repo: str, local_dir: str, *, revision: Optional
     """
     warn_if_not_configured_hub(repo, hub)
     at = revision or "default"
+    # Byte-level progress for the desktop app, when it is reading it.
+    progress = track(repo, hub)
     if hub == HF:
         from huggingface_hub import snapshot_download
 
         logger.info(f"Downloading {repo}@{at} from Hugging Face -> {local_dir}")
-        snapshot_download(repo_id=repo, revision=revision, local_dir=local_dir,
-                          allow_patterns=allow_patterns, token=hf_token)
+        with reporting(progress):
+            snapshot_download(repo_id=repo, revision=revision, local_dir=local_dir,
+                              allow_patterns=allow_patterns, token=hf_token,
+                              **hf_kwargs(progress, snapshot_download))
         return
 
     from modelscope.hub.snapshot_download import snapshot_download
 
     logger.info(f"Downloading {repo}@{at} from ModelScope -> {local_dir}")
     try:
-        snapshot_download(repo, revision=revision, local_dir=local_dir,
-                          allow_patterns=allow_patterns)
+        with reporting(progress):
+            snapshot_download(repo, revision=revision, local_dir=local_dir,
+                              allow_patterns=allow_patterns,
+                              **ms_kwargs(progress, snapshot_download))
     except Exception as e:
         raise ModelDownloadError(
             _ms_failure_message(repo, revision, local_dir, e, on_hf)) from e

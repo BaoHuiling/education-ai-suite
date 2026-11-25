@@ -6,6 +6,7 @@ import TaskList from './TaskList';
 import ResultsView from './ResultsView';
 import GradingRightPanel from './GradingRightPanel';
 import { usePanelDividerX } from '../../hooks/usePanelDividerX';
+import PanelToggle from '../common/PanelToggle';
 import { gradingHealth } from '../../services/api';
 import type { GradingHealth } from '../../services/api';
 
@@ -92,19 +93,12 @@ const GradingScreen: React.FC = () => {
         <GradingRightPanel />
       </div>
 
-      <div
-        className={`arrow${rightCollapsed ? ' collapsed' : ''}`}
-        style={{
-          // Collapsed: let `.arrow.collapsed` park it inside the right edge.
-          left: rightCollapsed ? undefined : arrowLeft,
-          top: '50%',
-          transform: 'translateY(-50%)',
-          transition: arrowTransition,
-        }}
-        onClick={() => setRightCollapsed((c) => !c)}
-      >
-        {rightCollapsed ? '◀' : '▶'}
-      </div>
+      <PanelToggle
+        collapsed={rightCollapsed}
+        left={arrowLeft}
+        transition={arrowTransition}
+        onToggle={() => setRightCollapsed((c) => !c)}
+      />
     </div>
   );
 };

@@ -17,6 +17,9 @@ export const checkSetup = () => unwrap(window.electronAPI?.setup?.check());
 export const runSetupStep = (stepId: string, actionId: string) =>
   unwrap(window.electronAPI?.setup?.run(stepId, actionId));
 export const cancelSetup = () => unwrap(window.electronAPI?.setup?.cancel());
+/** The Setup screen's Fix: the main process's automatic run. */
+export const runAutomaticSetup = (includeElevated: boolean) =>
+  unwrap(window.electronAPI?.setup?.runAutomatic({ includeElevated }));
 export const clearSetupLogs = () => unwrap(window.electronAPI?.setup?.clearLogs());
 export const revealSetupLogs = () => unwrap(window.electronAPI?.setup?.revealLogs());
 export const copyText = (text: string) => unwrap(window.electronAPI?.copyText(text));

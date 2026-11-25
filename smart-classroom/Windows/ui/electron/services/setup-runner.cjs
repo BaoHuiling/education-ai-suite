@@ -18,6 +18,8 @@ const config = require('./config-store.cjs');
 const registry = require('./registry.cjs');
 const proc = require('./win-proc.cjs');
 const winEnv = require('./win-env.cjs');
+const elevation = require('./elevation.cjs');
+const { PROGRESS_ENV, isProgressLine, parseProgressLine } = require('./download-progress.cjs');
 
 // RAM, Windows build, Python and DL Streamer are checked by the backend too
 // (utils/system_checker.py), so they come from a generated copy of
@@ -94,6 +96,16 @@ function repairFor(step, result) {
   if (result.repair !== undefined) return result.repair;
   if (!REPAIRABLE.includes(result.status)) return null;
   return (step.actions ?? []).find((action) => !action.destructive)?.id ?? null;
+}
+
+/**
+ * How a repair runs unattended: `auto` needs no one; `elevated` raises a UAC
+ * prompt, so it runs only once someone has approved it; `manual` — destructive,
+ * or no such action — is left for the Setup screen.
+ */
+function kindOf(action) {
+  if (!action || action.destructive) return 'manual';
+  return action.elevates ? 'elevated' : 'auto';
 }
 
 function run(file, args, timeout = 20000) {
@@ -380,20 +392,23 @@ function stream(emit, file, args, options, okCodes = [0]) {
       ...options,
       shell: false,
       windowsHide: true,
-      env: { ...process.env, ...config.proxyEnv(), PYTHONUNBUFFERED: '1', PYTHONIOENCODING: 'utf-8' },
+      // PROGRESS_ENV: a model download reports byte-level progress (runStep).
+      env: { ...process.env, ...config.proxyEnv(), ...PROGRESS_ENV, PYTHONUNBUFFERED: '1', PYTHONIOENCODING: 'utf-8' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     activeChild = child;
 
-    let tail = '';
-    const onData = (chunk) => {
-      const text = tail + chunk.toString('utf8').replace(/\r(?!\n)/g, '\n');
+    // Each stream holds its own unfinished line: one shared between them
+    // would splice a stderr line into the middle of a stdout one.
+    const tails = { stdout: '', stderr: '' };
+    const reader = (name) => (chunk) => {
+      const text = tails[name] + chunk.toString('utf8').replace(/\r(?!\n)/g, '\n');
       const lines = text.split(/\r?\n/);
-      tail = lines.pop() ?? '';
+      tails[name] = lines.pop() ?? '';
       for (const line of lines) if (line.trim()) emit(line);
     };
-    child.stdout.on('data', onData);
-    child.stderr.on('data', onData);
+    child.stdout.on('data', reader('stdout'));
+    child.stderr.on('data', reader('stderr'));
 
     child.on('error', (error) => {
       activeChild = null;
@@ -401,7 +416,7 @@ function stream(emit, file, args, options, okCodes = [0]) {
     });
     child.on('exit', (code, signal) => {
       activeChild = null;
-      if (tail.trim()) emit(tail);
+      for (const tail of Object.values(tails)) if (tail.trim()) emit(tail);
       if (signal) return reject(new Error(`Cancelled (${signal}).`));
       if (!okCodes.includes(code)) return reject(new Error(`${path.basename(file)} exited with code ${code}.`));
       resolve(code);
@@ -602,17 +617,9 @@ const STEPS = [
         label: 'Enable',
         // Raises a UAC prompt, so runAutomatic() leaves it to the user.
         elevates: true,
-        async run(emit) {
-          emit('Requesting administrator privileges…');
-          const command =
-            "Start-Process -FilePath reg.exe -Verb RunAs -Wait -ArgumentList 'add','HKLM\\System\\CurrentControlSet\\Control\\FileSystem','/v','LongPathsEnabled','/t','REG_DWORD','/d','1','/f'";
-          await stream(emit, 'powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], {
-            cwd: paths.home(),
-          });
-          if (!(await longPathsEnabled())) {
-            throw new Error('Long paths are still disabled; the prompt may have been declined.');
-          }
-        },
+        // Run by the administrator helper, with any other such task, behind
+        // one prompt: see runAdmin().
+        adminTask: () => ({ id: 'longPaths' }),
       },
     ],
   },
@@ -692,6 +699,10 @@ const STEPS = [
     id: 'dlStreamer',
     label: 'DL Streamer',
     section: 'software',
+    // Only video analytics uses it, so it is not asked for — nor its UAC prompt
+    // raised — on a machine where video analytics will not run. "Effectively":
+    // board OCR and the report drag video analytics in at startup.
+    enabled: () => registry.effectivelyEnabled('video_analytics'),
     async check() {
       // Its installer records both values under this key.
       const install = await winEnv.dlStreamerInstall();
@@ -748,40 +759,21 @@ const STEPS = [
         requiresBackendStopped: true,
         // The installer raises a UAC prompt, so runAutomatic() leaves it to the user.
         elevates: true,
-        async run(emit) {
-          const script = paths.dlStreamerScript();
-          if (!fs.existsSync(script)) throw new Error(`${script} is missing.`);
-
+        // The administrator helper runs check_dlstreamer.ps1 -Install, which
+        // downloads the installer into a folder only administrators can write,
+        // so nothing can swap it before it runs elevated. The elevated process
+        // gets a fresh environment, so the proxy goes in the task.
+        adminTask() {
           const { httpProxy, httpsProxy } = config.readProxyConfig();
-          emit('Downloading and running the DL Streamer installer — accept the administrator prompt when it appears…');
-          // -Yes answers the script's own confirmations, which cannot be
-          // reached here: the child has no stdin.
-          const code = await stream(
-            emit,
-            'powershell.exe',
-            [
-              '-NoProfile',
-              '-NonInteractive',
-              '-ExecutionPolicy',
-              'Bypass',
-              '-File',
-              script,
-              '-Install',
-              '-Yes',
-              '-RequiredVersion',
-              REQUIRED_DLSTREAMER,
-              ...(httpProxy ? ['-HttpProxy', httpProxy] : []),
-              ...(httpsProxy ? ['-HttpsProxy', httpsProxy] : []),
-            ],
-            { cwd: paths.home() },
-            [0, 1, 2]
-          );
-          if (code === 1) {
-            throw new Error(`The upgrade to DL Streamer ${REQUIRED_DLSTREAMER} failed; install it from ${DLSTREAMER_URL}`);
+          return { id: 'dlStreamer', requiredVersion: REQUIRED_DLSTREAMER, httpProxy, httpsProxy };
+        },
+        // check_dlstreamer.ps1's exit codes in install mode.
+        adminError({ exitCode }) {
+          if (exitCode === 1) {
+            return `The upgrade to DL Streamer ${REQUIRED_DLSTREAMER} failed; install it from ${DLSTREAMER_URL}`;
           }
-          if (code === 2) {
-            throw new Error(`DL Streamer was not installed; install it from ${DLSTREAMER_URL}`);
-          }
+          if (exitCode === 2) return `DL Streamer was not installed; install it from ${DLSTREAMER_URL}`;
+          return null;
         },
       },
     ],
@@ -966,9 +958,18 @@ const BY_ID = new Map(STEPS.map((step) => [step.id, step]));
 // ---------------------------------------------------------------------------
 
 class SetupRunner extends EventEmitter {
-  constructor(logs) {
+  /**
+   * @param logs the log store
+   * @param options.adminTasks elevation.runAdminTasks, or a stand-in for tests
+   */
+  constructor(logs, { adminTasks = elevation.runAdminTasks } = {}) {
     super();
     this.logs = logs;
+    this.adminTasks = adminTasks;
+    // The administrator helper's batch while one runs; see runAdmin().
+    this.adminBatch = null;
+    // stepId -> the latest model download progress of the step running.
+    this.progress = new Map();
     this.state = new Map();
     this.busy = false;
     // Set by cancel(), so runAutomatic() stops instead of moving to the next step.
@@ -1015,8 +1016,13 @@ class SetupRunner extends EventEmitter {
             id: action.id,
             label: action.label,
             destructive: !!action.destructive,
+            elevates: !!action.elevates,
           })),
         ...state,
+        progress: this.progress.get(step.id) ?? null,
+        // How the repair would run (see kindOf): the screens tell from this,
+        // not from step ids, which steps need administrator approval.
+        repairKind: state.repair ? kindOf((step.actions ?? []).find((action) => action.id === state.repair)) : null,
       };
     });
   }
@@ -1133,32 +1139,48 @@ class SetupRunner extends EventEmitter {
     return { step, action };
   }
 
+  /**
+   * Windows locks the .pyd/.dll files of a running interpreter, so pip would
+   * fail part-way through and leave the environment half-upgraded; the same
+   * goes for the GStreamer DLLs its pipelines load.
+   */
+  async checkBackendStopped(action) {
+    if (!action.requiresBackendStopped) return;
+    const port = registry.get('backend')?.port;
+    if (port && !(await proc.isPortFree(port))) {
+      // Coded, because stopping the backend is a different screen: the Setup
+      // screen turns this into a button rather than an instruction to go
+      // hunting for one.
+      throw setupError('Stop the backend first: it has files this step replaces in use.', SETUP_ERROR.BACKEND_RUNNING);
+    }
+  }
+
   async runStep(stepId, actionId) {
     const { step, action } = this.find(stepId, actionId);
     if (this.busy) throw new Error('Another setup step is already running.');
 
-    // Windows locks the .pyd/.dll files of a running interpreter, so pip would
-    // fail part-way through and leave the environment half-upgraded; the same
-    // goes for the GStreamer DLLs its pipelines load.
-    if (action.requiresBackendStopped) {
-      const port = registry.get('backend')?.port;
-      if (port && !(await proc.isPortFree(port))) {
-        // Coded, because stopping the backend is a different screen: the Setup
-        // screen turns this into a button rather than an instruction to go
-        // hunting for one.
-        throw setupError(
-          'Stop the backend first: it has files this step replaces in use.',
-          SETUP_ERROR.BACKEND_RUNNING
-        );
-      }
+    if (action.adminTask) {
+      const [outcome] = await this.runAdmin([{ step, action }]);
+      if (!outcome.ok) throw outcome.error;
+      return this.state.get(step.id);
     }
+
+    await this.checkBackendStopped(action);
 
     this.busy = true;
     this.logs.openSink(LOG_ID);
     this.record(step, { status: STATUS.RUNNING, ...detail('running', { action: action.id }, `${action.label}…`) });
     this.emitChanged();
 
-    const emit = (line) => this.log(line);
+    // A download's progress lines go on the step for the screens, not into the log.
+    const emit = (line) => {
+      if (!isProgressLine(line)) return this.log(line);
+      const progress = parseProgressLine(line);
+      if (progress) {
+        this.progress.set(step.id, progress);
+        this.emitChanged();
+      }
+    };
     try {
       this.log(`=== ${step.label}: ${action.label} ===`);
       await action.run(emit);
@@ -1174,9 +1196,155 @@ class SetupRunner extends EventEmitter {
       throw error;
     } finally {
       this.busy = false;
+      this.progress.delete(step.id);
       this.emitChanged();
     }
     return this.state.get(step.id);
+  }
+
+  /**
+   * Run actions that need administrator rights, all in one elevated helper, so
+   * Windows asks for approval once (see elevation.cjs). Each step is recorded
+   * as the helper reports on it, and checked again as soon as its own task
+   * ends rather than when the whole batch does.
+   *
+   * Resolves with one outcome per entry, in order: { step, ok, skipped, error }.
+   * A failed task, a declined prompt and a refusal such as "stop the backend
+   * first" are outcomes, not rejections.
+   */
+  async runAdmin(entries) {
+    if (this.busy) throw new Error('Another setup step is already running.');
+    this.busy = true;
+    this.logs.openSink(LOG_ID);
+
+    const outcomes = new Map();
+    const settle = (step, outcome) =>
+      outcomes.set(step.id, { step, ok: false, skipped: false, error: null, ...outcome });
+
+    try {
+      // Refused before Windows is asked anything, as runStep refuses.
+      const batch = [];
+      for (const entry of entries) {
+        try {
+          await this.checkBackendStopped(entry.action);
+          batch.push({ ...entry, task: entry.action.adminTask() });
+        } catch (error) {
+          settle(entry.step, { error });
+        }
+      }
+
+      if (batch.length) {
+        this.log(`=== Administrator tasks: ${batch.map(({ step }) => step.label).join(', ')} ===`);
+        // The first one waits on the prompt, so it shows as under way.
+        this.markRunning(batch[0]);
+        this.log('Asking Windows for administrator approval. Its prompt names Windows PowerShell.');
+
+        // Events and output in one queue, handled in the order the helper
+        // wrote them: a task's heading before its output, and an "ok"
+        // checked again before the next task's "running" is shown.
+        const byTask = new Map(batch.map((entry) => [entry.task.id, entry]));
+        let events = Promise.resolve();
+        const queue = (work) => {
+          events = events
+            .then(work)
+            .catch((error) => this.log(`Could not follow the administrator tasks: ${error.message}`));
+        };
+
+        let outcome;
+        try {
+          this.adminBatch = this.adminTasks({
+            tasks: batch.map(({ task }) => task),
+            helper: paths.adminTasksScript(),
+            baseDir: path.join(paths.stateDir(), 'admin-tasks'),
+            onEvent: (event) => queue(() => this.adminEvent(event, byTask, outcomes, settle)),
+            onOutput: (line) => queue(() => this.log(line)),
+          });
+          outcome = await this.adminBatch.done;
+        } catch (error) {
+          outcome = { declined: false, tasks: {}, error: error.message };
+        }
+        await events;
+
+        for (const entry of batch) {
+          if (outcomes.has(entry.step.id)) continue;
+          await this.settleAdmin(entry, outcome, settle);
+        }
+      }
+    } finally {
+      this.adminBatch = null;
+      this.busy = false;
+      this.emitChanged();
+    }
+    return entries.map(({ step }) => outcomes.get(step.id));
+  }
+
+  markRunning({ step, action }) {
+    this.record(step, { status: STATUS.RUNNING, ...detail('running', { action: action.id }, `${action.label}…`) });
+    this.emitChanged();
+  }
+
+  /** One of the helper's events, as it happens. */
+  async adminEvent(event, byTask, outcomes, settle) {
+    if (event.event !== 'task') return;
+    const entry = byTask.get(event.task);
+    if (!entry || outcomes.has(entry.step.id)) return;
+    if (event.state === 'running') {
+      this.log(`=== ${entry.step.label}: ${entry.action.label} ===`);
+      this.markRunning(entry);
+    } else if (event.state === 'ok') {
+      await this.verifyAdmin(entry, settle);
+    }
+    // A failed or skipped task is settled from the result, which has its exit code.
+  }
+
+  /** A task the helper reports done: check the step, as runStep does after an action. */
+  async verifyAdmin({ step }, settle) {
+    // An install just changed the registry PATH and variables; the check
+    // shells out and would otherwise still see the old ones.
+    await this.refreshEnvironment();
+    try {
+      const result = await step.check();
+      this.record(step, result);
+      this.log(`=== ${step.label}: ${result.status} ===`);
+      settle(step, { ok: true });
+    } catch (error) {
+      this.record(step, { status: STATUS.FAILED, detail: error.message });
+      this.log(`=== ${step.label} failed: ${error.message} ===`);
+      settle(step, { error });
+    }
+    this.emitChanged();
+  }
+
+  /** A task no event settled, from the batch's result. */
+  async settleAdmin(entry, outcome, settle) {
+    const { step, action, task } = entry;
+    const result = outcome.tasks[task.id];
+    if (result?.ok) {
+      await this.verifyAdmin(entry, settle);
+      return;
+    }
+    if (result?.skipped) {
+      // Cancelled before it started, so nothing changed: show what is there.
+      try {
+        this.record(step, await step.check());
+      } catch (error) {
+        this.record(step, { status: STATUS.FAILED, detail: error.message });
+      }
+      this.log(`=== ${step.label}: skipped ===`);
+      settle(step, { skipped: true, error: new Error('Cancelled before it started.') });
+      this.emitChanged();
+      return;
+    }
+    // A task missing from the result never ran: the prompt was declined, or
+    // the helper did not start or stopped early.
+    const message =
+      (result && (action.adminError?.(result) ?? result.error)) ||
+      outcome.error ||
+      'The administrator helper did not run this task.';
+    this.record(step, { status: STATUS.FAILED, detail: message });
+    this.log(`=== ${step.label} failed: ${message} ===`);
+    settle(step, { error: new Error(message) });
+    this.emitChanged();
   }
 
   /**
@@ -1186,7 +1354,8 @@ class SetupRunner extends EventEmitter {
    * It is the Fix button's queue minus two kinds of action: destructive ones,
    * which must stay a confirmed click, and ones that raise a UAC prompt, which
    * would otherwise appear unannounced or hang a headless run. Those are left
-   * for the Setup screen and reported as `manual`.
+   * for the Setup screen and reported as `manual` — the elevated ones unless
+   * includeElevated says someone has approved them.
    *
    * Unlike the Fix button it does not stop at the first failure: FFmpeg failing
    * to install is no reason not to create the Python environment. A step whose
@@ -1195,16 +1364,38 @@ class SetupRunner extends EventEmitter {
    *
    * Reads the repairs from the current state, so call checkAll() first.
    */
-  async runAutomatic() {
+  async runAutomatic({ includeElevated = false } = {}) {
     this.autoCancelled = false;
     this.autoRunning = true;
     this.emitChanged();
     try {
-      return await this.runRepairs();
+      return await this.runRepairs({ includeElevated });
     } finally {
       this.autoRunning = false;
       this.emitChanged();
     }
+  }
+
+  /**
+   * The repairs runAutomatic() would make, in the order it would make them:
+   * what the first-run wizard lists before and while it installs. Read from
+   * the current state, so call checkAll() first.
+   *
+   * With includeElevated, the elevated ones come first, so their prompt, one
+   * for all of them, appears while the person who approved them is still at
+   * the screen, and the rest can run with nobody there.
+   */
+  plan({ includeElevated = false } = {}) {
+    const entries = [];
+    for (const step of STEPS) {
+      if (step.enabled && !step.enabled()) continue;
+      const actionId = this.state.get(step.id).repair;
+      if (!actionId) continue;
+      const kind = kindOf(step.actions.find((entry) => entry.id === actionId));
+      entries.push({ stepId: step.id, actionId, kind });
+    }
+    if (!includeElevated) return entries;
+    return [...entries.filter((entry) => entry.kind === 'elevated'), ...entries.filter((entry) => entry.kind !== 'elevated')];
   }
 
   /** Setup is installing or changing something, so the backend must not start. */
@@ -1212,34 +1403,64 @@ class SetupRunner extends EventEmitter {
     return this.busy || this.autoRunning;
   }
 
-  async runRepairs() {
+  async runRepairs({ includeElevated }) {
     const result = { ran: [], failed: [], blocked: [], manual: [] };
 
-    for (const step of STEPS) {
-      if (this.autoCancelled) break;
-      if (step.enabled && !step.enabled()) continue;
-      const actionId = this.state.get(step.id).repair;
-      if (!actionId) continue;
-      const action = step.actions.find((entry) => entry.id === actionId);
-      if (!action || action.destructive || action.elevates) {
-        result.manual.push(step.id);
-        continue;
+    // Elevated first, in a pass of their own, when they are approved; see
+    // plan(). That pass runs them together, behind one UAC prompt (runAdmin).
+    // Each pass reads the state as it goes rather than from a list made up
+    // front, so a step that a feature toggle enables mid-run is still picked up.
+    const passes = includeElevated ? ['elevated', 'auto'] : ['auto'];
+    const lastPass = passes[passes.length - 1];
+
+    for (const pass of passes) {
+      const admin = [];
+      for (const step of STEPS) {
+        if (this.autoCancelled) return result;
+        if (step.enabled && !step.enabled()) continue;
+        const actionId = this.state.get(step.id).repair;
+        if (!actionId) continue;
+        const kind = kindOf(step.actions.find((entry) => entry.id === actionId));
+        if (kind !== pass) {
+          // Reported once, and only for what no pass of this run will do.
+          if (pass === lastPass && !passes.includes(kind)) result.manual.push(step.id);
+          continue;
+        }
+
+        const unmet = (step.requires ?? []).filter((id) => !SATISFIED.includes(this.state.get(id)?.status));
+        if (unmet.length) {
+          const names = unmet.map((id) => BY_ID.get(id).label).join(', ');
+          this.log(`Skipping ${step.label}: it needs ${names}.`);
+          result.blocked.push(step.id);
+          continue;
+        }
+
+        const entry = this.find(step.id, actionId);
+        if (entry.action.adminTask) {
+          admin.push(entry);
+          continue;
+        }
+        try {
+          await this.runStep(step.id, actionId);
+          result.ran.push(step.id);
+        } catch (error) {
+          // runStep has already recorded and logged it.
+          result.failed.push({ id: step.id, error: error.message });
+        }
       }
 
-      const unmet = (step.requires ?? []).filter((id) => !SATISFIED.includes(this.state.get(id)?.status));
-      if (unmet.length) {
-        const names = unmet.map((id) => BY_ID.get(id).label).join(', ');
-        this.log(`Skipping ${step.label}: it needs ${names}.`);
-        result.blocked.push(step.id);
-        continue;
-      }
-
-      try {
-        await this.runStep(step.id, actionId);
-        result.ran.push(step.id);
-      } catch (error) {
-        // runStep has already recorded and logged it.
-        result.failed.push({ id: step.id, error: error.message });
+      if (admin.length && !this.autoCancelled) {
+        let outcomes;
+        try {
+          outcomes = await this.runAdmin(admin);
+        } catch (error) {
+          outcomes = admin.map(({ step }) => ({ step, ok: false, skipped: false, error }));
+        }
+        for (const { step, ok, skipped, error } of outcomes) {
+          if (ok) result.ran.push(step.id);
+          // Cancelled before it started, as a step a cancelled run never reaches.
+          else if (!skipped) result.failed.push({ id: step.id, error: error?.message ?? 'Did not run.' });
+        }
       }
     }
     return result;
@@ -1247,6 +1468,13 @@ class SetupRunner extends EventEmitter {
 
   cancel() {
     this.autoCancelled = true;
+    if (this.adminBatch) {
+      // An unelevated app cannot stop an elevated process, so the helper is
+      // only told not to start another task.
+      this.adminBatch.stop();
+      this.log('Cancellation requested. Setup stops when the administrator task under way ends.');
+      return true;
+    }
     if (!activeChild) return false;
     activeChild.kill();
     this.log('Cancellation requested.');

@@ -50,6 +50,11 @@
     Install mode only. How long to wait for the DL Streamer installer before
     treating it as stuck and stopping it (default 900).
 
+.PARAMETER DownloadDir
+    Install mode only. Where the installer is downloaded and run from (default
+    $env:TEMP). run_admin_tasks.ps1 passes a folder only administrators can
+    write, so nothing can swap the installer between download and run.
+
 .OUTPUTS
     Detection mode exit codes:
       0 -> DL Streamer found via registry and the gvadetect sanity check passed
@@ -76,7 +81,8 @@ param(
     [string]$RequiredVersion = "2026.1.0",
     [string]$HttpProxy = "",
     [string]$HttpsProxy = "",
-    [int]$InstallerTimeoutSec = 900
+    [int]$InstallerTimeoutSec = 900,
+    [string]$DownloadDir = ""
 )
 
 # Expose proxy settings to the download helper via script scope
@@ -227,7 +233,8 @@ function Install-DLStreamer {
 
     try {
         Write-Host "  Step 1: Download Installer" -ForegroundColor Yellow
-        $installerPath = Join-Path $env:TEMP $installerName
+        $downloadRoot = if ($DownloadDir) { $DownloadDir } else { $env:TEMP }
+        $installerPath = Join-Path $downloadRoot $installerName
 
         Write-Host "    Downloading from GitHub releases..." -ForegroundColor Gray
         Write-Host "    URL: $downloadUrl" -ForegroundColor DarkGray

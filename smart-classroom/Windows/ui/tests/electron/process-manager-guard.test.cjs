@@ -9,7 +9,7 @@ const assert = require('node:assert/strict');
 
 const { ServiceManager } = require('../../electron/services/process-manager.cjs');
 
-const quietLogs = { setRoute() { }, note() { }, logFile: () => null, clear() { }, openSink() { }, write() { } };
+const quietLogs = { setRoute() { }, setTap() { }, note() { }, logFile: () => null, clear() { }, openSink() { }, write() { } };
 const SETUP = { code: 'setup', message: 'Setup is still preparing the Python environment.' };
 
 function manager(guard) {

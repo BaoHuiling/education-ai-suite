@@ -1,44 +1,160 @@
 {
-    "getStarted": {
-      "title": "Get started",
-      "subtitle": "Finish these steps to run Smart Classroom.",
-      "allReady": "Everything is ready. The backend is running.",
-      "recheck": "Re-check",
-      "working": "Working…",
-      "startBackend": "Start backend",
-      "openSetup": "Open Setup",
-      "openConfig": "Open Configuration",
-      "allSettings": "All settings",
-      "commonTitle": "Commonly used settings",
-      "commonSubtitle": "The settings most people change. The full list is under Configuration.",
-      "save": "Save {{count}} change",
-      "save_other": "Save {{count}} changes",
-      "saving": "Saving…",
-      "items": {
-        "prerequisites": "Prerequisites",
-        "environment": "Python environment",
-        "settings": "Settings",
-        "services": "Backend running"
+    "assistant": {
+      "admin": {
+        "approveOne": "Install it first. Windows asks for approval once.",
+        "dlStreamer": "Runs the video analytics pipelines.",
+        "lead": "These change Windows itself, so Windows asks an administrator to approve them, once for all of them. The prompt names Windows PowerShell, which runs them. They run first, while you are here; the rest needs nobody.",
+        "longPaths": "Lets downloads with deep folder paths succeed.",
+        "skip": "Skip for now. What needs them will not work until they are installed here or on the Setup screen.",
+        "approveAll": "Install them first. Windows asks for approval once, for all of them."
       },
-      "details": {
-        "checking": "Checking…",
-        "loading": "Loading…",
-        "working": "Setting up: {{items}}…",
-        "missing": "Missing: {{items}}",
-        "outdated": "Out of date: {{items}}",
-        "warnings": "Warnings: {{items}}",
-        "prereqOk": "System, drivers and tools are in place",
-        "envOk": "Python environment and models are ready",
-        "settingsOk": "Review the commonly used settings",
-        "backendRunning": "Backend is running",
-        "backendStarting": "Backend is starting…",
-        "backendNeedsEnv": "Create the Python environment first",
-        "backendStopped": "Backend is not running"
+      "back": "Back",
+      "checking": "Checking…",
+      "disk": {
+        "accept": "Continue anyway",
+        "warning": "Less than 50 GB of disk space is free. The installation and the AI models need about that much, and running out part-way is hard to recover from."
+      },
+      "done": {
+        "downloading": "Downloading {{model}} from {{hub}}",
+        "failed": "The backend stopped while starting. Its log shows why.",
+        "failedTitle": "Smart Classroom did not start",
+        "installed": "Installed",
+        "installedTitle": "Smart Classroom is installed",
+        "later": "Still to do",
+        "laterDetail": "{{items}}: fix them on the Setup screen when you are ready.",
+        "notInstalled": "Not installed",
+        "nothingNew": "Everything was already in place",
+        "open": "Open Smart Classroom",
+        "openServices": "Open Services",
+        "readyTitle": "Smart Classroom is ready",
+        "start": "Start Smart Classroom",
+        "starting": "The first start downloads and prepares the AI models, so it takes a while.",
+        "startingTitle": "Starting Smart Classroom",
+        "summary": "Summary"
+      },
+      "features": {
+        "lead": "Choose what you will use. Setup only downloads what these need. Open a group for its features and settings."
+      },
+      "install": {
+        "aStep": "A step",
+        "approval": "{{tasks}} need administrator approval. Install them now, or later from here or the Setup screen.",
+        "approve": "Install now",
+        "cancel": "Cancel",
+        "causes": {
+          "certificate": "A download was refused because the connection is inspected and its certificate is not trusted. Check your network settings, or try another network.",
+          "disk": "The disk is full. Free some space, then retry.",
+          "filesInUse": "Files that setup has to replace are in use. Close other Smart Classroom windows, then retry.",
+          "network": "A download failed. Check the network settings, then retry.",
+          "other": "A step failed. The details below show what it reported.",
+          "backendRunning": "The backend is using files this step replaces. Stop it on the Services screen, then retry.",
+          "declined": "Windows asked for administrator approval, and it was not given. Try again and approve the prompt; it names Windows PowerShell.",
+          "rateLimit": "The model hub is turning away downloads from this network for now. Wait a few minutes, then retry, or download from the other model source (network settings)."
+        },
+        "copied": "Copied",
+        "copy": "Copy diagnostics",
+        "counter": "Step {{step}} of {{total}}",
+        "failedTitle": "Setup could not finish",
+        "firstStart": "First start: download the AI models",
+        "hideDetails": "Hide details",
+        "leave": "You can leave this running. Your PC stays awake until it finishes.",
+        "network": "Network settings",
+        "resume": "Resume",
+        "retry": "Retry",
+        "showDetails": "Show details",
+        "stopped": "Nothing is lost: what finished stays installed, and Resume picks up the rest.",
+        "stoppedTitle": "Setup stopped",
+        "title": "Installing",
+        "openSetup": "Open the Setup screen",
+        "cancelling": "Cancelling…"
+      },
+      "installButton": "Install",
+      "network": {
+        "hubSuggested": "{{unreachable}} cannot be reached from here, so models will come from {{source}}.",
+        "lead": "Setup downloads Python packages, installers and AI models. Behind a proxy, enter it here; the test shows what each download host answers.",
+        "saveRetry": "Save and retry",
+        "unreachable": "Setup could not reach the download hosts, so it has not started installing. Fix the proxy below, then continue."
+      },
+      "next": "Next",
+      "pages": {
+        "admin": "Administrator tasks",
+        "done": "Done",
+        "features": "Features",
+        "install": "Install",
+        "network": "Network",
+        "welcome": "Welcome"
+      },
+      "steps": "Setup steps",
+      "title": "Smart Classroom setup",
+      "welcome": {
+        "checks": "Checks",
+        "countdown": "Installing with recommended settings in {{seconds}} s",
+        "customize": "Customize",
+        "fromHuggingFace": "Downloaded from Hugging Face",
+        "fromModelScope": "Downloaded from ModelScope",
+        "hubSwitched": "{{source}} cannot be reached from here",
+        "installNow": "Install now",
+        "lead": "Smart Classroom needs Python, the packages it runs on, and its AI models. Setup downloads several gigabytes and installs everything for you. It takes a while, and you can leave it running.",
+        "manual": "Set up manually",
+        "models": "AI models",
+        "network": "Network",
+        "pc": "This PC",
+        "pcReady": "Ready",
+        "pcWarnings": "Ready, with {{count}} warning",
+        "pcWarnings_other": "Ready, with {{count}} warnings",
+        "title": "Set up Smart Classroom"
       }
+    },
+    "featureGroups": {
+      "count": "{{on}} of {{total}} on",
+      "grading": {
+        "detail": "Grade exam papers against a rubric. Adds a conversion environment and a layout detection model.",
+        "title": "Grading"
+      },
+      "recording": {
+        "detail": "Transcription, summary, mind map and topic segmentation of a lesson, and the class report.",
+        "title": "Classroom recording"
+      },
+      "search": {
+        "detail": "Search, and ask questions about, uploaded documents and videos.",
+        "title": "Content search"
+      },
+      "video": {
+        "detail": "Analysis of the classroom video and the board. Needs DL Streamer.",
+        "title": "Video analytics"
+      }
+    },
+    "network": {
+      "causes": {
+        "certificate": "The connection is inspected, and its certificate is not trusted. Downloads may fail.",
+        "connection": "The connection was refused or dropped.",
+        "dns": "Host name not found. Check the network connection or the proxy address.",
+        "other": "The connection failed.",
+        "proxyAuth": "The proxy needs a user name and password: http://user:password@host:port.",
+        "proxyRefused": "The proxy refused the connection to this host.",
+        "proxyUnreachable": "The proxy cannot be reached. Check its address and port.",
+        "timeout": "No answer in time. A proxy may be required.",
+        "unsupportedProxy": "This kind of proxy is not supported. Use an http:// proxy."
+      },
+      "connection": "Connection",
+      "direct": "Direct connection",
+      "hosts": {
+        "huggingface": "Models from Hugging Face",
+        "installers": "Installers",
+        "modelscope": "Models from ModelScope",
+        "packages": "Python packages"
+      },
+      "noConnection": "Cannot reach the download hosts",
+      "proxyNote": "Python downloads use the HTTPS proxy. Leave both proxies empty for a direct connection, and include user:password@ in the address if the proxy asks for one.",
+      "test": "Test connection",
+      "testNote": "Checks that the download hosts answer through these settings, before you save them.",
+      "testing": "Testing…",
+      "viaEntered": "Through {{proxy}}",
+      "viaEnvironment": "Through the proxy in the HTTPS_PROXY variable, {{proxy}}",
+      "viaSaved": "Through the saved proxy {{proxy}}",
+      "viaSystem": "Through the Windows proxy {{proxy}}"
     },
     "setup": {
       "title": "Setup",
-      "subtitle": "Check prerequisites, then create the Python environment and models.",
       "recheck": "Re-check",
       "checking": "Checking…",
       "runAll": "Fix {{count}} item",
@@ -52,14 +168,7 @@
       "copyDiagnostics": "Copy diagnostics",
       "copied": "Copied",
       "blockedBy": "Needs {{items}} first.",
-      "firstRun": "The Python environment is missing, so the backend cannot start. Select Fix to create it — the first run downloads several gigabytes.",
-      "manualFix": "{{items}} cannot be brought up to date automatically. Use the button on that row — it rebuilds from scratch, so it asks for confirmation first.",
-      "allReady": "Everything is ready.",
-      "settledWithWarnings": "Everything is ready. {{count}} note is for information only.",
-      "settledWithWarnings_other": "Everything is ready. {{count}} notes are for information only.",
-      "allReadyRunning": "Everything is ready and the backend is running.",
       "startBackend": "Start backend",
-      "backToGetStarted": "Back to Get started",
       "openServices": "Open Services",
       "sections": {
         "system": "System and drivers",
@@ -73,7 +182,36 @@
         "missing": "Missing",
         "running": "Running",
         "failed": "Failed"
-      }
+      },
+      "summary": {
+        "checking": "Checking this PC…",
+        "fixing": "Fixing what is missing. This can take a while.",
+        "problems": "{{count}} thing needs fixing.",
+        "problems_other": "{{count}} things need fixing."
+      },
+      "clear": {
+        "installed": "Everything is installed",
+        "installedText": "The backend is not running yet. Services shows how it is doing.",
+        "stoppedText": "Start the backend to use Smart Classroom.",
+        "working": "Everything is working",
+        "workingText": "This PC has everything Smart Classroom needs, and the backend is running."
+      },
+      "row": {
+        "waiting": "Waiting",
+        "fixed": "Fixed"
+      },
+      "problems": "What needs fixing",
+      "needsAdmin": "needs administrator",
+      "adminNote": "Windows asks an administrator to approve the items marked “needs administrator”, once for all of them. The prompt names Windows PowerShell.",
+      "proxySettings": "Proxy settings",
+      "allChecks": "All checks",
+      "showChecks": "All checks ({{count}})",
+      "hideChecks": "Hide all checks",
+      "showOutput": "Show output",
+      "hideOutput": "Hide output",
+      "menuBadge": "{{count}} item needs fixing",
+      "menuBadge_other": "{{count}} items need fixing",
+      "cancelling": "Cancelling…"
     },
     "config": {
       "title": "Configuration",
@@ -147,8 +285,8 @@
       "stop": "Stop",
       "restart": "Restart",
       "external": "external",
-      "needsSetup": "The Python environment is missing. Create it on the Setup screen before starting the backend.",
-      "setupRunning": "Setup is preparing the Python environment. Start the backend when it finishes; progress is on the Setup screen.",
+      "needsSetup": "The Python environment is missing, so the backend cannot start yet.",
+      "setupRunning": "Setup is preparing the Python environment. Start the backend when it finishes.",
       "disabledIn": "Disabled in config.yaml",
       "status": {
         "stopped": "Stopped",
@@ -165,6 +303,17 @@
         "clear": "Clear",
         "openFolder": "Open folder",
         "empty": "No output captured yet."
+      },
+      "openSetup": "Open Setup",
+      "download": {
+        "starting": "Starting the download…",
+        "sizes": "{{done}} of {{total}}",
+        "speed": "{{speed}}/s",
+        "secondsLeft": "less than a minute left",
+        "minutesLeft": "about {{minutes}} min left",
+        "hoursLeft": "about {{hours}} h {{minutes}} min left",
+        "wholeHoursLeft": "about {{hours}} h left",
+        "label": "Downloading {{model}} from {{hub}}"
       }
     },
     "header": {
@@ -295,7 +444,9 @@
     },
   
   "accordion": {
+      "hidePanel": "Hide panel",
       "noData": "No data available",
+      "showPanel": "Show panel",
       "noSessionActive": "No active session. Upload file or Start Recording to begin monitoring.",
       "lastUpdated": "Last updated",
       "resourceUtilization": "Resource Utilization",

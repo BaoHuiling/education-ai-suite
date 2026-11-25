@@ -13,7 +13,11 @@ const LanguageSwitcher: React.FC = () => {
   return (
     <select
       value={i18n.language}
-      onChange={e => i18n.changeLanguage(e.target.value)}
+      onChange={e => {
+        i18n.changeLanguage(e.target.value);
+        // Remembered for the next launch; the renderer's own storage is not.
+        void window.electronAPI?.saveLanguage?.(e.target.value);
+      }}
       style={{ marginRight: '16px', padding: '4px 8px', borderRadius: '4px' }}
       aria-label="Language Switch"
     >

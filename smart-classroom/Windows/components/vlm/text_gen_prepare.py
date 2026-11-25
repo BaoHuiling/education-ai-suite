@@ -942,8 +942,14 @@ def _can_hardlink(src_dir: Path, dst_dir: Path) -> bool:
 def _snapshot(repo: str, local_dir: Path, revision: Optional[str], allow_patterns=None):
     from huggingface_hub import snapshot_download
 
-    return snapshot_download(repo_id=repo, revision=revision, local_dir=str(local_dir),
-                             allow_patterns=allow_patterns)
+    from utils.download_progress import hf_kwargs, reporting, track
+
+    # Byte-level progress for the desktop app, when it is reading it.
+    progress = track(repo, "hf")
+    with reporting(progress):
+        return snapshot_download(repo_id=repo, revision=revision, local_dir=str(local_dir),
+                                 allow_patterns=allow_patterns,
+                                 **hf_kwargs(progress, snapshot_download))
 
 
 def _resolve_revision(repo: str) -> str:

@@ -76,9 +76,37 @@ interface ElectronAPI {
     }) => Promise<import('./types/services').IpcResult<import('./types/services').LogLine[]>>;
     clearLogs: () => Promise<import('./types/services').IpcResult<boolean>>;
     revealLogs: () => Promise<import('./types/services').IpcResult<string | null>>;
+    /** What an automatic run would do, in order. */
+    plan: (options?: {
+      includeElevated?: boolean;
+    }) => Promise<import('./types/services').IpcResult<import('./types/firstRun').SetupPlanEntry[]>>;
+    /** Run every repair that needs nobody, plus approved elevated ones. */
+    runAutomatic: (options?: {
+      includeElevated?: boolean;
+    }) => Promise<import('./types/services').IpcResult<import('./types/setup').AutomaticRunResult>>;
     /** Returns an unsubscribe function. */
     onChanged: (callback: (steps: import('./types/setup').SetupStep[]) => void) => () => void;
   };
+  /** The first-run wizard's flow, owned by the main process. Absent in the plain web app. */
+  firstRun?: {
+    get: () => Promise<import('./types/services').IpcResult<import('./types/firstRun').FirstRunSnapshot>>;
+    send: (
+      choice: import('./types/firstRun').FirstRunChoice,
+      options?: { includeElevated?: boolean }
+    ) => Promise<import('./types/services').IpcResult<import('./types/firstRun').FirstRunSnapshot>>;
+    /** Returns an unsubscribe function. */
+    onChanged: (callback: (snapshot: import('./types/firstRun').FirstRunSnapshot) => void) => () => void;
+  };
+  /** The wizard's Network page test. Absent in the plain web app. */
+  network?: {
+    probe: (
+      values: import('./types/firstRun').ProxyValues
+    ) => Promise<import('./types/services').IpcResult<import('./types/firstRun').NetworkProbeResult>>;
+  };
+  /** The UI language to start in: the last explicit choice, else the system's. */
+  initialLanguage?: string;
+  /** Remember an explicit language choice for the next launch. */
+  saveLanguage?: (language: string) => Promise<import('./types/services').IpcResult<string>>;
   /** Clipboard via the main process; navigator.clipboard needs a secure context. */
   copyText: (text: string) => Promise<import('./types/services').IpcResult<boolean>>;
 }

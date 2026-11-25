@@ -93,7 +93,7 @@ export function useConfigProblems(changes: ConfigChange[], description: ConfigDe
     // every save, which is exactly when the on-disk answer can have changed.
   }, [changes, description]);
 
-  // Translated here so the banners, field chips and Get started all agree.
+  // Translated here so the banners, field chips and the Setup screen all agree.
   const problems = useMemo(() => found.map((problem) => localizeProblem(t, problem)), [found, t]);
 
   const blocking = useMemo(() => problems.filter((problem) => problem.blocking), [problems]);

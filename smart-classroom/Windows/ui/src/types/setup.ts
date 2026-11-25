@@ -4,6 +4,8 @@
 // Shapes returned by the Electron setup IPC bridge. Kept in sync with
 // electron/services/setup-runner.cjs.
 
+import type { DownloadProgress } from './download';
+
 export type SetupStatus = 'unknown' | 'ok' | 'warn' | 'outdated' | 'missing' | 'running' | 'failed';
 
 export interface SetupAction {
@@ -11,6 +13,8 @@ export interface SetupAction {
   label: string;
   /** Destroys existing state, so it is confirmed natively and never bulk-run. */
   destructive: boolean;
+  /** Raises a UAC prompt, so it never runs without someone approving it. */
+  elevates: boolean;
 }
 
 export interface SetupSection {
@@ -34,8 +38,15 @@ export interface SetupStep {
   detailParams: Record<string, string | number>;
   /** The action that clears this status. */
   repair: string | null;
+  /**
+   * How that repair runs: 'auto' needs nobody, 'elevated' needs administrator
+   * approval, 'manual' (destructive) is left for a deliberate click.
+   */
+  repairKind: 'auto' | 'elevated' | 'manual' | null;
   /** A command or link the user can use when the app cannot fix it. */
   hint: string | null;
+  /** While an action of this step runs: the model download it last reported. */
+  progress?: DownloadProgress | null;
 }
 
 /**
@@ -50,4 +61,12 @@ export const SETUP_ERROR = {
 export interface SetupDescription {
   sections: SetupSection[];
   steps: SetupStep[];
+}
+
+/** What SetupRunner.runAutomatic() did. */
+export interface AutomaticRunResult {
+  ran: string[];
+  failed: { id: string; error: string }[];
+  blocked: string[];
+  manual: string[];
 }

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // One row of the settings form. Shared by the full Configuration editor and the
-// "commonly used" subset on Get started, so both render and validate alike.
+// setup assistant's settings, so both render and validate alike.
 
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -130,7 +130,7 @@ interface ConfigFieldControlProps {
   field: ConfigField;
   draft: Record<string, ConfigValue>;
   onChange: (value: ConfigValue) => void;
-  /** Set so a deep link from Get started can scroll straight to this row. */
+  /** Set so a deep link, such as the Setup screen's Show setting, can scroll straight to this row. */
   id?: string;
   /** Briefly flagged after such a jump, so the row is findable by eye. */
   flashed?: boolean;

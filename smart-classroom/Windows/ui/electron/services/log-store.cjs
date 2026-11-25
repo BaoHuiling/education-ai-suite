@@ -29,15 +29,22 @@ class LogStore extends EventEmitter {
     this.buffers = new Map(); // id -> line[]
     this.sinks = new Map(); // id -> { stream, file }
     this.pending = new Map(); // id -> line[]
-    this.partials = new Map(); // id -> string
+    this.partials = new Map(); // `${id} ${stream}` -> string
     this.flushTimer = null;
     // Optional (text) => { id, text } | null, used to attribute a child's teed
     // output to the child rather than the process that piped it.
     this.route = () => null;
+    // Optional (id, text) => boolean: true takes the line out of the log, for
+    // lines that carry state rather than text, such as download progress.
+    this.tap = () => false;
   }
 
   setRoute(route) {
     this.route = typeof route === 'function' ? route : () => null;
+  }
+
+  setTap(tap) {
+    this.tap = typeof tap === 'function' ? tap : () => false;
   }
 
   openSink(id) {
@@ -77,16 +84,20 @@ class LogStore extends EventEmitter {
   }
 
   // `chunk` is raw stdout/stderr; partial trailing lines are held until the
-  // rest arrives so progress output is not split mid-line.
+  // rest arrives so progress output is not split mid-line. Per stream, so a
+  // stderr line cannot land in the middle of a stdout one.
   write(id, chunk, stream = 'stdout') {
-    const text = (this.partials.get(id) || '') + chunk.toString('utf8').replace(/\r(?!\n)/g, '\n');
+    const key = `${id} ${stream}`;
+    const text = (this.partials.get(key) || '') + chunk.toString('utf8').replace(/\r(?!\n)/g, '\n');
     const parts = text.split(/\r?\n/);
-    this.partials.set(id, parts.pop() ?? '');
+    this.partials.set(key, parts.pop() ?? '');
     for (const part of parts) {
       const routed = this.route(part);
+      const target = routed && routed.id !== id ? routed : { id, text: part };
+      // After routing, so a child's progress is the child's.
+      if (this.tap(target.id, target.text)) continue;
       // The file sink stays with the source so one log file holds the whole tree.
-      if (routed && routed.id !== id) this.push(routed.id, routed.text, stream, id);
-      else this.push(id, part, stream, id);
+      this.push(target.id, target.text, stream, id);
     }
   }
 

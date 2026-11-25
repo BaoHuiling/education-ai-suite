@@ -1,3 +1,4 @@
+import contextlib
 import os
 import sys
 import shutil
@@ -92,22 +93,47 @@ def _ir_exists(model_dir: Path, precision: str) -> bool:
     return (model_dir / precision / "model.xml").exists()
 
 
+def _progress_helpers():
+    """utils.download_progress, for the desktop app's progress bar; None without it.
+
+    This script runs on its own, from its own folder, so the Smart Classroom
+    root is added at the end of the import path, where it shadows nothing.
+    """
+    if str(_SC_ROOT) not in sys.path:
+        sys.path.append(str(_SC_ROOT))
+    try:
+        from utils import download_progress
+    except ImportError:
+        return None
+    return download_progress
+
+
 def _download(source: str, repo_id: str, download_dir: Path) -> None:
     print(f"[1/2] Downloading model  source={source}  repo_id={repo_id}")
     print(f"      Target directory: {download_dir}")
     download_dir.mkdir(parents=True, exist_ok=True)
 
+    # Byte-level progress for the desktop app, when it is reading it.
+    helpers = _progress_helpers()
+    progress = helpers.track(repo_id, source) if helpers else None
+    reporting = helpers.reporting(progress) if helpers else contextlib.nullcontext()
+
     if source == "huggingface":
         import huggingface_hub as hf_hub
-        hf_hub.snapshot_download(
-            repo_id=repo_id,
-            local_dir=str(download_dir),
-            resume_download=True,
-            max_workers=4,
-        )
+        extra = helpers.hf_kwargs(progress, hf_hub.snapshot_download) if helpers else {}
+        with reporting:
+            hf_hub.snapshot_download(
+                repo_id=repo_id,
+                local_dir=str(download_dir),
+                resume_download=True,
+                max_workers=4,
+                **extra,
+            )
     elif source == "modelscope":
         from modelscope import snapshot_download
-        snapshot_download(model_id=repo_id, local_dir=str(download_dir), max_workers=4)
+        extra = helpers.ms_kwargs(progress, snapshot_download) if helpers else {}
+        with reporting:
+            snapshot_download(model_id=repo_id, local_dir=str(download_dir), max_workers=4, **extra)
     else:
         raise ValueError(f"Unsupported download source: {source}, must be huggingface or modelscope")
     print("      Download complete")

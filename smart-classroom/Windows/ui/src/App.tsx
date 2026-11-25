@@ -8,14 +8,16 @@ import ReportPanel from './components/ReportPanel';
 import ServicesScreen from './components/Services/ServicesScreen';
 import ConfigScreen from './components/Settings/ConfigScreen';
 import SetupScreen from './components/Settings/SetupScreen';
-import GetStartedScreen from './components/Settings/GetStartedScreen';
 import HistoryPanel from './components/History/HistoryPanel';
+import SetupAssistant from './components/assistant/SetupAssistant';
 import './App.css';
 import './assets/css/HeaderBar.css';
 import MetricsPoller from './components/common/MetricsPoller';
 import { pingBackend } from './services/api';
 import { isServiceManagerAvailable, useReloadOnBackendRestart, useServices } from './services/serviceManager';
 import { useSetup } from './services/setupManager';
+import { useFirstRun } from './services/firstRunManager';
+import { isActing, isRunning, needsWork } from './services/setupStatus';
 import { useVideoPipelineMonitor } from "../src/redux/videoMonitor";
 import { useAudioPipeline } from './redux/useAudioPipeline';
 import { useSessionAbortBeacon } from './redux/useSessionAbortBeacon';
@@ -27,7 +29,7 @@ import { FeatureGuard } from './utils/featureGuards';
 const App: React.FC = () => {
   const { t } = useTranslation();
   const [backendStatus, setBackendStatus] = useState<'checking' | 'available' | 'unavailable'>('checking');
-  const [activeScreen, setActiveScreen] = useState<'main' | 'content-search' | 'grading' | 'services' | 'config' | 'setup' | 'ready'>('main');
+  const [activeScreen, setActiveScreen] = useState<'main' | 'content-search' | 'grading' | 'services' | 'config' | 'setup'>('main');
   const [isReportOpen, setIsReportOpen] = useState(false);
   // Both slide over the workspace rather than replacing it, so looking up last
   // week's class does not take the teacher away from the one recording now.
@@ -77,8 +79,7 @@ const App: React.FC = () => {
   }, [featuresLoaded, guard]);
   // Electron-only screens that replace the whole body rather than sitting
   // inside the normal main/content-search/grading layout.
-  const isToolScreen =
-    activeScreen === 'services' || activeScreen === 'config' || activeScreen === 'setup' || activeScreen === 'ready';
+  const isToolScreen = activeScreen === 'services' || activeScreen === 'config' || activeScreen === 'setup';
 
   // A screen can be opened pointing at one row — a setup step id, or a config
   // field path. Cleared by any other navigation so it never fires twice.
@@ -88,50 +89,55 @@ const App: React.FC = () => {
   };
 
   const renderToolScreen = (screen: typeof activeScreen) => {
-    if (screen === 'ready') return <GetStartedScreen onOpenScreen={openScreen} />;
     if (screen === 'config') return <ConfigScreen onOpenScreen={openScreen} focusPath={focusTarget} />;
-    if (screen === 'setup') return <SetupScreen onOpenScreen={openScreen} focusStepId={focusTarget} />;
-    if (screen === 'services') return <ServicesScreen />;
+    if (screen === 'setup') return <SetupScreen onOpenScreen={openScreen} />;
+    if (screen === 'services') return <ServicesScreen onOpenSetup={() => openScreen('setup')} />;
     return null;
   };
 
-  // Get started is the landing screen whenever anything still needs doing, so a
+  // Setup is the landing screen whenever anything still needs doing, so a
   // machine with broken prerequisites is told what is wrong instead of being
   // dropped on Services to watch a start fail. Services is only the right
   // landing spot when there is nothing to fix and the backend could run.
   const { services: managedServices } = useServices();
   const { steps: setupSteps } = useSetup();
+  // The first-run wizard's flow, run by the main process on a machine that
+  // has never been set up. Closed for this session once the user leaves it
+  // for another screen or finishes.
+  const { snapshot: firstRunSnapshot, send: sendFirstRun } = useFirstRun();
+  const [wizardClosed, setWizardClosed] = useState(false);
+  const wizardSnapshot =
+    firstRunSnapshot?.active && firstRunSnapshot.phase !== 'manual' && !wizardClosed ? firstRunSnapshot : null;
+  // "Set up manually" hands over to the Setup screen.
+  const manualChosen = !!firstRunSnapshot?.active && firstRunSnapshot.phase === 'manual';
+  useEffect(() => {
+    if (manualChosen) setActiveScreen('setup');
+  }, [manualChosen]);
   const backendService = managedServices.find((service) => service.id === 'backend');
   // Everything below — the session, the transcript, the recording flags — belongs
-  // to one backend process. Restarting it from Services, Configuration or Get
-  // started invalidates all of it, so start the page over rather than leave a
-  // session on screen that the new backend has never heard of.
+  // to one backend process. Restarting it from Services or Configuration
+  // invalidates all of it, so start the page over rather than leave a session
+  // on screen that the new backend has never heard of.
   useReloadOnBackendRestart(backendService);
   const setupChecked = setupSteps.some((step) => step.status !== 'unknown');
-  const setupNeedsAttention = setupSteps.some((step) =>
-    ['missing', 'failed', 'outdated'].includes(step.status)
-  );
-  // The app runs setup by itself at launch, so show it at work. An action (an
-  // install, pip) is told apart from a check by the detail runStep gives the
-  // row; a check keeps the row's previous detail.
-  const setupActing = setupSteps.some((step) => step.status === 'running' && step.detailKey === 'running');
+  const setupNeedsAttention = setupSteps.some(needsWork);
+  // The app repairs a broken setup by itself at launch, so show it at work.
+  const setupActing = setupSteps.some(isActing);
   // Latched for the session: between two steps nothing is acting for a moment,
-  // and a step that failed is best explained on the screen it failed on, with
-  // its output, rather than on Get started.
+  // and a step that failed is best explained on Setup, where its row says why.
   const [setupShown, setSetupShown] = useState(false);
   useEffect(() => {
     if (setupActing) setSetupShown(true);
   }, [setupActing]);
-  const setupRunning = setupSteps.some((step) => step.status === 'running');
+  const setupRunning = setupSteps.some(isRunning);
   // Not `runnable` alone: the interpreter exists seconds into creating the
   // environment, while pip runs for minutes after. Handing over to Services
   // then showed a Start button for an environment still being built.
-  const firstRunScreen =
-    setupActing || (setupShown && (setupNeedsAttention || setupRunning))
-      ? 'setup'
-      : setupChecked && !setupNeedsAttention && backendService?.runnable !== false
-        ? 'services'
-        : 'ready';
+  const repairing = setupActing || (setupShown && (setupNeedsAttention || setupRunning));
+  const landingScreen =
+    !repairing && setupChecked && !setupNeedsAttention && backendService?.runnable !== false ? 'services' : 'setup';
+  // The menu's count on Setup, so a problem is visible from every screen.
+  const setupAttention = setupSteps.filter(needsWork).length;
 
   // Memoised so the effects below can depend on it by name without re-running on
   // every render.
@@ -186,6 +192,22 @@ const App: React.FC = () => {
   }, [backendServiceStatus, checkBackendHealth]);
 
 
+  // The setup assistant takes the whole window while the main process runs
+  // the first-run flow, ahead of everything else here.
+  if (wizardSnapshot) {
+    return (
+      <SetupAssistant
+        snapshot={wizardSnapshot}
+        send={sendFirstRun}
+        onOpenScreen={(screen, target) => {
+          setWizardClosed(true);
+          openScreen(screen, target);
+        }}
+        onFinish={() => setWizardClosed(true)}
+      />
+    );
+  }
+
   if (backendStatus === 'checking') {
     return (
       <div className="app-loading">
@@ -203,7 +225,7 @@ const App: React.FC = () => {
     // manager instead of a dead end. Health polling flips this screen away once
     // the backend answers.
     if (isServiceManagerAvailable()) {
-      const screen = isToolScreen ? activeScreen : firstRunScreen;
+      const screen = isToolScreen ? activeScreen : landingScreen;
       return (
         <div className="app">
           <TopPanel
@@ -213,6 +235,7 @@ const App: React.FC = () => {
             // feature-gated nav entry renders disabled.
             featureGuard={new FeatureGuard([])}
             hasMainFeatures={false}
+            setupAttention={setupAttention}
           />
           <div className="main-content">{renderToolScreen(screen)}</div>
           <Footer />
@@ -267,6 +290,7 @@ const App: React.FC = () => {
         setActiveScreen={openScreen}
         featureGuard={guard}
         hasMainFeatures={hasMainFeatures}
+        setupAttention={setupAttention}
       />
       <div style={{ display: activeScreen === 'main' ? 'contents' : 'none' }}>
         <HeaderBar

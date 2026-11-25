@@ -52,16 +52,51 @@ const featurePath = (id) => `features.${id}.enabled`;
 // updates the form before saving.
 const OPENAI_WHISPER_ONLY = { 'models.asr.provider': ['openai'] };
 
-// The "Get started" screen shows `wizard: true` only; the full editor still
-// shows everything.
+// Drawn by the feature picker, inside their FEATURE_GROUPS group, everywhere
+// features are chosen: the setup assistant and the Configuration screen.
 const featureFields = Object.entries(FEATURES).map(([id, { label }]) => ({
   path: featurePath(id),
   file: CONFIG,
   group: 'features',
   label,
   type: 'boolean',
-  wizard: true,
 }));
+
+// Features grouped by what a teacher does, which is how they are chosen. Every
+// feature belongs to exactly one group (config-schema-contract.test.cjs).
+// `detail` is the English; src/i18n carries the translations.
+const FEATURE_GROUPS = [
+  {
+    id: 'recording',
+    label: 'Classroom recording',
+    detail: 'Transcription, summary, mind map and topic segmentation of a lesson, and the class report.',
+    features: ['asr', 'summary', 'mindmap', 'topic_segmentation', 'report'],
+  },
+  {
+    id: 'video',
+    label: 'Video analytics',
+    detail: 'Analysis of the classroom video and the board. Needs DL Streamer.',
+    features: ['video_analytics', 'board_ocr'],
+    needsAdmin: true,
+  },
+  {
+    id: 'search',
+    label: 'Content search',
+    detail: 'Search, and ask questions about, uploaded documents and videos.',
+    features: ['content_search', 'qa'],
+  },
+  {
+    id: 'grading',
+    label: 'Grading',
+    detail: 'Grade exam papers against a rubric. Adds a conversion environment and a layout detection model.',
+    features: ['grading'],
+  },
+];
+
+// `onboarding` on a field: where the setup assistant shows it. A feature
+// group's id puts it inside that group of the feature picker; 'network' puts
+// it on the Network page. Device fields carry none: the default path never
+// asks for a device (onboarding validation rule 3.6).
 
 const GROUPS = [
   { id: 'features', label: 'Features' },
@@ -141,7 +176,7 @@ const FIELDS = [
   // -------------------------------------------------------------------------
   // General
   // -------------------------------------------------------------------------
-  { path: 'app.language', file: CONFIG, group: 'general', label: 'Language', type: 'enum', options: ['en', 'zh'], wizard: true },
+  { path: 'app.language', file: CONFIG, group: 'general', label: 'Language', type: 'enum', options: ['en', 'zh'], onboarding: 'recording' },
   {
     path: 'app.cleanup_on_exit',
     file: CONFIG,
@@ -155,6 +190,7 @@ const FIELDS = [
     group: 'general',
     label: 'Model hub',
     type: 'enum',
+    onboarding: 'network',
     options: ['huggingface', 'modelscope'],
     help: 'Where models published on both hubs are downloaded from. Some models exist on one hub only and ignore this.',
   },
@@ -179,7 +215,7 @@ const FIELDS = [
     label: 'ASR provider',
     type: 'enum',
     options: ['openai', 'openvino', 'funasr'],
-    wizard: true,
+    onboarding: 'recording',
     help: 'openai suits English; funasr suits Chinese.',
   },
   {
@@ -189,7 +225,7 @@ const FIELDS = [
     subgroup: 'asrRecognition',
     label: 'ASR model',
     type: 'enum',
-    wizard: true,
+    onboarding: 'recording',
     options: ['whisper-base', 'whisper-small', 'paraformer-zh'],
     help: 'whisper-small is the balanced default; paraformer-zh is Chinese-optimised.',
   },
@@ -201,7 +237,6 @@ const FIELDS = [
     label: 'ASR device',
     type: 'enum',
     options: ['CPU', 'GPU', 'NPU'],
-    wizard: true,
   },
   {
     path: 'models.asr.diarization',
@@ -210,7 +245,7 @@ const FIELDS = [
     subgroup: 'asrRecognition',
     label: 'Speaker diarization',
     type: 'boolean',
-    wizard: true,
+    onboarding: 'recording',
     help: 'Turns diarization on; tune it under Speaker diarization below.',
   },
   {
@@ -221,7 +256,7 @@ const FIELDS = [
     label: 'Hugging Face token',
     type: 'secret',
     maxLength: 256,
-    wizard: true,
+    onboarding: 'recording',
     help: 'Required only when diarization is enabled and diarization model is not downloaded yet.',
   },
   // The five below are openai-whisper decode options. components/asr/openai/
@@ -815,7 +850,7 @@ const FIELDS = [
     subgroup: 'csGeneral',
     label: 'Document OCR',
     type: 'boolean',
-    wizard: true,
+    onboarding: 'search',
     help: 'Extract text from images inside uploaded documents.',
   },
   {
@@ -836,7 +871,7 @@ const FIELDS = [
     min: 1,
     max: 10240,
     integer: true,
-    wizard: true,
+    onboarding: 'search',
   },
   {
     path: 'content_search.storage.video_max_mb',
@@ -848,7 +883,7 @@ const FIELDS = [
     min: 1,
     max: 102400,
     integer: true,
-    wizard: true,
+    onboarding: 'search',
   },
   {
     path: 'content_search.file_ingest.doc_embedding_device',
@@ -1170,8 +1205,8 @@ const FIELDS = [
   // -------------------------------------------------------------------------
   // Proxy (.proxy-config)
   // -------------------------------------------------------------------------
-  { path: 'httpProxy', file: PROXY, group: 'proxy', label: 'HTTP_PROXY', type: 'url', maxLength: 512, wizard: true },
-  { path: 'httpsProxy', file: PROXY, group: 'proxy', label: 'HTTPS_PROXY', type: 'url', maxLength: 512, wizard: true },
+  { path: 'httpProxy', file: PROXY, group: 'proxy', label: 'HTTP_PROXY', type: 'url', maxLength: 512, onboarding: 'network' },
+  { path: 'httpsProxy', file: PROXY, group: 'proxy', label: 'HTTPS_PROXY', type: 'url', maxLength: 512, onboarding: 'network' },
   {
     path: 'noProxy',
     file: PROXY,
@@ -1179,7 +1214,7 @@ const FIELDS = [
     label: 'NO_PROXY',
     type: 'string',
     maxLength: 512,
-    wizard: true,
+    onboarding: 'network',
     help: 'Comma-separated hosts that bypass the proxy.',
   },
 ];
@@ -1717,4 +1752,4 @@ function validate(cfg, context = {}) {
   return problems;
 }
 
-module.exports = { FEATURES, FIELDS, GROUPS, SUBGROUPS, RULES, CONFIG, PROXY, get, coerce, validate };
+module.exports = { FEATURES, FEATURE_GROUPS, FIELDS, GROUPS, SUBGROUPS, RULES, CONFIG, PROXY, get, coerce, validate };

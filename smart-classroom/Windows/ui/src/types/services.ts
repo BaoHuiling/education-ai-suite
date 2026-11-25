@@ -4,6 +4,8 @@
 // Shapes returned by the Electron service-manager IPC bridge. Kept in sync with
 // electron/services/registry.cjs and electron/services/process-manager.cjs.
 
+import type { DownloadProgress } from './download';
+
 export type ServiceStatus = 'stopped' | 'starting' | 'healthy' | 'degraded' | 'stopping' | 'failed';
 
 export interface ServiceSnapshot {
@@ -34,6 +36,8 @@ export interface ServiceSnapshot {
   exitCode: number | null;
   error: string | null;
   logFile: string | null;
+  /** The model download the service last reported, until it stops. */
+  download?: DownloadProgress | null;
 }
 
 export interface LogLine {

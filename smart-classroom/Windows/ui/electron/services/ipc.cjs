@@ -49,7 +49,7 @@ const CONFIRM_TEXT = {
   },
 };
 
-function register({ manager, logs, setup, getWindow, getLanguage = () => 'en' }) {
+function register({ manager, logs, setup, firstRun, network, saveLanguage, getWindow, getLanguage = () => 'en' }) {
   const trusted = (event) => {
     const window = getWindow();
     return !!window && !window.isDestroyed() && event.sender.id === window.webContents.id;
@@ -119,6 +119,14 @@ function register({ manager, logs, setup, getWindow, getLanguage = () => 'en' })
     return { sections: setup.sections(), steps: setup.snapshot() };
   });
   handle('setup:check', () => setup.checkAll());
+  // What an automatic run would do, for the first-run wizard's Install page.
+  handle('setup:plan', (options) => setup.plan({ includeElevated: options?.includeElevated === true }));
+  // The Setup screen's Fix: the same automatic run the first launch makes,
+  // here on request. Elevated steps only when the user approved them.
+  handle('setup:runAutomatic', (options) => {
+    if (setup.working) throw new Error('Another setup step is already running.');
+    return setup.runAutomatic({ includeElevated: options?.includeElevated === true });
+  });
   handle('setup:run', async (stepId, actionId) => {
     // Validates both ids and throws before anything runs.
     const { step, action } = setup.find(stepId, actionId);
@@ -158,6 +166,18 @@ function register({ manager, logs, setup, getWindow, getLanguage = () => 'en' })
     return file;
   });
 
+  // The first-run wizard's flow lives in the main process; the window reads
+  // it and sends choices by name.
+  handle('firstRun:get', () => firstRun.snapshot());
+  handle('firstRun:send', (choice, options) => firstRun.send(choice, options));
+  // The Network page's test. The values are checked by the Configuration
+  // screen's rules first, and the results come back with credentials hidden.
+  handle('network:probe', (values) => network.probeEntered(values));
+
+  // An explicit language choice, remembered for the next launch. Validated
+  // against the supported languages by the preferences module.
+  handle('app:saveLanguage', (language) => saveLanguage(language));
+
   // Diagnostics for a bug report. Renderer-composed, but copied here.
   handle('app:copyText', (text) => {
     if (typeof text !== 'string') throw new Error('Nothing to copy.');
@@ -172,6 +192,7 @@ function register({ manager, logs, setup, getWindow, getLanguage = () => 'en' })
 
   manager.on('changed', (snapshot) => send('services:changed', snapshot));
   setup.on('changed', (snapshot) => send('setup:changed', snapshot));
+  firstRun.on('changed', (snapshot) => send('firstRun:changed', snapshot));
   logs.on('append', (batch) => send('logs:append', batch));
 }
 

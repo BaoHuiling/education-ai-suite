@@ -29,8 +29,14 @@
 }
 
 
-/* Collapse arrow */
+/* The right panel's toggle (PanelToggle), on the divider. Its chevron and
+   colours are the Accordion's (Accordion.css): grey at rest, Intel blue on a
+   light blue disc when hovered, turning to point back once collapsed. */
 .arrow {
+  --arrow-accent: #0071c5;
+  --arrow-duration: 260ms;
+  --arrow-ease: cubic-bezier(0.2, 0, 0, 1);
+
   position: absolute;
   top: 50%;
   left: calc(50% - 14px);
@@ -39,17 +45,48 @@
   /* Must beat `.left-panel`'s z-index: 1000 (it is positioned, so it would
      otherwise paint over the toggle) while staying below modals (10001+). */
   z-index: 1100;
-  color: #0071c5;
-  background: #fff;
-  border-radius: 50%;
-  border: 1px solid #e6e7e8;
-  width: 28px;
-  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
-  transition: left 0.3s ease;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: #6b6e76;
+  background: #fff;
+  border: 1px solid #e6e7e8;
+  border-radius: 50%;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  transition: left 0.3s ease, background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+
+.arrow:hover {
+  color: var(--arrow-accent);
+  background: #e8f1fa;
+  border-color: #c9ddf0;
+}
+
+.arrow:active {
+  background: #dce9f6;
+}
+
+.arrow:focus-visible {
+  outline: 2px solid var(--arrow-accent);
+  outline-offset: 2px;
+}
+
+.arrow svg {
+  transition: transform var(--arrow-duration) var(--arrow-ease);
+}
+
+.arrow.collapsed svg {
+  transform: rotate(180deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .arrow,
+  .arrow svg {
+    transition: none;
+  }
 }
 
 .arrow.collapsed {

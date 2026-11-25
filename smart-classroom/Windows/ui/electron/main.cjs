@@ -11,13 +11,17 @@
 
 const fs = require('fs');
 const path = require('path');
-const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, Menu, Notification, dialog, ipcMain, powerSaveBlocker, session, shell } = require('electron');
 const { startServer } = require('./server.cjs');
 const servicePaths = require('./services/paths.cjs');
 const serviceIpc = require('./services/ipc.cjs');
 const { LogStore } = require('./services/log-store.cjs');
 const { ServiceManager } = require('./services/process-manager.cjs');
 const { SetupRunner, LOG_ID: SETUP_LOG_ID } = require('./services/setup-runner.cjs');
+const { FirstRunController } = require('./services/first-run.cjs');
+const networkProbe = require('./services/network-probe.cjs');
+const config = require('./services/config-store.cjs');
+const preferences = require('./services/preferences.cjs');
 const winEnv = require('./services/win-env.cjs');
 const { resetToShippedDefaults } = require('./services/config-reset.cjs');
 
@@ -227,10 +231,18 @@ serviceManager.setStartGuard(() =>
 // `runnable` (the interpreter exists) goes stale while setup creates or
 // removes the environment. Push it again whenever setup starts or stops work.
 let setupWasWorking = false;
+// Setup downloads gigabytes; a PC that sleeps half-way through stalls it.
+let powerBlocker = null;
 setupRunner.on('changed', () => {
   if (setupRunner.working === setupWasWorking) return;
   setupWasWorking = setupRunner.working;
   serviceManager.emitChanged();
+  if (setupWasWorking && powerBlocker === null) {
+    powerBlocker = powerSaveBlocker.start('prevent-app-suspension');
+  } else if (!setupWasWorking && powerBlocker !== null) {
+    powerSaveBlocker.stop(powerBlocker);
+    powerBlocker = null;
+  }
 });
 
 // `--setup-only`: prepare the machine without opening a window, print what was
@@ -269,50 +281,233 @@ function autoPrepareEnabled() {
 const backendService = () => serviceManager.snapshot().find((service) => service.id === 'backend');
 const isIdle = (service) => service?.status === 'stopped' || service?.status === 'failed';
 
-/**
- * Startup sequence for the windowed app: check everything, then, if allowed,
- * run every repair that needs no one at the keyboard and start the backend.
- *
- * Progress shows on the Get started and Setup screens like a Fix run would,
- * because it uses the same runner. A first launch on a fresh machine therefore
- * ends with a running backend instead of an idle app waiting for clicks.
- */
-async function prepareAndStartBackend() {
-  const startBackend = () => {
-    // Re-read: setup may have created the environment, and the user may have
-    // started the backend from Services in the meantime.
-    const backend = backendService();
-    if (!backend?.runnable || !isIdle(backend)) return;
-    serviceManager.startService('backend').catch((error) => {
-      console.error('[electron] backend auto-start failed:', error.message);
-    });
+/** Start the backend if it can start and nobody has started it yet. */
+function startBackend() {
+  // Re-read: setup may have created the environment, and the user may have
+  // started the backend from Services in the meantime.
+  const backend = backendService();
+  if (!backend?.runnable || !isIdle(backend)) return;
+  serviceManager.startService('backend').catch((error) => {
+    console.error('[electron] backend auto-start failed:', error.message);
+  });
+}
+
+const preferencesFile = () => path.join(servicePaths.stateDir(), 'preferences.json');
+
+const configuredHub = () => (config.readConfig()?.models?.model_hub === 'modelscope' ? 'modelscope' : 'huggingface');
+
+// The first-run wizard's flow. It runs only when launchPlan() says `wizard`;
+// the window shows it and sends choices, and its countdown runs here, so a
+// window that never loads cannot stall it.
+const firstRun = new FirstRunController({
+  recordFile: () => path.join(servicePaths.stateDir(), 'first-run.json'),
+  setupRunner,
+  testNetwork: () =>
+    networkProbe.test({
+      saved: networkProbe.readSaved(),
+      env: networkProbe.readEnv(process.env),
+      // The Windows proxy settings, PAC scripts included, as Chromium resolves
+      // them; pip and the model downloads cannot read PAC scripts themselves.
+      resolveSystem: (url) => session.defaultSession.resolveProxy(url),
+    }),
+  configuredHub,
+  applyChanges: (changes) => config.apply(changes),
+  startBackend,
+  // Into the Setup screen's Output pane, so what was decided is visible.
+  log: (line) => logStore.note(SETUP_LOG_ID, line),
+});
+
+// ---------------------------------------------------------------------------
+// First-run installation in the background
+// ---------------------------------------------------------------------------
+// The installation runs for a long time, often with the window behind others
+// or minimized, so it also reports through the taskbar and a notification.
+// Native, out of react-i18next's reach, hence the text tables here.
+
+const NOTIFY_TEXT = {
+  en: {
+    ready: 'Setup is finished. Smart Classroom is ready.',
+    failed: 'Setup could not finish. Open Smart Classroom to see why.',
+    startFailed: 'Setup is finished, but the backend did not start. Open Smart Classroom to see why.',
+  },
+  zh: {
+    ready: '安装完成，Smart Classroom 已就绪。',
+    failed: '安装未能完成。请打开 Smart Classroom 查看原因。',
+    startFailed: '安装已完成，但后端未能启动。请打开 Smart Classroom 查看原因。',
+  },
+};
+
+const CLOSE_TEXT = {
+  en: {
+    message: 'Setup is still running.',
+    resumes: 'Closing stops it. It continues the next time you open Smart Classroom.',
+    rerun: 'Closing stops it. You can run it again from the Setup screen.',
+    keep: 'Keep running',
+    close: 'Close',
+  },
+  zh: {
+    message: '安装仍在进行中。',
+    resumes: '关闭将停止安装，下次打开 Smart Classroom 时会继续。',
+    rerun: '关闭将停止安装，之后可以在“安装”页面重新运行。',
+    keep: '继续运行',
+    close: '关闭',
+  },
+};
+
+let notified = null;
+
+function notifyFirstRun(kind) {
+  if (notified === kind) return;
+  notified = kind;
+  if (!Notification.isSupported() || mainWindow?.isFocused()) return;
+  const notification = new Notification({
+    title: 'Smart Classroom',
+    body: (NOTIFY_TEXT[currentLanguage] ?? NOTIFY_TEXT.en)[kind],
+  });
+  notification.on('click', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  });
+  notification.show();
+}
+
+/** Taskbar progress and the closing notification, from the flow's state. */
+function reportFirstRun() {
+  const flow = firstRun.snapshot();
+  if (!flow.active) return;
+  const backend = backendService();
+  const setProgress = (value, mode) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setProgressBar(value, mode ? { mode } : undefined);
   };
 
-  // checkAll() is unconditional: it fills in the Setup screen so a first-time
-  // user sees real statuses instead of "Not checked".
-  if (!autoPrepareEnabled()) {
+  if (flow.phase === 'installing') {
+    // A retry deserves its own notification at the end.
+    notified = null;
+    const runnable = (flow.plan ?? []).filter(
+      (entry) => entry.kind === 'auto' || (entry.kind === 'elevated' && flow.includeElevated)
+    );
+    const steps = setupRunner.snapshot();
+    const done = runnable.filter((entry) => {
+      const status = steps.find((step) => step.id === entry.stepId)?.status;
+      return status === 'ok' || status === 'warn';
+    }).length;
+    // The backend's first start is the last item, so setup alone never fills
+    // the bar.
+    if (runnable.length) setProgress(done / (runnable.length + 1));
+    else setProgress(1, 'indeterminate');
+    return;
+  }
+
+  if (flow.phase === 'finished' && !flow.result?.envOk) {
+    setProgress(1, 'error');
+    notifyFirstRun('failed');
+    return;
+  }
+
+  if (flow.phase === 'finished') {
+    if (backend?.status === 'starting') {
+      setProgress(1, 'indeterminate');
+    } else if (backend?.status === 'healthy') {
+      setProgress(-1);
+      notifyFirstRun('ready');
+    } else if (backend?.status === 'failed') {
+      setProgress(1, 'error');
+      notifyFirstRun('startFailed');
+    }
+    return;
+  }
+
+  setProgress(-1);
+}
+
+firstRun.on('changed', reportFirstRun);
+setupRunner.on('changed', reportFirstRun);
+serviceManager.on('changed', reportFirstRun);
+
+/**
+ * Closing the window mid-setup stops it, so ask first. The first-run
+ * installation resumes at the next launch; a step started from the Setup
+ * screen has to be run again.
+ */
+function confirmCloseDuringSetup(window) {
+  let confirmed = false;
+  window.on('close', (event) => {
+    if (confirmed || !setupRunner.working) return;
+    event.preventDefault();
+    const text = CLOSE_TEXT[currentLanguage] ?? CLOSE_TEXT.en;
+    const resumes = firstRun.snapshot().phase === 'installing';
+    dialog
+      .showMessageBox(window, {
+        type: 'warning',
+        title: 'Smart Classroom',
+        message: text.message,
+        detail: resumes ? text.resumes : text.rerun,
+        buttons: [text.keep, text.close],
+        defaultId: 0,
+        cancelId: 0,
+      })
+      .then(({ response }) => {
+        if (response !== 1 || window.isDestroyed()) return;
+        confirmed = true;
+        firstRun.stopForExit();
+        setupRunner.cancel();
+        window.close();
+      })
+      .catch(() => { });
+  });
+}
+
+/**
+ * Startup sequence for the windowed app.
+ *
+ * - The Python environment is OK: start the backend, then check the rest.
+ * - Never set up: the first-run wizard's flow, which installs by itself after
+ *   a countdown, or at once when no wizard is on screen.
+ * - Set up before, and broken since: the automatic repair, which runs every
+ *   repair that needs no one at the keyboard, then starts the backend.
+ * - The user chose to set up by hand: check only.
+ */
+async function prepareAndStartBackend() {
+  // The environment check alone says whether the backend can start, so a
+  // returning user's backend starts now rather than after the driver queries.
+  // An environment that exists but is incomplete (a first run closed during
+  // pip) fails it. Outdated still starts, as it always has; Upgrade stays on
+  // the Setup screen.
+  let envOk = false;
+  if (backendService()?.runnable) {
+    const venv = await setupRunner.checkStep('venv');
+    envOk = venv.status === 'ok' || venv.status === 'outdated';
+  }
+
+  const plan = firstRun.launchPlan({ envOk });
+
+  if (plan === 'ready') {
+    // An upgrade from a version without the wizard, or a machine prepared by
+    // --setup-only: the wizard has nothing to do there.
+    firstRun.markCompleted();
+    if (autoPrepareEnabled()) startBackend();
+    // Unconditional: it fills in the Setup screen so a first-time user sees
+    // real statuses instead of "Not checked".
     await setupRunner.checkAll();
     return;
   }
 
-  // Every launch after the first: the environment check alone says whether the
-  // backend can start, so start it now rather than after the driver queries.
-  // An environment that exists but is incomplete (a first run closed during
-  // pip) fails this and takes the setup path below. Outdated still starts, as
-  // it always has; Upgrade stays on the Setup screen.
-  if (backendService()?.runnable) {
-    const venv = await setupRunner.checkStep('venv');
-    if (venv.status === 'ok' || venv.status === 'outdated') {
-      startBackend();
-      await setupRunner.checkAll();
-      return;
-    }
+  // A backend already up, for example one adopted from the legacy PowerShell
+  // path, has the environment's files in use, so setup cannot change them.
+  if (!isIdle(backendService())) {
+    await setupRunner.checkAll();
+    return;
+  }
+
+  if (plan === 'wizard') {
+    // The flow runs the checks itself, alongside the network test.
+    firstRun.start({ autoStart: autoPrepareEnabled() });
+    return;
   }
 
   await setupRunner.checkAll();
-  // A backend already up, for example one adopted from the legacy PowerShell
-  // path, has the environment's files in use, so setup cannot change them.
-  if (!isIdle(backendService())) return;
+  if (plan === 'manual' || !autoPrepareEnabled()) return;
 
   const result = await setupRunner.runAutomatic();
   if (result.ran.length || result.failed.length) {
@@ -480,6 +675,8 @@ async function createWindow() {
     console.error('[electron] preload script failed:', preloadPath, error);
   });
 
+  confirmCloseDuringSetup(mainWindow);
+
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
     reportConfigResets(mainWindow);
@@ -532,6 +729,16 @@ if (!app.requestSingleInstanceLock()) {
   // shows up there; rescale the overlay if the zoom factor moved.
   ipcMain.on('titlebar:syncZoom', (event) => {
     applyTitleBarOverlay(BrowserWindow.fromWebContents(event.sender));
+  });
+
+  // The UI language to start in, read synchronously by the preload so the
+  // first render is already in it: the last explicit choice, else the first
+  // supported language Windows prefers.
+  ipcMain.on('app:initialLanguage', (event) => {
+    event.returnValue = preferences.pickLanguage(
+      preferences.readPreferences(preferencesFile()).language,
+      app.getPreferredSystemLanguages()
+    );
   });
 
   // Renderer reports its active language; rebuild the native application menu
@@ -599,6 +806,15 @@ if (!app.requestSingleInstanceLock()) {
       manager: serviceManager,
       logs: logStore,
       setup: setupRunner,
+      firstRun,
+      saveLanguage: (language) => preferences.saveLanguage(preferencesFile(), language),
+      network: {
+        probeEntered: (values) =>
+          networkProbe.probeEntered(values, {
+            hub: configuredHub(),
+            needInstallers: networkProbe.needsInstallers(setupRunner.plan()),
+          }),
+      },
       getWindow: () => mainWindow,
       getLanguage: () => currentLanguage,
     });

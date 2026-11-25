@@ -1,43 +1,159 @@
 {
-  "getStarted": {
-    "title": "快速开始",
-    "subtitle": "完成以下步骤即可运行智能教室。",
-    "allReady": "一切就绪，后端正在运行。",
-    "recheck": "重新检查",
-    "working": "执行中…",
-    "startBackend": "启动后端",
-    "openSetup": "打开安装",
-    "openConfig": "打开配置",
-    "allSettings": "全部设置",
-    "commonTitle": "常用设置",
-    "commonSubtitle": "最常修改的设置。完整列表请见“配置”。",
-    "save": "保存 {{count}} 项修改",
-    "saving": "保存中…",
-    "items": {
-      "prerequisites": "先决条件",
-      "environment": "Python 环境",
-      "settings": "设置",
-      "services": "后端运行中"
+  "assistant": {
+    "admin": {
+      "approveOne": "先安装。Windows 会请求批准一次。",
+      "dlStreamer": "运行视频分析流水线。",
+      "lead": "这些任务会更改 Windows 本身，因此需要管理员批准。Windows 只会请求一次，涵盖全部任务；提示中显示的程序是运行这些任务的 Windows PowerShell。它们会在你在场时优先执行；其余步骤无需任何人值守。",
+      "longPaths": "使路径较深的下载能够成功。",
+      "skip": "暂时跳过。在此处或“安装”页面安装之前，依赖它们的功能将无法使用。",
+      "approveAll": "先安装它们。Windows 只会请求一次批准，涵盖全部任务。"
     },
-    "details": {
-      "checking": "检查中…",
-      "loading": "加载中…",
-      "working": "正在准备：{{items}}…",
-      "missing": "缺失：{{items}}",
-      "outdated": "需更新：{{items}}",
-      "warnings": "提示：{{items}}",
-      "prereqOk": "系统、驱动与工具均已就绪",
-      "envOk": "Python 环境与模型已就绪",
-      "settingsOk": "请查看常用设置",
-      "backendRunning": "后端正在运行",
-      "backendStarting": "后端启动中…",
-      "backendNeedsEnv": "请先创建 Python 环境",
-      "backendStopped": "后端未运行"
+    "back": "上一步",
+    "checking": "正在检查…",
+    "disk": {
+      "accept": "仍然继续",
+      "warning": "可用磁盘空间不足 50 GB。安装和 AI 模型大约需要这么多空间，中途空间耗尽将很难恢复。"
+    },
+    "done": {
+      "downloading": "正在从 {{hub}} 下载 {{model}}",
+      "failed": "后端在启动过程中停止了，其日志中有原因。",
+      "failedTitle": "Smart Classroom 未能启动",
+      "installed": "已安装",
+      "installedTitle": "Smart Classroom 已安装",
+      "later": "待完成",
+      "laterDetail": "{{items}}：准备好后，请在“安装”页面修复。",
+      "notInstalled": "未安装",
+      "nothingNew": "所有内容都已就位",
+      "open": "打开 Smart Classroom",
+      "openServices": "打开服务管理",
+      "readyTitle": "Smart Classroom 已就绪",
+      "start": "启动 Smart Classroom",
+      "starting": "首次启动需要下载并准备 AI 模型，因此需要一段时间。",
+      "startingTitle": "正在启动 Smart Classroom",
+      "summary": "课堂总结"
+    },
+    "features": {
+      "lead": "选择你要使用的功能。安装向导只下载这些功能需要的内容。展开某一组可查看其功能和设置。"
+    },
+    "install": {
+      "aStep": "某个步骤",
+      "approval": "{{tasks}} 需要管理员批准。可以现在安装，也可以稍后在此处或“安装”页面安装。",
+      "approve": "立即安装",
+      "cancel": "取消",
+      "causes": {
+        "certificate": "由于连接受到检查且其证书不受信任，下载被拒绝。请检查网络设置，或改用其他网络。",
+        "disk": "磁盘已满。请释放一些空间后重试。",
+        "filesInUse": "安装需要替换的文件正在被使用。请关闭其他 Smart Classroom 窗口后重试。",
+        "network": "下载失败。请检查网络设置后重试。",
+        "other": "某个步骤失败。下方的详细信息显示了它报告的内容。",
+        "backendRunning": "后端正在使用此步骤要替换的文件。请在“服务管理”中停止后端，然后重试。",
+        "declined": "Windows 请求了管理员批准，但未获批准。请重试，并在提示出现时批准；提示中显示的程序是 Windows PowerShell。",
+        "rateLimit": "模型平台暂时拒绝来自此网络的下载。请等几分钟后重试，或在网络设置中改用另一个模型来源。"
+      },
+      "copied": "已复制",
+      "copy": "复制诊断信息",
+      "counter": "第 {{step}} 步，共 {{total}} 步",
+      "failedTitle": "安装未能完成",
+      "firstStart": "首次启动：下载 AI 模型",
+      "hideDetails": "隐藏详细信息",
+      "leave": "你可以让它在后台运行。完成之前电脑不会进入睡眠。",
+      "network": "网络设置",
+      "resume": "继续安装",
+      "retry": "重试",
+      "showDetails": "显示详细信息",
+      "stopped": "已完成的内容会保留，继续安装会接着完成剩下的部分。",
+      "stoppedTitle": "安装已停止",
+      "title": "正在安装",
+      "openSetup": "打开“安装”页面",
+      "cancelling": "正在取消…"
+    },
+    "installButton": "安装",
+    "network": {
+      "hubSuggested": "此网络无法访问 {{unreachable}}，因此将从 {{source}} 下载模型。",
+      "lead": "安装向导需要下载 Python 软件包、安装程序和 AI 模型。如果通过代理上网，请在此填写；测试会显示每个下载服务器的响应情况。",
+      "saveRetry": "保存并重试",
+      "unreachable": "无法访问下载服务器，因此尚未开始安装。请在下方修正代理设置，然后继续。"
+    },
+    "next": "下一步",
+    "pages": {
+      "admin": "管理员任务",
+      "done": "完成",
+      "features": "功能",
+      "install": "安装",
+      "network": "网络",
+      "welcome": "欢迎"
+    },
+    "steps": "安装步骤",
+    "title": "Smart Classroom 安装向导",
+    "welcome": {
+      "checks": "检查",
+      "countdown": "将在 {{seconds}} 秒后按推荐设置开始安装",
+      "customize": "自定义",
+      "fromHuggingFace": "从 Hugging Face 下载",
+      "fromModelScope": "从 ModelScope 下载",
+      "hubSwitched": "此网络无法访问 {{source}}",
+      "installNow": "立即安装",
+      "lead": "Smart Classroom 需要 Python、运行所需的软件包以及 AI 模型。安装向导会下载数 GB 的内容并为你完成全部安装。这需要一段时间，你可以让它在后台运行。",
+      "manual": "手动设置",
+      "models": "AI 模型",
+      "network": "网络",
+      "pc": "本机",
+      "pcReady": "就绪",
+      "pcWarnings": "就绪，有 {{count}} 条警告",
+      "title": "安装 Smart Classroom"
     }
+  },
+  "featureGroups": {
+    "count": "已开启 {{on}}/{{total}} 项",
+    "grading": {
+      "detail": "按评分标准批改试卷。会额外安装一个评分转换环境和一个版面检测模型。",
+      "title": "评分"
+    },
+    "recording": {
+      "detail": "课程的转录、摘要、思维导图和主题分段，以及课堂报告。",
+      "title": "课堂录制"
+    },
+    "search": {
+      "detail": "搜索上传的文档和视频，并就其内容提问。",
+      "title": "内容搜索"
+    },
+    "video": {
+      "detail": "分析课堂视频和板书。需要 DL Streamer。",
+      "title": "视频分析"
+    }
+  },
+  "network": {
+    "causes": {
+      "certificate": "连接受到检查，其证书不受信任，下载可能会失败。",
+      "connection": "连接被拒绝或中断。",
+      "dns": "找不到主机名。请检查网络连接或代理地址。",
+      "other": "连接失败。",
+      "proxyAuth": "代理需要用户名和密码：http://用户名:密码@主机:端口。",
+      "proxyRefused": "代理拒绝了到此主机的连接。",
+      "proxyUnreachable": "无法连接到代理。请检查代理地址和端口。",
+      "timeout": "未及时响应。可能需要使用代理。",
+      "unsupportedProxy": "不支持此类代理。请使用 http:// 代理。"
+    },
+    "connection": "连接",
+    "direct": "直接连接",
+    "hosts": {
+      "huggingface": "来自 Hugging Face 的模型",
+      "installers": "安装程序",
+      "modelscope": "来自 ModelScope 的模型",
+      "packages": "Python 软件包"
+    },
+    "noConnection": "无法访问下载服务器",
+    "proxyNote": "Python 下载使用 HTTPS 代理。两项代理都留空表示直接连接；如果代理需要用户名和密码，请在地址中包含 用户名:密码@。",
+    "test": "测试连接",
+    "testNote": "在保存之前，检查下载服务器能否通过这些设置访问。",
+    "testing": "正在测试…",
+    "viaEntered": "通过 {{proxy}}",
+    "viaEnvironment": "通过 HTTPS_PROXY 环境变量中的代理 {{proxy}}",
+    "viaSaved": "通过已保存的代理 {{proxy}}",
+    "viaSystem": "通过 Windows 代理 {{proxy}}"
   },
   "setup": {
     "title": "安装",
-    "subtitle": "检查先决条件，然后创建 Python 环境与模型。",
     "recheck": "重新检查",
     "checking": "检查中…",
     "runAll": "修复 {{count}} 项",
@@ -50,13 +166,7 @@
     "copyDiagnostics": "复制诊断信息",
     "copied": "已复制",
     "blockedBy": "需先完成：{{items}}。",
-    "firstRun": "Python 环境缺失，后端无法启动。点击“修复”创建 — 首次运行需下载数 GB 内容。",
-    "manualFix": "{{items}} 无法自动更新。请点击该行的按钮 — 重新创建需要请求确认。",
-    "allReady": "一切就绪。",
-    "settledWithWarnings": "一切就绪。另有 {{count}} 条提示，仅供参考。",
-    "allReadyRunning": "一切就绪，后端正在运行。",
     "startBackend": "启动后端",
-    "backToGetStarted": "返回“快速开始”",
     "openServices": "打开服务管理",
     "sections": {
       "system": "系统与驱动",
@@ -134,7 +244,34 @@
       "gradingVenvNoTool": "已创建，但缺少 paddle2onnx；请选择“创建”进行安装",
       "layoutModelOk": "OpenVINO IR 已就绪（{{dir}}）",
       "layoutModelNone": "尚未准备；评分功能需要它。“准备”会下载并转换模型。"
-    }
+    },
+    "summary": {
+      "checking": "正在检查本机…",
+      "fixing": "正在修复缺失的内容，可能需要一段时间。",
+      "problems": "{{count}} 项需要修复。"
+    },
+    "clear": {
+      "installed": "所有组件均已安装",
+      "installedText": "后端尚未运行。可在“服务管理”中查看其状态。",
+      "stoppedText": "启动后端即可使用 Smart Classroom。",
+      "working": "一切正常",
+      "workingText": "本机已具备 Smart Classroom 所需的一切，后端正在运行。"
+    },
+    "row": {
+      "waiting": "等待中",
+      "fixed": "已修复"
+    },
+    "problems": "需要修复的内容",
+    "needsAdmin": "需要管理员",
+    "adminNote": "标记为“需要管理员”的项目需要管理员批准，Windows 只会为全部项目请求一次。提示中显示的程序是 Windows PowerShell。",
+    "proxySettings": "代理设置",
+    "allChecks": "全部检查",
+    "showChecks": "全部检查（{{count}}）",
+    "hideChecks": "收起全部检查",
+    "showOutput": "显示输出",
+    "hideOutput": "收起输出",
+    "menuBadge": "{{count}} 项需要修复",
+    "cancelling": "正在取消…"
   },
   "config": {
     "title": "配置",
@@ -708,8 +845,8 @@
     "stop": "停止",
     "restart": "重启",
     "external": "外部启动",
-    "needsSetup": "Python 环境缺失。请先在“安装”中创建，再启动后端。",
-    "setupRunning": "正在准备 Python 环境。完成后再启动后端；进度请在“安装”页面查看。",
+    "needsSetup": "Python 环境缺失，后端暂时无法启动。",
+    "setupRunning": "正在准备 Python 环境，完成后即可启动后端。",
     "disabledIn": "已在 config.yaml 中禁用",
     "status": {
       "stopped": "已停止",
@@ -726,6 +863,17 @@
       "clear": "清空",
       "openFolder": "打开文件夹",
       "empty": "暂无输出。"
+    },
+    "openSetup": "打开“安装”页面",
+    "download": {
+      "starting": "正在开始下载…",
+      "sizes": "{{done}} / {{total}}",
+      "speed": "{{speed}}/秒",
+      "secondsLeft": "剩余不到 1 分钟",
+      "minutesLeft": "大约还需 {{minutes}} 分钟",
+      "hoursLeft": "大约还需 {{hours}} 小时 {{minutes}} 分钟",
+      "wholeHoursLeft": "大约还需 {{hours}} 小时",
+      "label": "正在从 {{hub}} 下载 {{model}}"
     }
   },
   "header": {
@@ -856,7 +1004,9 @@
   },
 
   "accordion": {
+    "hidePanel": "隐藏面板",
     "noData": "暂无数据",
+    "showPanel": "显示面板",
     "noSessionActive": "无活动会话。请上传文件或开始录音以开始监控。",
     "lastUpdated": "最后更新",
     "resourceUtilization": "资源利用率",

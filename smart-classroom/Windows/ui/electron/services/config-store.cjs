@@ -132,7 +132,8 @@ function describe() {
       // was hand-edited or predates this app: the backend is on its default,
       // and saving the field writes the key back.
       missing: field.file === schema.CONFIG && raw === undefined,
-      wizard: !!field.wizard,
+      // Where the setup assistant shows it: a feature group's id, or 'network'.
+      onboarding: field.onboarding ?? null,
       help: field.help ?? null,
       min: field.min ?? null,
       max: field.max ?? null,
@@ -142,7 +143,7 @@ function describe() {
     };
   });
 
-  return { groups: schema.GROUPS, subgroups: schema.SUBGROUPS, fields };
+  return { groups: schema.GROUPS, subgroups: schema.SUBGROUPS, featureGroups: schema.FEATURE_GROUPS, fields };
 }
 
 function isSecretSet(raw) {

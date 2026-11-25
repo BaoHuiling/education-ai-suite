@@ -1,23 +1,22 @@
 // SPDX-FileCopyrightText: (C) 2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 
+// Every setting, grouped and searchable: the expert editor behind the setup
+// assistant. Features and the proxy use the same sections as the assistant.
+
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../../assets/css/Config.css';
-import type { ConfigChange, ConfigField, ConfigSubgroup, ConfigValue } from '../../types/config';
-import {
-  revealConfig,
-  useConfig,
-  useConfigProblems,
-  withFix,
-  unmetCondition,
-  fieldKey as keyOf,
-} from '../../services/configManager';
+import type { ConfigField, ConfigProblem, ConfigSubgroup } from '../../types/config';
+import { revealConfig, useConfig, fieldKey as keyOf } from '../../services/configManager';
 import { useServices } from '../../services/serviceManager';
-import ConfigFieldControl from './ConfigFieldControl';
+import { useSettingsDraft } from '../../services/settingsDraft';
 import { fieldHelp, fieldLabel } from '../../i18n/settingsText';
-
-type Draft = Record<string, ConfigValue>;
+import FeaturePicker from '../setup/FeaturePicker';
+import ProblemBanners from '../setup/ProblemBanners';
+import ProxySettings from '../setup/ProxySettings';
+import SettingsFields from '../setup/SettingsFields';
+import { Banner, Button, PageHeader } from '../ui';
 
 /** Fields of one group, split into the subgroup sections they render as. */
 interface Section {
@@ -28,9 +27,11 @@ interface Section {
 interface ConfigScreenProps {
   /** Restarting hands over to Services, which is where the logs and status are. */
   onOpenScreen?: (screen: 'services') => void;
-  /** Dotted path of a field to open on and flag, when opened from Get started. */
+  /** Dotted path of a field to open on and flag, when opened from the assistant. */
   focusPath?: string | null;
 }
+
+const NO_FIELDS: ConfigField[] = [];
 
 const ConfigScreen: React.FC<ConfigScreenProps> = ({ onOpenScreen, focusPath }) => {
   const { t } = useTranslation();
@@ -38,9 +39,13 @@ const ConfigScreen: React.FC<ConfigScreenProps> = ({ onOpenScreen, focusPath }) 
   // serviceError is separate from useConfig's: without it a failed restart is
   // indistinguishable from a dead button.
   const { services, restart, busyId, error: serviceError } = useServices();
-  // Only edited fields land here, which is also what keeps untouched secrets
-  // out of the payload.
-  const [draft, setDraft] = useState<Draft>({});
+  const allFields = description?.fields ?? NO_FIELDS;
+  // Built from every field, not the filtered view: an edit the search is
+  // currently hiding still has to be saved, and still has to be validated.
+  const { draft, changes, blocking, byField, messages, setValue, applyFix, canApply, reset } = useSettingsDraft(
+    description,
+    allFields
+  );
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
   const [query, setQuery] = useState('');
@@ -49,7 +54,7 @@ const ConfigScreen: React.FC<ConfigScreenProps> = ({ onOpenScreen, focusPath }) 
 
   const backend = services.find((service) => service.id === 'backend');
   const backendRunning = !!backend && backend.status !== 'stopped' && backend.status !== 'failed';
-  const dirtyKeys = Object.keys(draft);
+  const dirtyCount = Object.keys(draft).length;
 
   const groupLabel = (id: string, fallback: string) => t(`config.groups.${id}`, fallback);
   const subgroupLabel = (subgroup: ConfigSubgroup) => t(`config.subgroups.${subgroup.id}`, subgroup.label);
@@ -113,23 +118,11 @@ const ConfigScreen: React.FC<ConfigScreenProps> = ({ onOpenScreen, focusPath }) 
   // the visible ones, so a filter cannot hide pending work.
   const dirtyByGroup = useMemo(() => {
     const counts: Record<string, number> = {};
-    for (const field of description?.fields ?? []) {
+    for (const field of allFields) {
       if (draft[keyOf(field)] !== undefined) counts[field.group] = (counts[field.group] ?? 0) + 1;
     }
     return counts;
-  }, [description, draft]);
-
-  // Built from every field, not the filtered view: an edit the search is
-  // currently hiding still has to be saved, and still has to be validated.
-  const changes: ConfigChange[] = useMemo(
-    () =>
-      (description?.fields ?? [])
-        .filter((field) => draft[keyOf(field)] !== undefined)
-        .map((field) => ({ file: field.file, path: field.path, value: draft[keyOf(field)] })),
-    [description, draft]
-  );
-
-  const { blocking, byField, messages } = useConfigProblems(changes, description);
+  }, [allFields, draft]);
 
   const active = grouped.find((entry) => entry.group.id === selectedGroup) ?? grouped[0];
 
@@ -141,175 +134,180 @@ const ConfigScreen: React.FC<ConfigScreenProps> = ({ onOpenScreen, focusPath }) 
     }
   }, [grouped, selectedGroup]);
 
-  // Arriving from Get started with one field in mind: switch to its group,
-  // drop any filter that would hide it, then scroll to it and flag it.
-  useEffect(() => {
-    if (!focusPath || !description) return;
-    // Consume it once: description is replaced after every save, and without
-    // this the screen would jump back here each time the user saves something.
-    if (consumedFocus.current === focusPath) return;
-    const field = description.fields.find((entry) => entry.path === focusPath);
-    if (!field) return;
-    consumedFocus.current = focusPath;
-
+  const showField = (field: ConfigField) => {
     setQuery('');
     setSelectedGroup(field.group);
     setFlashed(keyOf(field));
-
     // The group only renders on the next paint, so the node cannot be found yet.
-    const raf = requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
       document.getElementById(`config-field-${keyOf(field)}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
     });
-    const timer = setTimeout(() => setFlashed(null), 2200);
-    return () => {
-      cancelAnimationFrame(raf);
-      clearTimeout(timer);
-    };
-  }, [focusPath, description]);
-
-  const setValue = (field: ConfigField, value: ConfigValue) => {
-    setDraft((previous) => ({ ...previous, [keyOf(field)]: value }));
+    // Matches the flash animation, so showing it again re-runs it.
+    setTimeout(() => setFlashed(null), 2200);
   };
+
+  // Arriving from the assistant with one field in mind: switch to its group,
+  // drop any filter that would hide it, then scroll to it and flag it. Consumed
+  // once: description is replaced after every save, and the screen must not
+  // jump back here each time.
+  useEffect(() => {
+    if (!focusPath || !description || consumedFocus.current === focusPath) return;
+    const field = description.fields.find((entry) => entry.path === focusPath);
+    if (!field) return;
+    consumedFocus.current = focusPath;
+    showField(field);
+  }, [focusPath, description]);
 
   const handleSave = async () => {
     if (!changes.length || blocking.length) return;
-
     if (await save(changes)) {
-      setDraft({});
+      reset();
       setSavedAt(Date.now());
     }
   };
 
+  const showSetting = (problem: ConfigProblem) => {
+    const field = allFields.find((entry) => entry.file === problem.file && entry.path === problem.path);
+    return field ? <Button onClick={() => showField(field)}>{t('config.showSetting', 'Show setting')}</Button> : null;
+  };
+
   const matchCount = matches?.size ?? 0;
+
+  // Features and the proxy have their own sections, the assistant's; a search
+  // falls back to plain fields, since it narrows to individual settings.
+  const renderPanel = () => {
+    if (!active || !description) return null;
+    if (!matches && active.group.id === 'features') {
+      return (
+        <FeaturePicker
+          description={description}
+          draft={draft}
+          byField={byField}
+          onChange={setValue}
+          flashedKey={flashed}
+          idPrefix="config-field-"
+        />
+      );
+    }
+    if (!matches && active.group.id === 'proxy') {
+      return (
+        <ProxySettings
+          description={description}
+          fields={active.fields}
+          draft={draft}
+          byField={byField}
+          onChange={setValue}
+          flashedKey={flashed}
+          idPrefix="config-field-"
+        />
+      );
+    }
+    return active.sections.map(({ subgroup, fields }) => (
+      <section className="config-group" key={subgroup?.id ?? '_'}>
+        {subgroup && (
+          <div className="config-subgroup">
+            <h4 className="config-subgroup-title">{subgroupLabel(subgroup)}</h4>
+            <code className="config-subgroup-node">{subgroup.node}</code>
+          </div>
+        )}
+        <SettingsFields
+          fields={fields}
+          allFields={allFields}
+          draft={draft}
+          byField={byField}
+          onChange={setValue}
+          flashedKey={flashed}
+          idPrefix="config-field-"
+        />
+      </section>
+    ));
+  };
 
   return (
     <div className="config-screen">
       <div className="config-body">
-        <div className="config-header">
-          <div className="config-heading">
-            <h3 className="config-title">{t('config.title', 'Configuration')}</h3>
-            <span className="config-subtitle">
-              {t('config.subtitle', 'Edits are written to config.yaml and .proxy-config.')}
-            </span>
-          </div>
-          <div className="config-actions">
-            <div className="config-search">
-              <input
-                className="config-input config-search-input"
-                type="text"
-                value={query}
-                placeholder={t('config.search', 'Search settings…')}
-                onChange={(event) => setQuery(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Escape') setQuery('');
-                }}
-              />
-              {query && (
-                <button
-                  className="config-search-clear"
-                  aria-label={t('config.searchClear', 'Clear search')}
-                  onClick={() => setQuery('')}
-                >
-                  ×
-                </button>
-              )}
-            </div>
-            <button className="config-btn" onClick={() => revealConfig().catch(() => undefined)}>
-              {t('config.reveal', 'Show file')}
-            </button>
-            <button className="config-btn" disabled={!dirtyKeys.length || saving} onClick={() => setDraft({})}>
-              {t('config.discard', 'Discard')}
-            </button>
-            <button
-              className="config-btn config-btn-primary"
-              disabled={!dirtyKeys.length || saving || blocking.length > 0}
-              title={blocking.length ? t('config.blockedTitle', 'Fix the problems below first.') : undefined}
-              onClick={handleSave}
-            >
-              {saving
-                ? t('config.saving', 'Saving…')
-                : t('config.save', 'Save {{count}} change', { count: dirtyKeys.length })}
-            </button>
-          </div>
-        </div>
-
-        {error && <div className="config-error">{error}</div>}
-        {serviceError && <div className="config-error">{serviceError}</div>}
-
-        {messages.map((problem) => (
-          <div key={problem.rule} className={problem.blocking ? 'config-error' : 'config-banner'}>
-            <span>{problem.message}</span>
-            <div className="config-banner-actions">
-              {!!problem.fix?.length && (
-                <button
-                  className="config-btn config-btn-primary"
-                  onClick={() => setDraft((previous) => withFix(previous, problem.fix!))}
-                >
-                  {t('config.applyFix', 'Apply fix')}
-                </button>
-              )}
-              <button
-                className="config-btn"
-                onClick={() => {
-                  const field = description?.fields.find(
-                    (entry) => entry.file === problem.file && entry.path === problem.path
-                  );
-                  if (!field) return;
-                  setQuery('');
-                  setSelectedGroup(field.group);
-                  setFlashed(keyOf(field));
-                  requestAnimationFrame(() => {
-                    document
-                      .getElementById(`config-field-${keyOf(field)}`)
-                      ?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-                  });
-                  // Matches the flash animation, so clicking again re-runs it.
-                  setTimeout(() => setFlashed(null), 2200);
-                }}
+        <PageHeader
+          title={t('config.title', 'Configuration')}
+          subtitle={t('config.subtitle', 'Edits are written to config.yaml and .proxy-config.')}
+          actions={
+            <>
+              <div className="config-search">
+                <input
+                  className="config-input config-search-input"
+                  type="text"
+                  value={query}
+                  placeholder={t('config.search', 'Search settings…')}
+                  onChange={(event) => setQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') setQuery('');
+                  }}
+                />
+                {query && (
+                  <button className="config-search-clear" aria-label={t('config.searchClear', 'Clear search')} onClick={() => setQuery('')}>
+                    ×
+                  </button>
+                )}
+              </div>
+              <Button onClick={() => revealConfig().catch(() => undefined)}>{t('config.reveal', 'Show file')}</Button>
+              <Button disabled={!dirtyCount || saving} onClick={reset}>
+                {t('config.discard', 'Discard')}
+              </Button>
+              <Button
+                variant="primary"
+                disabled={!dirtyCount || saving || blocking.length > 0}
+                title={blocking.length ? t('config.blockedTitle', 'Fix the problems below first.') : undefined}
+                onClick={handleSave}
               >
-                {t('config.showSetting', 'Show setting')}
-              </button>
-            </div>
-          </div>
-        ))}
+                {saving ? t('config.saving', 'Saving…') : t('config.save', 'Save {{count}} change', { count: dirtyCount })}
+              </Button>
+            </>
+          }
+        />
 
-        {savedAt && !dirtyKeys.length && (
-          <div className="config-banner">
-            <span>
-              {backendRunning
-                ? t('config.restartRequired', 'Saved. Restart the backend to apply changes.')
-                : t('config.savedIdle', 'Saved. It takes effect the next time the backend starts.')}
-            </span>
-            {backendRunning && (
-              <button
-                className="config-btn config-btn-primary"
-                disabled={busyId === 'backend' || backend?.external}
-                onClick={() => {
-                  void restart('backend');
-                  setSavedAt(null);
-                  onOpenScreen?.('services');
-                }}
-              >
-                {t('config.restartBackend', 'Restart backend')}
-              </button>
-            )}
-          </div>
+        {error && <Banner tone="error">{error}</Banner>}
+        {serviceError && <Banner tone="error">{serviceError}</Banner>}
+
+        <ProblemBanners messages={messages} canApply={canApply} onApplyFix={applyFix} extraActions={showSetting} />
+
+        {savedAt && !dirtyCount && (
+          <Banner
+            tone={backendRunning ? 'warning' : 'success'}
+            actions={
+              backendRunning && (
+                <Button
+                  variant="primary"
+                  disabled={busyId === 'backend' || backend?.external}
+                  onClick={() => {
+                    void restart('backend');
+                    setSavedAt(null);
+                    onOpenScreen?.('services');
+                  }}
+                >
+                  {t('config.restartBackend', 'Restart backend')}
+                </Button>
+              )
+            }
+          >
+            {backendRunning
+              ? t('config.restartRequired', 'Saved. Restart the backend to apply changes.')
+              : t('config.savedIdle', 'Saved. It takes effect the next time the backend starts.')}
+          </Banner>
         )}
 
         {backend?.external && savedAt && (
-          <div className="config-note">
+          <p className="ui-note">
             {t('config.externalBackend', 'The backend was started outside this app, so it cannot be restarted from here.')}
-          </div>
+          </p>
         )}
 
-        {!description && !error && <div className="config-note">{t('config.loading', 'Loading configuration…')}</div>}
+        {!description && !error && <p className="ui-note">{t('config.loading', 'Loading configuration…')}</p>}
 
         {matches && (
-          <div className="config-note">
+          <p className="ui-note">
             {matchCount
               ? t('config.matchCount', '{{count}} setting matches', { count: matchCount })
               : t('config.noResults', 'No setting matches “{{query}}”.', { query })}
-          </div>
+          </p>
         )}
 
         <div className="config-split">
@@ -330,32 +328,7 @@ const ConfigScreen: React.FC<ConfigScreenProps> = ({ onOpenScreen, focusPath }) 
             ))}
           </nav>
 
-          <div className="config-panel">
-            {active?.sections.map(({ subgroup, fields }) => (
-              <section className="config-group" key={subgroup?.id ?? '_'}>
-                {subgroup && (
-                  <div className="config-subgroup">
-                    <h4 className="config-subgroup-title">{subgroupLabel(subgroup)}</h4>
-                    <code className="config-subgroup-node">{subgroup.node}</code>
-                  </div>
-                )}
-                <div className={`config-fields${fields.every((f) => f.type === 'boolean') ? ' compact' : ''}`}>
-                  {fields.map((field) => (
-                    <ConfigFieldControl
-                      key={keyOf(field)}
-                      id={`config-field-${keyOf(field)}`}
-                      field={field}
-                      draft={draft}
-                      unmet={unmetCondition(field, description?.fields ?? [], draft)}
-                      flashed={flashed === keyOf(field)}
-                      problem={byField.get(keyOf(field))}
-                      onChange={(value) => setValue(field, value)}
-                    />
-                  ))}
-                </div>
-              </section>
-            ))}
-          </div>
+          <div className="config-panel">{renderPanel()}</div>
         </div>
       </div>
     </div>

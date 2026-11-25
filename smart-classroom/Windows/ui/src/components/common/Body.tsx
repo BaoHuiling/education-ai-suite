@@ -4,6 +4,7 @@ import RightPanel from "../RightPanel/RightPanel";
 import ContentSearchPanel from "../LeftPanel/ContentSearchPanel";
 import "../../assets/css/Body.css";
 import { usePanelDividerX } from "../../hooks/usePanelDividerX";
+import PanelToggle from "./PanelToggle";
 import type { FeatureGuard } from "../../utils/featureGuards";
 
 interface BodyProps {
@@ -41,20 +42,7 @@ const Body: React.FC<BodyProps> = ({ activeScreen, featureGuard, hasMainFeatures
       >
         <RightPanel activeScreen={activeScreen} featureGuard={featureGuard} onOpenConfig={onOpenConfig} />
       </div>
-      <div
-        className={`arrow${isRightPanelCollapsed ? ' collapsed' : ''}`}
-        style={{
-          // When collapsed the divider is the container's own right edge, so
-          // let `.arrow.collapsed` park the toggle just inside it instead.
-          left: isRightPanelCollapsed ? undefined : arrowLeft,
-          top: '50%',
-          transform: 'translateY(-50%)',
-          transition: arrowTransition
-        }}
-        onClick={toggleRightPanel}
-      >
-        {isRightPanelCollapsed ? "◀" : "▶"}
-      </div>
+      <PanelToggle collapsed={isRightPanelCollapsed} left={arrowLeft} transition={arrowTransition} onToggle={toggleRightPanel} />
     </div>
   );
 };

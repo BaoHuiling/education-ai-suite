@@ -135,39 +135,6 @@
   white-space: nowrap;
 }
 
-.config-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.config-heading {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  min-width: 0;
-}
-
-.config-title {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--color-gray-900);
-}
-
-.config-subtitle {
-  font-size: 12px;
-  color: var(--color-gray-700);
-}
-
-.config-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
 .config-search {
   position: relative;
   display: flex;
@@ -201,78 +168,6 @@
 .config-search-clear:hover {
   background: #ececec;
   color: var(--color-gray-900);
-}
-
-.config-btn {
-  padding: 5px 14px;
-  border: 1px solid var(--control-border-color);
-  border-radius: var(--control-radius);
-  background: #fff;
-  color: var(--color-gray-900);
-  font-size: 12px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.config-btn:hover:not(:disabled) {
-  border-color: var(--color-theme);
-  color: var(--color-theme);
-}
-
-.config-btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.config-btn-primary {
-  border-color: var(--color-theme);
-  background: var(--color-theme);
-  color: #fff;
-}
-
-.config-btn-primary:hover:not(:disabled) {
-  background: #005c9e;
-  color: #fff;
-}
-
-/* Also carries a "Show setting" button when it reports a cross-field rule, so
-   it lays out like .config-banner below. */
-.config-error {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 12px;
-  border-radius: 4px;
-  background: #fdecea;
-  color: #a33;
-  font-size: 12px;
-}
-
-.config-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 14px;
-  border: 1px solid #ffd68a;
-  border-radius: 4px;
-  background: #fff8e6;
-  color: #7a5b00;
-  font-size: 12.5px;
-}
-
-/* A banner can carry both "Apply fix" and "Show setting". Kept from shrinking,
-   so a long message wraps rather than squeezing the buttons. */
-.config-banner-actions {
-  display: flex;
-  flex-shrink: 0;
-  gap: 8px;
-}
-
-.config-note {
-  font-size: 12px;
-  color: #8a8f98;
 }
 
 .config-group {
@@ -329,7 +224,7 @@
   border-bottom: none;
 }
 
-/* Deep-linked from Get started; fades back to the row's normal background. */
+/* Deep-linked, such as from the Setup screen; fades back to the row's normal background. */
 @keyframes field-flash {
   from { background: #fff4d2; }
   to { background: #fafafa; }

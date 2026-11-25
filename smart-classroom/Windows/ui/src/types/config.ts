@@ -28,7 +28,11 @@ export interface ConfigField {
   appliesWhen: Record<string, string[]> | null;
   /** The key is absent from the file, so the backend is using its default. */
   missing: boolean;
-  wizard: boolean;
+  /**
+   * Where the setup assistant shows the field: inside a feature group (its id)
+   * or on the Network page ('network'). Null: the Configuration screen only.
+   */
+  onboarding: string | null;
   help: string | null;
   min: number | null;
   max: number | null;
@@ -52,9 +56,21 @@ export interface ConfigSubgroup {
   node: string;
 }
 
+/** Features as they are chosen: by what a teacher does. */
+export interface FeatureGroup {
+  id: string;
+  label: string;
+  /** English; src/i18n has the translations under featureGroups. */
+  detail: string;
+  features: string[];
+  /** Turning it on can mean an administrator prompt (DL Streamer). */
+  needsAdmin?: boolean;
+}
+
 export interface ConfigDescription {
   groups: ConfigGroup[];
   subgroups: ConfigSubgroup[];
+  featureGroups: FeatureGroup[];
   fields: ConfigField[];
 }
 

@@ -14,7 +14,7 @@
 
     It never elevates: steps that need Administrator, such as enabling Windows
     long paths or installing DL Streamer, are left for the app's Setup screen,
-    which raises their UAC prompt when selected.
+    which raises one UAC prompt for all of them when selected.
 
     Node is required for `npm install` and `npm run build` only. Once node_modules
     and dist exist, the app runs on Electron's own embedded Node.
@@ -62,10 +62,9 @@ Options:
 The UI is rebuilt on every launch.
 
 The app manages the Python services itself. Use its screens for:
-    Get Started     overview and initial guidance
+    Setup           what is not working and one Fix; every check, its actions and output
     Services        start / stop / restart and live logs
-    Configuration   config.yaml and proxy settings
-    Setup           prerequisites, Python environment, models
+    Configuration   every setting in config.yaml and .proxy-config
 
 This script never requests Administrator privileges.
 ./start-smart-classroom.ps1 launches this app too. Its -WebUI mode (the browser
@@ -432,9 +431,9 @@ try {
 
     Write-Host ''
     if ($firstRun -and -not $NoAutoStart) {
-        Write-Host 'First launch: the app now installs Python and creates the Python environment,' -ForegroundColor Yellow
-        Write-Host 'then starts the backend. This downloads several gigabytes and takes a while.' -ForegroundColor Yellow
-        Write-Host 'Progress is shown on the app''s Get started and Setup screens; keep the window open.' -ForegroundColor Yellow
+        Write-Host 'First launch: the app opens its setup assistant, which installs with recommended' -ForegroundColor Yellow
+        Write-Host 'settings after a short countdown unless you choose Customize, then starts the backend.' -ForegroundColor Yellow
+        Write-Host 'This downloads several gigabytes and takes a while; keep the window open.' -ForegroundColor Yellow
     } elseif ($firstRun) {
         Write-Host 'The Python environment does not exist yet, and -NoAutoStart leaves it that way.' -ForegroundColor Yellow
         Write-Host 'Create it with Fix on the app''s Setup screen before starting the backend.' -ForegroundColor Yellow
