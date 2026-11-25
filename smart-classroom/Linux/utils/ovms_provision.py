@@ -165,6 +165,23 @@ def _text_gen_spec() -> Servable:
     )
 
 
+def text_gen_servable_dir() -> Path:
+    """Return the directory OVMS serves text_gen from (the one holding graph.pbtxt).
+
+    Prefers the bucket config.yaml names. If that bucket has no graph, falls back
+    to any bucket that does, because model-downloader may export to a different
+    device bucket (see ``Servable.is_ready``).
+    """
+    spec = _text_gen_spec()
+    if (spec.model_dir / "graph.pbtxt").is_file():
+        return spec.model_dir
+    root = OVMS_MODELS_DIR / "openvino_models"
+    for model_dir in sorted(root.glob(f"*/*/{spec.source_model}")):
+        if (model_dir / "graph.pbtxt").is_file():
+            return model_dir
+    return spec.model_dir
+
+
 def _embeddings_spec() -> Servable:
     emb = getattr(config.models, "embedding", None)
     source = getattr(emb, "ovms_model", None) or getattr(emb, "name", None) \

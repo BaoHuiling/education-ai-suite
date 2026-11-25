@@ -14,6 +14,12 @@ if _SC_ROOT not in sys.path:
 from utils import text_chunker as tc
 
 
+@pytest.fixture(autouse=True)
+def _no_installed_model(monkeypatch):
+    """Keep the tests off whatever model (and OVMS graph) this machine has."""
+    monkeypatch.setattr(tc, "text_gen_model_dir", lambda: None)
+
+
 class FakeTokenizer:
     """One token per whitespace-delimited word."""
 
@@ -225,6 +231,109 @@ def test_a_gpu_is_sized_by_what_it_can_address_not_by_system_ram(monkeypatch, tm
     # The plugin's figure, not RAM -- and the device type is never consulted,
     # so an integrated GPU is sized the same way a discrete one is.
     assert tc._capacity_bytes("GPU", tmp_path) == 25 * 1024 ** 3 - 4096
+
+
+_GRAPH = """node: {{
+  node_options: {{
+      [type.googleapis.com / mediapipe.LLMCalculatorOptions]: {{
+          models_path: "./",
+          plugin_config: '{plugin}',
+          enable_prefix_caching: false,
+          cache_size: {gb},
+          max_num_seqs: 256,
+          device: "{device}",
+      }}
+  }}
+}}
+"""
+
+
+def _ovms_dir(tmp_path, gb, plugin="{}", device="GPU"):
+    (tmp_path / "graph.pbtxt").write_text(_GRAPH.format(gb=gb, plugin=plugin, device=device),
+                                          encoding="utf-8")
+    (tmp_path / "openvino_language_model.bin").write_bytes(b"x" * 4096)
+    return tmp_path
+
+
+def test_an_ovms_graph_is_sized_by_its_static_pool(monkeypatch, tmp_path):
+    """OVMS reserves cache_size GB at load; the device total is not the ceiling."""
+    import openvino as ov
+
+    class Core:
+        def get_property(self, device, name):
+            raise AssertionError("an OVMS pool must not be sized from the device")
+
+    monkeypatch.setattr(ov, "Core", Core)
+    assert tc._capacity_bytes("GPU", _ovms_dir(tmp_path, 4)) == 4 * 1024 ** 3
+
+
+def test_a_dynamic_ovms_cache_falls_back_to_the_device(monkeypatch, tmp_path):
+    """cache_size: 0 asks OVMS for a dynamic cache, so it is sized like in-process."""
+    import openvino as ov
+
+    class Core:
+        def get_property(self, device, name):
+            return 25 * 1024 ** 3
+
+    monkeypatch.setattr(ov, "Core", Core)
+    assert tc._static_kv_pool_bytes(_ovms_dir(tmp_path, 0)) is None
+    assert tc._capacity_bytes("GPU", tmp_path) == 25 * 1024 ** 3 - 4096
+
+
+def test_no_graph_means_no_pool(tmp_path):
+    assert tc._static_kv_pool_bytes(tmp_path) is None
+    assert tc._static_kv_pool_bytes(None) is None
+
+
+def test_the_backstop_checks_the_ovms_pool_not_free_memory(monkeypatch, tmp_path, caplog):
+    """The pool is already reserved, so a busy machine cannot shrink it."""
+    model_dir = _ovms_dir(tmp_path, 4)
+    monkeypatch.setattr(tc, "_free_bytes_now",
+                        lambda device: pytest.fail("free memory is irrelevant to a pool"))
+    monkeypatch.setattr(tc, "kv_bytes_per_token", lambda *a, **k: 92_160)
+
+    assert tc.warn_if_short_of_memory(40_000, "GPU", model_dir) is False   # 3.4 GB
+    with caplog.at_level("WARNING"):
+        assert tc.warn_if_short_of_memory(50_000, "GPU", model_dir) is True  # 4.3 GB
+    assert any("pool OVMS reserves" in r.message for r in caplog.records)
+
+
+_QWEN3_VL_8B = {"text_config": {"num_hidden_layers": 36, "num_attention_heads": 32,
+                                "num_key_value_heads": 8, "head_dim": 128, "hidden_size": 4096}}
+
+
+def _served(tmp_path, plugin="{}", device="GPU"):
+    model_dir = _ovms_dir(tmp_path, 4, plugin, device)
+    (model_dir / "config.json").write_text(json.dumps(_QWEN3_VL_8B), encoding="utf-8")
+    return str(model_dir)
+
+
+@pytest.mark.parametrize("plugin, per_head", [
+    ("{}", 164),                                  # OVMS default on GPU is u4
+    ('{"KV_CACHE_PRECISION": "u4"}', 164),        # 64+32 key, 64+4 value
+    ('{"KV_CACHE_PRECISION": "u8"}', 292),        # 128+32 key, 128+4 value
+    ('{"KV_CACHE_PRECISION": "f16"}', 512),       # no scales or zero points
+    ('{"GPU_ENABLE_LARGE_ALLOCATIONS": "YES"}', 164),
+])
+def test_an_ovms_gpu_cache_is_sized_from_its_graph(tmp_path, monkeypatch, plugin, per_head):
+    """Measured on OVMS 2026.4.1: 47232 B/token at u4, 1.78x that at u8, no overhead."""
+    tc.kv_bytes_per_token.cache_clear()
+    monkeypatch.setattr(tc, "_kv_dtype_bytes",
+                        lambda device: pytest.fail("OVMS's precision is in its graph"))
+    assert tc.kv_bytes_per_token(_served(tmp_path, plugin), "GPU") == 36 * 8 * per_head
+
+
+@pytest.mark.parametrize("plugin, device", [
+    ("{}", "CPU"),                                # layout only measured on GPU
+    ('{"KV_CACHE_PRECISION": "u2"}', "GPU"),      # a precision the formula does not know
+    ('{"KEY_CACHE_PRECISION": "u8"}', "GPU"),     # overrides the assumed layout
+    ("not json", "GPU"),
+])
+def test_an_ovms_graph_the_formula_does_not_cover_keeps_the_generic_estimate(
+        tmp_path, monkeypatch, plugin, device):
+    tc.kv_bytes_per_token.cache_clear()
+    monkeypatch.setattr(tc, "_kv_dtype_bytes", lambda device: 1)
+    assert tc.kv_bytes_per_token(_served(tmp_path, plugin, device), device) ==         int(2 * 36 * 8 * 128 * 1.25)
 
 
 # ------------------------------------------------------------- quality ceiling
