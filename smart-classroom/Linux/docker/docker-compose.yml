@@ -170,7 +170,7 @@ services:
     # Long-running REST service shared by text-gen (OVMS exports driven by
     # startup-models*.yaml) and asr (snapshots requested by audio-analyzer).
     profiles: ["text-gen", "asr"]
-    image: ${MODEL_DOWNLOADER_IMAGE:-intel/model-download:${INTEL_IMAGE_TAG:-latest}}
+    image: intel/model-download:${INTEL_IMAGE_TAG:-latest}
     container_name: sc-model-downloader
     command: --plugins ${ENABLED_PLUGINS:-huggingface,openvino,modelscope}
     environment:
