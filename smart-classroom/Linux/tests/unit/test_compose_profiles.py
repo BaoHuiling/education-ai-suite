@@ -1,8 +1,14 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
+import json
+import os
 from pathlib import Path
+import subprocess
+import sys
+import tempfile
 from types import SimpleNamespace
+import unittest
 
 import yaml
 
@@ -66,9 +72,67 @@ def test_asr_shares_single_model_downloader_container():
     assert not any(e.startswith("STARTUP_MODELS_CONFIG=") for e in downloader["environment"])
 
     assert analyzer["environment"]["AUDIO_ANALYZER_MODEL_DOWNLOAD_URL"] == "http://model-downloader:8000"
+    assert analyzer["environment"]["SMART_CLASSROOM_CONFIG_PATH"] == "/opt/smart-classroom/config.yaml"
+    assert analyzer["entrypoint"] == ["python3.12", "/opt/smart-classroom/audio_analyzer_config.py"]
+    assert "../config.yaml:/opt/smart-classroom/config.yaml:ro" in analyzer["volumes"]
+    assert "./audio_analyzer_config.py:/opt/smart-classroom/audio_analyzer_config.py:ro" in analyzer["volumes"]
     assert "model-downloader" in analyzer["environment"]["NO_PROXY"]
     assert analyzer["depends_on"]["model-downloader"]["condition"] == "service_healthy"
     assert "model-cache:/app/audio_analyzer/models" in analyzer["volumes"]
     assert "model-cache:/opt/models" in downloader["volumes"]
     assert "audio-analyzer-models" not in compose["volumes"]
     assert not any(v.startswith("audio-analyzer-models:") for v in analyzer["volumes"])
+
+
+class TestAudioAnalyzerConfig(unittest.TestCase):
+    def test_forwards_asr_settings_without_overwriting_other_settings(self):
+        for provider, model in (("funasr", "paraformer-zh"), ("openvino", "whisper-base")):
+            with self.subTest(provider=provider), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "config.yaml"
+                path.write_text(yaml.safe_dump({
+                    "models": {"asr": {
+                        "provider": provider, "name": model, "device": "CPU", "diarization": False,
+                        "temperature": 0.5, "no_speech_threshold": 0.6, "logprob_threshold": -1.0,
+                        "min_duration_sec": 0.25, "min_words": 2, "models_base_path": "not-forwarded",
+                    }},
+                }), encoding="utf-8")
+                environment = os.environ.copy()
+                environment.update({
+                    "SMART_CLASSROOM_CONFIG_PATH": str(path),
+                    "AUDIO_ANALYZER__MODELS__ASR__PROVIDER": "old-provider",
+                    "AUDIO_ANALYZER__MODELS__ASR__MODELS_BASE_PATH": "analyzer-models",
+                })
+                result = subprocess.run(
+                    [sys.executable, str(ROOT / "docker/audio_analyzer_config.py"), sys.executable, "-c",
+                     "import json, os; print(json.dumps({key: value for key, value in os.environ.items() "
+                     "if key.startswith('AUDIO_ANALYZER__MODELS__ASR__')}))"],
+                    env=environment, capture_output=True, text=True, check=True,
+                )
+                values = json.loads(result.stdout)
+                self.assertEqual(values["AUDIO_ANALYZER__MODELS__ASR__PROVIDER"], provider)
+                self.assertEqual(values["AUDIO_ANALYZER__MODELS__ASR__NAME"], model)
+                self.assertEqual(values["AUDIO_ANALYZER__MODELS__ASR__DEVICE"], "CPU")
+                self.assertEqual(values["AUDIO_ANALYZER__MODELS__ASR__DIARIZATION"], "False")
+                self.assertEqual(values["AUDIO_ANALYZER__MODELS__ASR__TEMPERATURE"], "0.5")
+                self.assertEqual(values["AUDIO_ANALYZER__MODELS__ASR__NO_SPEECH_THRESHOLD"], "0.6")
+                self.assertEqual(values["AUDIO_ANALYZER__MODELS__ASR__LOGPROB_THRESHOLD"], "-1.0")
+                self.assertEqual(values["AUDIO_ANALYZER__MODELS__ASR__MIN_DURATION_SEC"], "0.25")
+                self.assertEqual(values["AUDIO_ANALYZER__MODELS__ASR__MIN_WORDS"], "2")
+                self.assertEqual(values["AUDIO_ANALYZER__MODELS__ASR__MODELS_BASE_PATH"], "analyzer-models")
+
+    def test_missing_model_settings_fail_without_starting_analyzer(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "config.yaml"
+            path.write_text(yaml.safe_dump({
+                "models": {"asr": {"provider": "funasr", "device": "CPU"}},
+            }), encoding="utf-8")
+            environment = os.environ.copy()
+            environment["SMART_CLASSROOM_CONFIG_PATH"] = str(path)
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "docker/audio_analyzer_config.py"), sys.executable, "-c",
+                 "print('analyzer started')"],
+                env=environment, capture_output=True, text=True,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("models.asr.name must be a non-empty string", result.stderr)
+            self.assertNotIn("analyzer started", result.stdout)

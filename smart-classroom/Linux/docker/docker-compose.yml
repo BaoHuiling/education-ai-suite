@@ -117,7 +117,10 @@ services:
     pull_policy: always
     container_name: sc-audio-analyzer
     user: "1000:1000"
+    entrypoint: ["python3.12", "/opt/smart-classroom/audio_analyzer_config.py"]
+    command: ["sh", "-c", "exec python3.12 -m uvicorn main:app --host 0.0.0.0 --port \"$${AUDIO_ANALYZER_SERVER_PORT:-8010}\""]
     environment:
+      SMART_CLASSROOM_CONFIG_PATH: /opt/smart-classroom/config.yaml
       HF_HOME: /app/audio_analyzer/.cache/huggingface
       # Whisper sources, FunASR (ModelScope) and diarization snapshots are
       # requested from the shared model-downloader REST service below and land
@@ -135,6 +138,8 @@ services:
       HTTPS_PROXY: "${HTTPS_PROXY:-${https_proxy:-}}"
       NO_PROXY: "model-downloader,localhost,127.0.0.1,${NO_PROXY:-${no_proxy:-}}"
     volumes:
+      - ../config.yaml:/opt/smart-classroom/config.yaml:ro
+      - ./audio_analyzer_config.py:/opt/smart-classroom/audio_analyzer_config.py:ro
       # Editable service config (ASR provider/model/device, diarization).
       - ../edge-ai-libraries/microservices/audio-analyzer/config.yaml:/app/audio_analyzer/config.yaml:ro
       # Same volume model-downloader writes to (/opt/models); snapshots are
