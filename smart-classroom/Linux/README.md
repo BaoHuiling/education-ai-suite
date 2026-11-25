@@ -42,6 +42,20 @@ For manual startup, see the [Manual Docker Startup](../docs/user-guide/get-start
 - Plug-and-play architecture for integrating new ASR, LLM, and video analytics models
 - API-first design ready for frontend integration.
 
+### Audio model configuration
+
+At startup, the audio-analyzer container receives its ASR provider, model,
+device, diarization flag, and shared transcription settings from Smart
+Classroom's `config.yaml`. Its model cache path and other service-specific
+settings remain in the audio analyzer configuration. After changing ASR settings,
+recreate the audio-analyzer container to load them:
+
+```bash
+docker compose --env-file .env -f docker/docker-compose.yml -f docker/docker-compose.gpu.yml \
+	--profile asr up -d --no-deps --force-recreate audio-analyzer
+```
+
+
 ### OVMS pipeline configuration
 
 `models.text_gen.ovms.pipeline_type` defaults to `VLM`. Setup copies it into
