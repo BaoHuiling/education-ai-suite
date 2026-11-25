@@ -40,13 +40,51 @@ def test_a_bare_name_needs_no_org():
 
 # ------------------------------------------------ the configured text_gen model
 
-def test_the_text_gen_dir_follows_the_config():
+def test_the_text_gen_dir_follows_the_config(monkeypatch):
     from utils.config_loader import config
 
     text_gen = config.models.text_gen
+    monkeypatch.setattr(text_gen, "provider", "in-process", raising=False)
     assert model_paths.text_gen_model_dir() == model_paths.openvino_model_dir(
         str(text_gen.vlm_name), str(text_gen.weight_format)
     )
+
+
+def test_an_ovms_text_gen_dir_is_the_servable_not_the_in_process_tree(monkeypatch):
+    """OVMS serves from model-downloader's layout; models/openvino never has it."""
+    from utils import ovms_provision
+    from utils.config_loader import config
+
+    text_gen = config.models.text_gen
+    monkeypatch.setattr(text_gen, "provider", "ovms", raising=False)
+    assert model_paths.text_gen_model_dir() == ovms_provision.text_gen_servable_dir()
+
+
+def test_the_ovms_servable_dir_keeps_the_org_and_falls_back_to_any_bucket(
+        monkeypatch, tmp_path):
+    """model-downloader may export to a bucket other than the configured device."""
+    from utils import ovms_provision
+    from utils.config_loader import config
+
+    text_gen = config.models.text_gen
+    monkeypatch.setattr(ovms_provision, "OVMS_MODELS_DIR", tmp_path)
+    monkeypatch.setattr(text_gen, "vlm_name", "Org/Some-VLM", raising=False)
+    monkeypatch.setattr(text_gen, "ovms_model", None, raising=False)
+    monkeypatch.setattr(text_gen, "device", "GPU", raising=False)
+    monkeypatch.setattr(text_gen, "weight_format", "int4", raising=False)
+
+    configured = tmp_path / "openvino_models" / "gpu" / "int4" / "Org" / "Some-VLM"
+    # Nothing exported yet: the configured bucket is still the answer.
+    assert ovms_provision.text_gen_servable_dir() == configured
+
+    other = tmp_path / "openvino_models" / "cpu" / "int8" / "Org" / "Some-VLM"
+    other.mkdir(parents=True)
+    (other / "graph.pbtxt").write_text("", encoding="utf-8")
+    assert ovms_provision.text_gen_servable_dir() == other
+
+    configured.mkdir(parents=True)
+    (configured / "graph.pbtxt").write_text("", encoding="utf-8")
+    assert ovms_provision.text_gen_servable_dir() == configured
 
 
 def test_the_text_gen_dir_is_none_when_the_config_says_nothing(monkeypatch):

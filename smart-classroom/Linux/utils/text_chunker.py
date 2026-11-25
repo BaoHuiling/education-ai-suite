@@ -23,7 +23,7 @@ DEFAULT_OVERLAP_LINES = 2
 # Leave capacity for fragmentation, estimation error, and other processes.
 GPU_MEMORY_SAFETY_MARGIN = 0.6
 _KV_RUNTIME_OVERHEAD = 1.25              # paged-cache block padding + prefill activations
-_DEFAULT_KV_DTYPE_BYTES = 1              # CPU and GPU both cache in int8 by default
+_DEFAULT_KV_DTYPE_BYTES = 1              # in-process pipelines; OVMS on GPU: see _ovms_gpu_kv_bytes
 
 # Limit content before long context degrades instruction following.
 DEFAULT_MAX_CONTENT_TOKENS = 24000
@@ -91,9 +91,86 @@ def _kv_geometry(model_dir: Path):
     return layers, kv_heads, head_dim
 
 
+# ---- OVMS graph.pbtxt: what the served model actually runs with ----------
+_GRAPH_CACHE_SIZE_RE = re.compile(r"^\s*cache_size\s*:\s*(\d+)", re.MULTILINE)
+_GRAPH_DEVICE_RE = re.compile(r'^\s*device\s*:\s*"([^"]+)"', re.MULTILINE)
+_GRAPH_PLUGIN_CONFIG_RE = re.compile(r"^\s*plugin_config\s*:\s*'([^']*)'", re.MULTILINE)
+
+# OVMS 2026.4.1 on GPU: u4 unless plugin_config says otherwise (measured: an
+# explicit u4 uses exactly the default's pool share, u8 1.78x of it).
+_OVMS_GPU_DEFAULT_KV_PRECISION = "u4"
+_OVMS_GPU_KV_BLOCK_TOKENS = 16
+_KV_PRECISION_BITS = {"u4": 4, "i4": 4, "u8": 8, "i8": 8, "f16": 16, "bf16": 16, "f32": 32}
+# Any of these changes the cache layout the formula below assumes.
+_KV_LAYOUT_KEYS = ("KEY_CACHE_PRECISION", "VALUE_CACHE_PRECISION",
+                   "KEY_CACHE_GROUP_SIZE", "VALUE_CACHE_GROUP_SIZE", "KEY_CACHE_QUANT_MODE")
+
+
+def _read_graph(model_dir) -> Optional[str]:
+    """Return the ``graph.pbtxt`` OVMS serves ``model_dir`` with, or None in-process."""
+    if not model_dir:
+        return None
+    try:
+        return (Path(model_dir) / "graph.pbtxt").read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+
+def _static_kv_pool_bytes(model_dir) -> Optional[int]:
+    """Return the KV cache pool OVMS reserves for ``model_dir``, or None.
+
+    OVMS allocates a fixed pool of ``cache_size`` GiB from the ``graph.pbtxt``
+    it serves, when it loads the graph. Every prompt has to fit in that pool,
+    however much memory the device has left. ``cache_size: 0`` asks for a
+    dynamic cache, and an in-process IR has no graph; both return None.
+    """
+    text = _read_graph(model_dir)
+    match = _GRAPH_CACHE_SIZE_RE.search(text) if text else None
+    if not match or int(match.group(1)) <= 0:
+        return None
+    return int(match.group(1)) * 1024 ** 3
+
+
+def _ovms_gpu_kv_bytes(graph_text: str, head_dim: int) -> Optional[int]:
+    """Return KV bytes per (layer, kv-head, token) for an OVMS graph on GPU, or None.
+
+    Quantized caches store the key per channel, with an f16 scale and zero
+    point per channel per 16-token block, and the value per token, with an
+    f16 scale and zero point per token. For Qwen3-VL-8B at u4 this gives
+    96 + 68 = 164 bytes, which matches OVMS's own pool usage exactly.
+    Returns None (use the generic estimate) off GPU, for an unreadable
+    plugin_config, or when it overrides the layout this formula assumes.
+    """
+    device = _GRAPH_DEVICE_RE.search(graph_text)
+    if not device or not device.group(1).upper().startswith("GPU"):
+        return None
+    match = _GRAPH_PLUGIN_CONFIG_RE.search(graph_text)
+    try:
+        plugin = json.loads(match.group(1)) if match and match.group(1).strip() else {}
+    except ValueError:
+        return None
+    if not isinstance(plugin, dict) or any(k in plugin for k in _KV_LAYOUT_KEYS):
+        return None
+    precision = str(plugin.get("KV_CACHE_PRECISION", _OVMS_GPU_DEFAULT_KV_PRECISION)).lower()
+    bits = _KV_PRECISION_BITS.get(precision)
+    if bits is None:
+        return None
+    payload = head_dim * bits // 8
+    if bits >= 16:  # not quantized: no scales or zero points
+        return 2 * payload
+    key = payload + 2 * 2 * head_dim // _OVMS_GPU_KV_BLOCK_TOKENS
+    value = payload + 2 * 2
+    return key + value
+
+
 @lru_cache(maxsize=None)
 def kv_bytes_per_token(model_dir=None, device: str = "GPU") -> int:
-    """Return KV-cache bytes per token. Model geometry keeps the estimate device-aware."""
+    """Return KV-cache bytes per token. Model geometry keeps the estimate device-aware.
+
+    A model OVMS serves on GPU is sized from its graph's KV precision and the
+    cache layout, without the runtime overhead: the pool is preallocated, so
+    padding stays under one block and prefill activations live outside it.
+    """
     model_dir = Path(model_dir) if model_dir else text_gen_model_dir()
     try:
         layers, kv_heads, head_dim = _kv_geometry(model_dir)
@@ -101,6 +178,14 @@ def kv_bytes_per_token(model_dir=None, device: str = "GPU") -> int:
         logger.warning("Could not size the KV cache from %s (%s); assuming %d bytes/token.",
                        model_dir, exc, DEFAULT_BYTES_PER_TOKEN)
         return DEFAULT_BYTES_PER_TOKEN
+
+    graph = _read_graph(model_dir)
+    per_head = _ovms_gpu_kv_bytes(graph, head_dim) if graph else None
+    if per_head is not None:
+        per_token = layers * kv_heads * per_head
+        logger.info("KV cache in OVMS on GPU: %d layers x %d kv-heads x %dB = %d bytes/token.",
+                    layers, kv_heads, per_head, per_token)
+        return per_token
 
     width = _kv_dtype_bytes(device)
     per_token = int(2 * layers * kv_heads * head_dim * width * _KV_RUNTIME_OVERHEAD)
@@ -119,11 +204,17 @@ def _weights_bytes(model_dir) -> int:
 
 
 def _capacity_bytes(device: str, model_dir=None) -> int:
-    """Return addressable memory less the resident weights.
+    """Return the memory the KV cache can grow into.
 
-    Capacity, not free memory: a split that changed with whatever else was
-    running would make one recording's summary irreproducible.
+    That is the static OVMS pool when the model is served from one. Otherwise
+    it is addressable memory less the resident weights. Capacity, not free
+    memory: a split that changed with whatever else was running would make
+    one recording's summary irreproducible.
     """
+    pool = _static_kv_pool_bytes(model_dir)
+    if pool is not None:
+        return pool
+
     if device.startswith("GPU"):
         import openvino as ov
 
@@ -169,15 +260,34 @@ def warn_if_short_of_memory(tokens: int, device: str = "GPU", model_dir=None,
     stays reproducible, which is exactly why it cannot see a busy machine.
     """
     device = (device or "GPU").upper()  # callers pass the config value verbatim
+    if tokens <= 0:
+        return False
+    model_dir = Path(model_dir) if model_dir else text_gen_model_dir()
+    gb = 1024 ** 3
+
+    pool = _static_kv_pool_bytes(model_dir)
+    if pool is not None:
+        # OVMS reserved the pool at load time. Nothing else can take it, and
+        # the call cannot grow past it, so free memory does not matter here.
+        need = tokens * kv_bytes_per_token(model_dir, device)
+        if need <= pool:
+            return False
+        logger.warning(
+            "This %s needs %d tokens of KV cache (%.2f GB), more than the %.2f GB "
+            "pool OVMS reserves for %s (cache_size in its graph.pbtxt). Raise "
+            "cache_size, or lower max_content_tokens.",
+            what, tokens, need / gb, pool / gb, model_dir,
+        )
+        return True
+
     free = _free_bytes_now(device)
-    if free is None or tokens <= 0:
+    if free is None:
         return False
 
     need = tokens * kv_bytes_per_token(model_dir, device)
     if need <= free:
         return False
 
-    gb = 1024 ** 3
     logger.warning(
         "This %s needs %d tokens of KV cache (%.2f GB) on %s, but only %.2f GB is "
         "free right now. The budget is sized from the memory the device can "

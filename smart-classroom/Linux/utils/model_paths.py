@@ -16,7 +16,12 @@ def openvino_model_dir(model_name: str, weight_format: str) -> Path:
 
 
 def text_gen_model_dir() -> Optional[Path]:
-    """Return the IR directory of the configured ``models.text_gen`` VLM."""
+    """Return the IR directory of the configured ``models.text_gen`` VLM.
+
+    With ``provider: ovms`` the IR lives in model-downloader's OVMS layout
+    (``models/ovms/openvino_models/<device>/<precision>/<org>/<model>``), not in
+    the in-process ``models/openvino`` tree.
+    """
     from utils.config_loader import config
 
     text_gen = getattr(config.models, "text_gen", None)
@@ -24,4 +29,8 @@ def text_gen_model_dir() -> Optional[Path]:
     weight = getattr(text_gen, "weight_format", None)
     if not name or not weight:
         return None
+    if str(getattr(text_gen, "provider", "") or "").lower() == "ovms":
+        from utils.ovms_provision import text_gen_servable_dir
+
+        return text_gen_servable_dir()
     return openvino_model_dir(str(name), str(weight))
