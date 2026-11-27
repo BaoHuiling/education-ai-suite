@@ -604,7 +604,8 @@
     "download": "下载",
     "downloadDocxItem": "Word 文档 (.docx)",
     "downloadPdfItem": "PDF 文档 (.pdf)",
-    "pdfUnavailableTooltip": "当前部署不支持导出 PDF（应用镜像未包含 LibreOffice）。请下载 Word 文档。",
+    "pdfUnavailableTooltip": "当前服务器不支持导出 PDF（未安装 PDF 渲染组件）。请下载 Word 文档。",
+    "pdfLayoutNotice": "PDF 由报告内容直接生成，版式和样式与 Word 模板不完全相同。如需与模板一致的 PDF，请下载 Word 文档后在 Word 或 WPS 中导出。",
     "preparingDownload": "⏳ 正在准备...",
     "convertingPdf": "⏳ 正在转换为 PDF..."
   },

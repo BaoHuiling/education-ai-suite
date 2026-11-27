@@ -609,7 +609,8 @@
     "download": "Download",
     "downloadDocxItem": "Word document (.docx)",
     "downloadPdfItem": "PDF document (.pdf)",
-    "pdfUnavailableTooltip": "PDF export is not available in this deployment (the app image does not include LibreOffice). Download the Word document instead.",
+    "pdfUnavailableTooltip": "PDF export is not available on this server (the PDF renderer is not installed). Download the Word document instead.",
+    "pdfLayoutNotice": "The PDF is generated from the report content, so its layout and styling differ from the Word template. For an exact copy, download the Word document and export it to PDF in Word or WPS.",
     "preparingDownload": "⏳ Preparing...",
     "convertingPdf": "⏳ Converting to PDF..."
   },

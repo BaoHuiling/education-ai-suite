@@ -6,6 +6,7 @@ teacher transcript, summary.md, VA class_statistics.json).
 """
 
 import json
+import os
 from unittest.mock import patch
 
 import pytest
@@ -173,11 +174,60 @@ def test_download_docx_and_pdf_unavailable(client, session):
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
     assert docx.content[:2] == b"PK"
 
-    with patch("api.report.shutil.which", return_value=None):
+    with patch("components.report_generator.pdf_export.pdf_export_available", return_value=False):
         assert client.get("/report/capabilities").json() == {"pdf_export": False}
         pdf = client.get(f"/report/{SID}/download", params={"format": "pdf"})
     assert pdf.status_code == 501
     assert "DOCX" in pdf.json()["detail"]
+
+
+def _fake_render(calls):
+    def render(markdown_text, output_path, mindmap_image_path=None):
+        calls.append((markdown_text, mindmap_image_path))
+        with open(output_path, "wb") as f:
+            f.write(b"%PDF-1.7 fake")
+        return output_path
+    return render
+
+
+def test_pdf_rendered_from_markdown_and_cached(client, session):
+    with _use_text_gen(FakeTextGen()):
+        _generate(client)
+    calls = []
+    with patch("components.report_generator.pdf_export.pdf_export_available", return_value=True),             patch("components.report_generator.pdf_export.markdown_to_pdf", _fake_render(calls)):
+        assert client.get("/report/capabilities").json() == {"pdf_export": True}
+        pdf = client.get(f"/report/{SID}/download", params={"format": "pdf"})
+        assert pdf.status_code == 200
+        assert pdf.headers["content-type"] == "application/pdf"
+        assert pdf.content.startswith(b"%PDF")
+        assert len(calls) == 1
+        assert calls[0][0] == SessionPaths.report_md_path(SID).read_text(encoding="utf-8").strip()
+        assert calls[0][1] == str(SessionPaths.mindmap_png_path(SID))
+
+        # Unchanged report: served from the cache, not rendered again.
+        assert client.get(f"/report/{SID}/download", params={"format": "pdf"}).status_code == 200
+        assert len(calls) == 1
+
+        # A newer markdown (e.g. after reselect) invalidates the cache.
+        md = SessionPaths.report_md_path(SID)
+        pdf_file = SessionPaths.result_dir(SID) / f"class_report_{SID}.pdf"
+        newer = pdf_file.stat().st_mtime + 5
+        os.utime(md, (newer, newer))
+        assert client.get(f"/report/{SID}/download", params={"format": "pdf"}).status_code == 200
+        assert len(calls) == 2
+
+
+def test_pdf_render_failure_returns_500(client, session):
+    with _use_text_gen(FakeTextGen()):
+        _generate(client)
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("pango exploded")
+
+    with patch("components.report_generator.pdf_export.pdf_export_available", return_value=True),             patch("components.report_generator.pdf_export.markdown_to_pdf", boom):
+        pdf = client.get(f"/report/{SID}/download", params={"format": "pdf"})
+    assert pdf.status_code == 500
+    assert pdf.json()["detail"] == "Failed to convert report to PDF."
 
 
 def test_report_missing_returns_404(client, session):

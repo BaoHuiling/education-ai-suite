@@ -232,16 +232,19 @@ Frontend suggestion:
 Notes:
 - `format=docx` returns Word format (default if format is omitted).
 - If only `class_report.md` exists, the backend first generates `class_report.docx` and then returns it.
-- `format=pdf` performs server-side conversion from DOCX to PDF and returns the PDF file.
+- `format=pdf` returns a server-side PDF. Windows converts the DOCX with LibreOffice; Linux renders
+  `class_report.md` (with the uploaded mind-map image) with WeasyPrint.
 
 ---
 
 Additional PDF notes:
-- Requires `LibreOffice` (`soffice`) installed on the server.
-- Returns `501` when `soffice` is unavailable.
-- The Linux (Docker) app image does not include LibreOffice, so there `pdf_export` is `false` and
-  `format=pdf` returns `501`; DOCX is always available.
-- Reuses cached PDF when it exists and is up-to-date.
+- Windows: requires `LibreOffice` (`soffice`) on the server; returns `501` when it is unavailable.
+- Linux: the app image ships WeasyPrint, Pango and a CJK font (WenQuanYi Micro Hei) instead of
+  LibreOffice. Because the PDF is rendered from the markdown, its layout and styling differ from the
+  `.docx` template. Only the session's mind-map image is loaded; other URLs in the markdown are not
+  fetched. Returns `501` if WeasyPrint or Pango cannot be loaded.
+- Reuses cached PDF when it exists and is up-to-date (newer than the DOCX on Windows; newer than
+  `class_report.md` and the mind-map image on Linux).
 
 ---
 
@@ -260,7 +263,8 @@ Additional PDF notes:
 ```
 
 Notes:
-- `pdf_export` is `true` only when `LibreOffice` (`soffice`) is on the server's `PATH`.
+- `pdf_export` is `true` only when the PDF renderer is available: `LibreOffice` (`soffice`) on the
+  server's `PATH` on Windows, WeasyPrint with Pango on Linux.
 - Lets the frontend disable the PDF download option up front (with an install hint) instead of letting the user click and hit a `501`.
 - DOCX download is always available and is not gated by this flag.
 - Frontend suggestion: probe this before showing the PDF download option; treat a failed/unreachable request as `pdf_export: false` so an unsupported format is never offered.
@@ -321,4 +325,4 @@ Notes:
 - `404`: Mindmap image not found for session.
 - `503`: Report feature disabled or unavailable.
 - `500`: Server-side save/convert failure.
-- `501`: PDF export unavailable (`soffice` not installed).
+- `501`: PDF export unavailable (`soffice` not installed on Windows; WeasyPrint/Pango missing on Linux).

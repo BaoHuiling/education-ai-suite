@@ -426,7 +426,8 @@
   line-height: 1;
 }
 
-/* PDF row: disabled item + an info icon carrying the install hint. */
+/* PDF row: the item + an info icon carrying the layout notice (or why PDF is
+   unavailable). Hovering anywhere on the row shows the bubble. */
 .report-download-item-row {
   display: flex;
   align-items: center;
@@ -486,7 +487,7 @@
   pointer-events: none;
 }
 
-.report-pdf-hint:hover .report-pdf-hint-bubble,
+.report-download-item-row:hover .report-pdf-hint-bubble,
 .report-pdf-hint-bubble.open {
   visibility: visible;
   opacity: 1;

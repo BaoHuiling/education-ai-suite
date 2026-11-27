@@ -1489,7 +1489,7 @@ export async function downloadReportPdf(sessionId: string): Promise<void> {
 }
 
 // Which download formats the server can produce (GET /report/capabilities).
-// pdf_export is false when LibreOffice ('soffice') is missing, so the UI can
+// pdf_export is false when the PDF renderer (WeasyPrint) is missing, so the UI can
 // disable the PDF option up front instead of failing on click. Defaults to
 // pdf_export:false if the endpoint is unreachable, so we never offer a format
 // that can't be produced.

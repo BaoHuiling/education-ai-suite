@@ -16,8 +16,6 @@ through feature bootstrap during app startup.
 import json
 import os
 import logging
-import shutil
-import subprocess
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, File, HTTPException, Path, UploadFile, Query
@@ -42,18 +40,14 @@ REPORT_STAGE = "report"
 SessionIdPath = Annotated[str, Path(pattern=PATH_SAFE_SESSION_ID)]
 
 
-def _pdf_export_available() -> bool:
-    """True when server-side PDF conversion is possible (LibreOffice on PATH)."""
-    return shutil.which("soffice") is not None
-
-
-# The Linux app image ships without LibreOffice (it adds ~300-400 MB), so PDF
-# export is off by default; DOCX is always available.
+# The Linux app image has no LibreOffice, so the PDF is rendered from the report
+# markdown with WeasyPrint (components/report_generator/pdf_export.py). Its
+# layout differs from the .docx; an exact copy means exporting the DOCX to PDF
+# in Word/WPS.
 _PDF_UNAVAILABLE_DETAIL = (
-    "PDF export is unavailable because LibreOffice ('soffice') is not installed "
-    "in the app environment. Download the report as DOCX instead, or install "
-    "LibreOffice (e.g. 'apt-get install libreoffice-writer-nogui') and restart "
-    "the app."
+    "PDF export is unavailable because the PDF renderer (WeasyPrint and its Pango "
+    "libraries) is not installed in the app environment. Download the report as "
+    "DOCX instead."
 )
 
 
@@ -161,11 +155,13 @@ def get_report_template_fields():
 def get_report_capabilities():
     """Report which download formats the server can produce.
 
-    ``pdf_export`` is False when LibreOffice ('soffice') is not on PATH, so the
-    UI can disable the PDF option up front (with an install hint) instead of
-    letting the teacher click and hit a 501.
+    ``pdf_export`` is False when WeasyPrint (or its Pango libraries) cannot be
+    loaded, so the UI can disable the PDF option up front instead of letting the
+    teacher click and hit a 501.
     """
-    return {"pdf_export": _pdf_export_available()}
+    from components.report_generator.pdf_export import pdf_export_available
+
+    return {"pdf_export": pdf_export_available()}
 
 
 @router.post("/report/{session_id}/mindmap-image")
@@ -244,8 +240,11 @@ def download_report(
 
     Supported formats:
     - docx (default)
-    - pdf (server-side conversion via LibreOffice headless)
+    - pdf: rendered from the report markdown, so its layout differs from the
+      .docx (see components/report_generator/pdf_export.py)
     """
+    from components.report_generator.pdf_export import markdown_to_pdf, pdf_export_available
+
     session_dir, docx_path = _ensure_docx_report(session_id)
 
     if format == "docx":
@@ -255,52 +254,33 @@ def download_report(
             filename=f"class_report_{session_id}.docx",
         )
 
+    report_md_path = str(SessionPaths.report_md_path(session_id))
+    if not os.path.exists(report_md_path):
+        raise HTTPException(status_code=404, detail="Report not found. Generate it first.")
+    mindmap_path = str(SessionPaths.mindmap_png_path(session_id))
     pdf_path = os.path.join(session_dir, f"class_report_{session_id}.pdf")
 
-    # Reuse cached PDF when it is up to date.
-    if os.path.exists(pdf_path) and os.path.getmtime(pdf_path) >= os.path.getmtime(docx_path):
+    # Reuse the cached PDF while it is newer than everything it is built from.
+    sources = [report_md_path] + ([mindmap_path] if os.path.exists(mindmap_path) else [])
+    if os.path.exists(pdf_path) and os.path.getmtime(pdf_path) >= max(map(os.path.getmtime, sources)):
         return FileResponse(
             path=pdf_path,
             media_type="application/pdf",
             filename=f"class_report_{session_id}.pdf",
         )
 
-    soffice = shutil.which("soffice")
-    if not soffice:
+    if not pdf_export_available():
         raise HTTPException(status_code=501, detail=_PDF_UNAVAILABLE_DETAIL)
 
     try:
-        subprocess.run(
-            [
-                soffice,
-                "--headless",
-                "--norestore",
-                "--nolockcheck",
-                "--convert-to",
-                "pdf",
-                "--outdir",
-                session_dir,
-                docx_path,
-            ],
-            check=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
+        markdown_to_pdf(
+            StorageManager.read_text_file(report_md_path),
+            pdf_path,
+            mindmap_image_path=mindmap_path,
         )
-    except subprocess.CalledProcessError as e:
-        err = (e.stderr or e.stdout or "").strip()
-        logger.error("PDF conversion failed for session %s: %s", session_id, err)
+    except Exception as exc:  # noqa: BLE001 - any render failure is a 500 for this request
+        logger.error("PDF rendering failed for session %s: %s", session_id, exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to convert report to PDF.")
-
-    default_pdf = str(SessionPaths.report_pdf_path(session_id))
-    if os.path.exists(default_pdf) and default_pdf != pdf_path:
-        try:
-            os.replace(default_pdf, pdf_path)
-        except OSError:
-            pdf_path = default_pdf
-
-    if not os.path.exists(pdf_path):
-        raise HTTPException(status_code=500, detail="PDF conversion succeeded but output file was not found.")
 
     return FileResponse(
         path=pdf_path,

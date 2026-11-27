@@ -2,3 +2,9 @@ build-essential
 libpq-dev
 libgl1
 libglib2.0-0
+# Class report PDF export (WeasyPrint): Pango, HarfBuzz subsetting, CJK and Latin fonts
+libpango-1.0-0
+libpangoft2-1.0-0
+libharfbuzz-subset0
+fonts-wqy-microhei
+fonts-dejavu-core

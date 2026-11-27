@@ -106,10 +106,14 @@ re-running the AI:
 Open the **📥 Download** menu and choose a format:
 
 - **Word document (`.docx`)** - Always available.
-- **PDF document (`.pdf`)** - Available when LibreOffice is installed on the server. When it is
-  missing, the item is disabled with an install hint (`soffice` must be on the `PATH`).
-  The Linux (Docker) app image does not include LibreOffice, so there only the Word document is
-  available.
+- **PDF document (`.pdf`)**:
+  - **Windows:** available when LibreOffice is installed on the server, which converts the Word
+    document. When it is missing, the item is disabled with an install hint (`soffice` must be on
+    the `PATH`).
+  - **Linux (Docker):** always available. The PDF is generated from the report content shown in
+    the panel, so its layout and styling differ from the Word template; hovering the PDF item
+    says so. For a PDF that matches the template, download the Word document and export it to
+    PDF in Word or WPS.
 
 ![Download Menu](./_assets/report-download.png)
 
