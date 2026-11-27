@@ -5,23 +5,26 @@
 
 This file is part of the `onboarding-validation` skill instructions.
 
-## Branch/Tag checkout details
+## Source checkout details
 
-- Verify the docs instruct cloning/checking-out that exact ref.
-- After clone, run `git log -1 --format='%H'` and record the full commit SHA. This value MUST appear in the report Summary table.
-- **If the docs reference a different ref than the one under test, the agent still clones the prompt's `<ref>` and reports the mismatch — never Critical.** Because the agent *consciously* reproduces the correct version (from the prompt link) instead of blindly following the docs onto the wrong/undetermined commit, the run is never blocked, so this is **never Critical**. Two sub-cases:
-  - **Moving ref** in the docs (`main`, a release **branch** like `--branch release-2026.1`, `latest`, or any non-pinned target): the documented path is non-deterministic — a user who copies it later gets a different, moving commit — so report a reproducibility FAIL (**rule 10.2**) at **Major** severity (also fail **rule 1.3** if no exact tag/commit is named at all). It is **Major**, not a cosmetic Minor (a real defect a real user hits), and **never Critical** (the agent reproduced the pinned ref).
-  - **Different but fixed ref** — typically the docs already name the **final release tag/branch** while the prompt pins an **RC** (e.g. validating `…-rc2` against docs that point to the GA tag). The documented clone is itself deterministic (an exact tag), so the clone rules (1.3/10.2) may still PASS; this is an **expected, conscious** release-process discrepancy. The agent MUST clone the prompt's `<ref>` (the RC) and **note the mismatch in Execution Notes** for transparency. This is **not Critical** and is **not a reproducibility FAIL by itself**.
+- Resolve the prompt's repository, ref (branch, tag, or commit), and app path. Log the requested ref and its resolved commit, then verify the fresh checkout with `git rev-parse HEAD`. Put the full SHA in the Summary.
+- Inspect the guide's application clone and checkout instructions without rerunning them. Use the pinned checkout for the remaining documented steps, including dependency setup. Before launch, log the execution directory and verify `HEAD` still matches the pin. Do not launch from a different commit.
+- **Rule 1.3:** Grade whether the guide explicitly selects a branch, tag, or commit without making the reader guess. A named moving branch can PASS. Record a difference from the prompt ref in Execution Notes, even if both refs resolve to the same SHA.
+- **Rule 10.2:** A moving source ref in the documented path, including a release branch, is a **Major FAIL**, even if it matches the prompt or currently points to the pinned SHA. A different fixed release tag or commit is not a failure by itself.
 - **Submodule apps.** If the app folder is a git submodule of the base repo (it appears in the base repo's `.gitmodules`), the version under test is the commit the base ref pins for that submodule — its **gitlink SHA** — which is the ground truth **regardless of what the submodule's own documentation says to clone**. The agent MUST:
-  - Resolve the pinned commit and reproduce exactly it (do NOT clone the submodule's own repository directly — that bypasses the suite pin):
+  - Set `base_url`, `base_dir`, `base_sha` (the resolved suite commit), and `app_path` before running these commands. Stop if a command fails or either checkout differs from its pin. Do not switch to a branch tip or clone the submodule directly.
     ```bash
-    git clone --filter=blob:none --sparse --branch <ref> <base-repo> <base>
-    cd <base>
-    git ls-tree HEAD <submodule-path>                 # -> 160000 commit <PINNED_SHA> <path>
-    git sparse-checkout set <submodule-path>
-    git submodule update --init --recursive -- <submodule-path>
-    git -C <submodule-path> rev-parse HEAD            # MUST equal <PINNED_SHA>
+    git init "$base_dir"
+    cd "$base_dir"
+    git remote add origin "$base_url"
+    git fetch --no-tags --filter=blob:none origin "$base_sha"
+    git sparse-checkout set -- "$app_path"
+    git checkout --detach "$base_sha"
+    git rev-parse HEAD                               # must equal base_sha
+    git ls-tree HEAD -- "$app_path"                   # mode 160000; record the gitlink SHA
+    git submodule update --init --recursive -- "$app_path"
+    git -C "$app_path" rev-parse HEAD                 # must equal the gitlink SHA
     ```
   - Record BOTH SHAs in the Summary: base `Commit` and `Commit (submodule)` = `<PINNED_SHA>`.
   - Evaluate the clone rules (1.x) against the **app's** documented get-started, which lives inside the submodule at `<PINNED_SHA>`.
-  - If that documentation tells the user to clone the submodule repo at a moving ref (e.g., `main`) or at a commit other than `<PINNED_SHA>`, the documented path does NOT reproduce the released version — report it as a reproducibility FAIL (rule 10.2), exactly like the `main`-vs-tag discrepancy above.
+  - Apply the same ref grading to the submodule's guide. Note any difference from `<PINNED_SHA>`; it does not change the app checkout under test.

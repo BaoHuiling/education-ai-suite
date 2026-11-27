@@ -44,6 +44,7 @@ SEV_MINOR='Minor'
 RESULT_FAIL='FAIL'
 RESULT_CONDITIONAL='CONDITIONAL PASS'
 RESULT_PASS='PASS'
+RESULT_BLOCKED='BLOCKED'
 BAND_EXCELLENT='Excellent'
 BAND_GOOD='Good'
 BAND_FAIR='Fair'
@@ -73,12 +74,13 @@ fixture in `assets/sample-report.md` and against deliberately mutated copies of 
 
 ## Output Format
 
-The agent MUST NOT hand-write the report structure. It MUST create the report file from the
-generator, then fill in the values:
+The agent MUST NOT hand-write the report structure. Create the report from the bundled generator,
+then fill in the values. Run from the skill directory:
 
 ```bash
 export RULES_FILE="<absolute-path-to-this-skill>/references/rules-onboarding-validation.md"
-./scripts/reconcile-report.sh --emit-skeleton > "validation-reports/<application>-<date>-<commit8>.md"
+export REPORT_FILE="<absolute-path-to-new-report>"
+(set -C; ./scripts/reconcile-report.sh --emit-skeleton > "$REPORT_FILE")
 ```
 
 The skeleton already contains one Detailed Results row per rule (so no rule can be forgotten), both
@@ -91,21 +93,33 @@ The agent MUST save the report as a markdown file — NOT display it inline in c
 ./validation-reports/<application>-<date>-<commit8>.md
 ```
 
-Where `<application>` and `<date>` are the values from the report's Summary table (Application and Date fields), and `<commit8>` is the first 8 characters of the validated Commit SHA (for a git-submodule app, use the submodule's pinned SHA — it identifies the app version under test). Example: `validation-reports/live-video-captioning-2026-05-29-b13c69c9.md`. Including the short commit keeps two runs of the same app on the same day from overwriting each other (a re-run against a different commit produces a distinct file).
+Where `<application>` and `<date>` are the values from the report's Summary table (Application and Date fields), and `<commit8>` is the first 8 characters of the validated Commit SHA (for a git-submodule app, use the submodule's pinned SHA — it identifies the app version under test).
 
-The agent MUST create the `validation-reports/` directory if it does not exist.
+Create the output directories if needed. Choose one unused stem for both files; if either path exists (including symlinks) or creation detects a collision, try `-run2`, `-run3`, etc. Use no-clobber creation for both; never overwrite or append to prior artifacts. Report other write errors and edit or reconcile only this run's report.
 
 ### Process log (second artifact)
 
-Every run produces **two** files: this report **and** a process log — the terminal transcript started in Execution step 1. After finishing the run (and after `exit` flushes the `script` session), the agent MUST copy the transcript to:
+Every run produces **two** files: this report **and** a process log — the terminal transcript started in Execution step 1. After finishing the run and closing the interactive transcript or completing all non-interactive `script` invocations, the agent MUST copy the flushed transcript to:
 
 ```text
 ./validation-logs/<application>-<date>-<commit8>.log
 ```
 
-It uses the **same `<application>-<date>-<commit8>` stem** as the report; create `validation-logs/` if missing. The log is the verbatim record of what the agent actually ran — it exists so the **Evaluation** layer can independently confirm the report's claims are backed by real command output (Charter principle 1, *evidence over opinion*). Therefore **every PASS/FAIL verdict's evidence MUST be traceable to a command in this log**; if a check could not be backed by a logged command, mark that rule **N/A** and explain in Execution Notes.
+Use the **same stem** as the report, including any run suffix. With `LOG_FILE` set to the output path, copy using `(set -C; cat "$RUN_LOG" > "$LOG_FILE")`. Every PASS/FAIL must be traceable through the log to actual evidence: command and output, a browser action and its captured result, or a cited file/line for inspection. For browser evidence, log the observer, action and evidence reference; do not use a successful terminal probe as evidence of browser output. If evidence is insufficient, mark the rule **N/A** and explain in Execution Notes.
+
+Before sharing, scan both files locally for common secret indicators (e.g., private key headers, bearer tokens, and credential fields). Use an available local scanner or text search that returns only file names and line numbers, not matched text. Do not load either file into the model for a full reread. Resolve flagged lines locally and redact sensitive values while preserving verdict evidence. Withhold any artifact if the check fails or a finding cannot be resolved safely. Reassess affected verdicts and reconcile again only if redaction leaves insufficient evidence.
 
 The report MUST use the following structure. It MUST begin with a top-level title — `# Onboarding Validation Report: <App Display Name>` — where `<App Display Name>` is the application's full name from its README (the top `#` heading), e.g. `# Onboarding Validation Report: Live Video Captioning`. The remaining sections follow in this order:
+
+The skeleton defaults to BLOCKED. Retain its alert immediately below the title for
+BLOCKED reports; remove it otherwise:
+
+```markdown
+> [!CAUTION]
+> **BLOCKED — functional output has not been verified (rule 7.6).**
+```
+
+This uses the renderer's warning styling, not unsupported custom background colors.
 
 ### Summary
 
@@ -144,27 +158,34 @@ the agent, write `unknown (self-reported)`. The agent also echoes both values in
 
 The UX score bar uses Unicode block characters: `█` for filled positions and `░` for empty. Always **50 characters** total. Filled count = `round(score * 5)` (each character = 0.2 points; score 8.4 → 42 filled + 8 empty). The score value and band follow on the same line. The bar MUST be in a fenced code block for consistent monospace rendering.
 
+For BLOCKED, replace the heading and score bar with
+`**Overall UX Score**: N/A (BLOCKED)` and leave dimension ratings N/A.
+
 | Total Rules | ✅ PASS | 🔴 FAIL (Critical) | 🟠 FAIL (Major) | 🟡 FAIL (Minor) | ⚪ N/A |
 |-------------|------|-----------------|-----------------|-----------------|-----|
 | X           | X    | X               | X               | X               | X   |
 
-**Overall Result**: PASS / CONDITIONAL PASS / FAIL
+**Overall Result**: PASS / CONDITIONAL PASS / FAIL / BLOCKED
 
 ### User Experience Summary
 
 A reader-facing view of how hard the application is to onboard. See "User Experience Score" for the model. This section has two tables. Use **plain text** for bands — do NOT use status icons here, so the U+00A0 rule does not apply.
 
-**Measured UX Facts** — objective numbers observed during the run (these carry the nuance the score cannot: a deploy of 19 s and one of 4 min 59 s both PASS rule 4.1, but the reader sees the difference here):
+**Measured UX Facts** — use timings and logs from this run. Do not reclone, shape traffic, or change assets to measure performance.
+
+- Log when checkout starts and when required source is ready, including sparse materialization. If required submodules are fetched later during setup, report that time separately when known. Label a different clone procedure as **validator checkout**.
+- Separate model, sample-data, and image downloads from local preparation and startup when the logs support it. Note what was cached. If phases are bundled, report their combined elapsed time once; do not estimate individual timings.
+- Report first useful result as wall-clock time from the earliest of source checkout or required documented preparation performed in this run to the first observed result defined by 7.6. List any required preparation not timed (e.g., Docker was already installed) and label the total as partial; do not rerun or estimate it. Note material validator-only pauses, report an upper bound if the first result was detected by polling, and do not add overlapping phase times. If no result was verified, record N/A and the reason.
 
 | # | Metric | Value | Target | Source |
 |---|--------|-------|--------|--------|
 | 1 | Clone size | … | ≤ 100 MB | rule 1.2 |
-| 2 | Clone time | … | < 2 min | rule 1.5 |
+| 2 | Source checkout time | … | < 2 min (advisory) | rule 1.5 |
 | 3 | Get-started steps | … | ≤ 4 | rule 5.1 |
 | 4 | Start commands | … | 1 | rule 4.2 |
 | 5 | App start (deploy) | … | < 5 min | rule 4.1 |
-| 6 | One-time model prep | … | one-time | rule 4.4 |
-| 7 | Time-to-first-result | … | n/a | rule 7.6 |
+| 6 | First-run downloads and preparation | … | n/a | process log |
+| 7 | Time to first useful result | … | n/a | process log / rule 7.6 |
 | 8 | Image size | … | ≤ 30 GB | rule 9.1 |
 | 9 | Peak RAM | … | ≤ 80% of min | rule 9.2 |
 | 10 | External tools | … | ≤ 3 | rule 2.2 |
@@ -192,21 +213,39 @@ Use the `Short` column from the rules tables as the rule label:
 | 1.1 | Partial clone used | ✅ PASS / ❌ FAIL / ⚪ N/A | Critical/Major/Minor/— | ... |
 | ... | ... | ... | ... | ... |
 
+In **Evidence / Reason**, use inline Markdown links (`[label](URL)`) in the cell, with a descriptive label and a brief explanation of what the evidence shows. Do not use reference-style links (`[label][id]`), end-of-report link definitions, or citation keys. For example: `[README: Quick Start, line 25](https://github.com/owner/repo/blob/<commit>/README.md?plain=1#L25) — lists the required setup steps`.
+
+Pin GitHub file links to the validated commit and anchor to the cited lines when known. For Markdown files, add `?plain=1` before the anchor to open the source view. Use relative links for local artifacts available alongside the report. If no link is available, state the evidence or reason directly; do not invent a link.
+
 ### Critical Issues
 
-List each FAIL that prevents the user from reaching a working application.
+Name every rule marked Critical FAIL in Detailed Results and no other rules. Group related failures by root cause; the number of items need not match the number of failures.
 
 ### Recommendations
 
-Suggested fixes grouped by severity (Critical first, then Major, then Minor). Each recommendation MUST reference the rule ID it addresses.
+Group suggested fixes by severity (Critical first, then Major, then Minor). Cover every FAIL, and reference every rule ID addressed by each recommendation. Related failures may share a recommendation.
 
 ### Execution Notes
 
 Document any procedural issues (agent retries, timing anomalies, network issues unrelated to the app).
 
+For bounded recovery, record the original instruction and observed error (or
+why it was unsafe to run), the exact change and its justification, the recovery
+result, and affected rule IDs. Label downstream evidence collected after recovery.
+
+Record verification-readiness probes, deferred app-dependent checks and capture
+timing. For an early stop, name the missing capability/input and costly steps
+not attempted; distinguish validator limitations from app/documentation defects.
+
+For remote/browser checks, record the evidence-backed access mapping actually
+used, probe results, corrections and cleanup as required by `remote-access.md`.
+For TLS diagnostics, record the error, documented trust instructions (or their absence),
+compared public certificate fingerprints and their sources, trust scope, and outcome.
+Never include private keys.
+
 ## User Experience Score (MANDATORY)
 
-In addition to the per-rule verdicts and the Overall Result, the agent MUST compute a single **Overall UX Score (1–10)** plus a per-dimension breakdown, and present them in the report's **User Experience Summary** section. The score is **fully derived from the rule verdicts** — it adds no subjective input (Charter principle 1, *evidence over opinion*). It is deterministic: the same verdicts always yield the same score, and `scripts/reconcile-report.sh` recomputes it from the Detailed Results table and FAILS the report if the declared value does not match.
+Except for BLOCKED reports, the agent MUST compute a single **Overall UX Score (1–10)** plus a per-dimension breakdown, and present them in the report's **User Experience Summary** section. The score is **fully derived from the rule verdicts** — it adds no subjective input (Charter principle 1, *evidence over opinion*). It is deterministic: the same verdicts always yield the same score, and `scripts/reconcile-report.sh` recomputes it from the Detailed Results table and FAILS the report if the declared value does not match. BLOCKED reports have no numeric score or band.
 
 ### Dimensions and weights (canonical)
 

@@ -68,6 +68,7 @@ SEV_MINOR='Minor'
 RESULT_FAIL='FAIL'
 RESULT_CONDITIONAL='CONDITIONAL PASS'
 RESULT_PASS='PASS'
+RESULT_BLOCKED='BLOCKED'
 
 # --- UX bands ----------------------------------------------------------------
 BAND_EXCELLENT='Excellent'
@@ -146,8 +147,7 @@ band_for_score() {
 # =============================================================================
 
 emit_skeleton() {
-  local rules_file="$1" total id short bar rules_version skill_version
-  bar=$(printf '░%.0s' $(seq 1 50))
+  local rules_file="$1" total id short rules_version skill_version
   total=$(extract_rules "$rules_file" | wc -l | tr -d ' ')
   [[ "$total" -gt 0 ]] || die "No rules extracted from $rules_file. Check file format."
 
@@ -156,6 +156,9 @@ emit_skeleton() {
 
   cat <<EOF
 # Onboarding Validation Report: <App Display Name>
+
+> [!CAUTION]
+> **BLOCKED — functional output has not been verified (rule 7.6).**
 
 ### Summary
 
@@ -177,17 +180,13 @@ emit_skeleton() {
 | NPU | <npu, or "not found"> |
 | Documentation path followed | <ordered list of documents and sections> |
 
-**Overall UX Score**
-
-\`\`\`text
-$bar 0.0 / 10 — $BAND_VERY_POOR
-\`\`\`
+**Overall UX Score**: N/A (BLOCKED)
 
 | Total Rules | ${ICON_PASS}${NBSP}PASS | 🔴${NBSP}FAIL (Critical) | 🟠${NBSP}FAIL (Major) | 🟡${NBSP}FAIL (Minor) | ${ICON_NA}${NBSP}N/A |
 |-------------|------|-----------------|-----------------|-----------------|-----|
 | $total | 0 | 0 | 0 | 0 | 0 |
 
-**Overall Result**: $RESULT_PASS
+**Overall Result**: $RESULT_BLOCKED
 
 ### User Experience Summary
 
@@ -196,12 +195,12 @@ $bar 0.0 / 10 — $BAND_VERY_POOR
 | # | Metric | Value | Target | Source |
 |---|--------|-------|--------|--------|
 | 1 | Clone size | | ≤ 100 MB | rule 1.2 |
-| 2 | Clone time | | < 2 min | rule 1.5 |
+| 2 | Source checkout time | | < 2 min (advisory) | rule 1.5 |
 | 3 | Get-started steps | | ≤ 4 | rule 5.1 |
 | 4 | Start commands | | 1 | rule 4.2 |
 | 5 | App start (deploy) | | < 5 min | rule 4.1 |
-| 6 | One-time model prep | | one-time | rule 4.4 |
-| 7 | Time-to-first-result | | n/a | rule 7.6 |
+| 6 | First-run downloads and preparation | | n/a | process log |
+| 7 | Time to first useful result | | n/a | process log / rule 7.6 |
 | 8 | Image size | | ≤ 30 GB | rule 9.1 |
 | 9 | Peak RAM | | ≤ 80% of min | rule 9.2 |
 | 10 | External tools | | ≤ 3 | rule 2.2 |
@@ -279,6 +278,10 @@ fi
 [[ -f "$FORMAT_FILE" ]] || die "Report format reference not found: $FORMAT_FILE"
 
 ERRORS=0
+
+awk 'index($0, "<!--") {
+  printf "WARNING: Unexpected HTML comment at line %d; remove it from the report (non-blocking).\n", NR
+}' "$REPORT_FILE"
 
 # 0. Assert both table headers BEFORE any positional parsing. Without this, an added or reordered
 #    column would silently shift COL_RESULT/COL_SEVERITY and produce wrong counts instead of an
@@ -427,11 +430,17 @@ if [[ "$BADICON_COUNT" -gt 0 ]]; then
   ERRORS=1
 fi
 
-# 8. Cross-check the headline Overall Result against the computed FAIL counts (structural --
-#    no rule IDs). FAIL iff >=1 Critical; CONDITIONAL PASS iff 0 Critical and >=1 Major/Minor;
-#    PASS iff zero FAILs. Catches a verdict that contradicts its own defect counts.
+# 8. Critical FAILs take precedence; otherwise verified functional output gates positive results.
+FUNCTIONAL_RESULT=$(awk -F'|' -v ROW="$RULE_ROW_RE" -v CI="$COL_ID" -v CR="$COL_RESULT" '
+  $0 ~ ROW {
+    id=$CI; gsub(/^[ \t]+|[ \t]+$/, "", id)
+    if (id=="7.6") { r=$CR; gsub(/^[ \t]+|[ \t\r]+$/, "", r); print r }
+  }
+' "$REPORT_FILE")
 if [[ "$CRITICAL" -gt 0 ]]; then
   EXPECTED_RESULT="$RESULT_FAIL"
+elif [[ "$FUNCTIONAL_RESULT" != "${ICON_PASS}${NBSP}${RESULT_PASS}" ]]; then
+  EXPECTED_RESULT="$RESULT_BLOCKED"
 elif [[ $((MAJOR + MINOR)) -gt 0 ]]; then
   EXPECTED_RESULT="$RESULT_CONDITIONAL"
 else
@@ -445,8 +454,8 @@ if [[ -z "$DECLARED_RESULT" ]]; then
   echo "ERROR: Could not find the '**Overall Result**:' line in the report."
   ERRORS=1
 elif [[ "$DECLARED_RESULT" != "$EXPECTED_RESULT_UC" ]]; then
-  echo "ERROR: Overall Result is '$DECLARED_RESULT' but the counts (Critical=$CRITICAL, Major=$MAJOR, Minor=$MINOR) require '$EXPECTED_RESULT'."
-  echo "       FAIL needs >=1 Critical; CONDITIONAL PASS needs 0 Critical + >=1 Major/Minor; PASS needs zero FAILs."
+  echo "ERROR: Overall Result is '$DECLARED_RESULT' but Critical=$CRITICAL, Major=$MAJOR, Minor=$MINOR and rule 7.6='$FUNCTIONAL_RESULT' require '$EXPECTED_RESULT'."
+  echo "       Critical FAIL takes precedence; otherwise rule 7.6 must PASS before PASS/CONDITIONAL PASS is allowed."
   ERRORS=1
 fi
 
@@ -477,8 +486,16 @@ UX_LINE=$(grep -E "$UX_INLINE_RE" "$REPORT_FILE" | head -1 || true)
 if [[ -z "$UX_LINE" ]]; then
   UX_LINE=$(grep -E "$UX_BAR_RE" "$REPORT_FILE" | head -1 || true)
 fi
+UX_LINE=${UX_LINE%$'\r'}
 
-if [[ -z "$UX_LINE" ]]; then
+if [[ "$EXPECTED_RESULT" == "$RESULT_BLOCKED" ]]; then
+  if [[ "$UX_LINE" != '**Overall UX Score**: N/A (BLOCKED)' ]] \
+      || grep -qE "$UX_BAR_RE" "$REPORT_FILE"; then
+    echo "ERROR: BLOCKED requires '**Overall UX Score**: N/A (BLOCKED)' without a numeric score bar."
+    ERRORS=1
+  fi
+  echo "UX_SUMMARY: Overall UX Score = N/A (BLOCKED)"
+elif [[ -z "$UX_LINE" ]]; then
   echo "ERROR: No Overall UX Score found (inline or code block). The score is mandatory."
   ERRORS=1
 else

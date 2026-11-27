@@ -13,7 +13,7 @@ the report format contract changes.
 | Field | Value |
 |-------|-------|
 | Rules Version | 1.4.0 |
-| Skill Version | 1.13.0 |
+| Skill Version | 1.14.0 |
 | AI agent | sample-harness (fixture) |
 | Model | sample-model (fixture) |
 | Date | 2026-07-31 |
@@ -113,7 +113,7 @@ the report format contract changes.
 | 7.3 | Health-check per service | ✅ PASS | — | verified in the process log (sample) |
 | 7.4 | Actionable error messages | ✅ PASS | — | verified in the process log (sample) |
 | 7.5 | All services healthy | ✅ PASS | — | verified in the process log (sample) |
-| 7.6 | Functional output verified | ⚪ N/A | — | not applicable to this deployment method (sample) |
+| 7.6 | Functional output verified | ⚪ N/A | — | not tested because deployment failed (sample) |
 | 8.1 | Single teardown command | ✅ PASS | — | verified in the process log (sample) |
 | 8.2 | No orphan resources | ✅ PASS | — | verified in the process log (sample) |
 | 8.3 | Teardown documented | ❌ FAIL | Major | documented step missing (sample) |

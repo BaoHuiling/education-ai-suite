@@ -5,9 +5,9 @@
 
 | Field | Value |
 |-------|-------|
-| Skill version | 1.13.0 |
+| Skill version | 1.14.0 |
 | Rules version | 1.4.0 |
-| Date | 2026-07-31 |
+| Date | 2026-11-12 |
 | Status | Manual validation complete; automated benchmark pending |
 
 ## Summary
@@ -37,7 +37,7 @@ kept as-is rather than back-filled from memory; every run from 1.13.0 on records
 
 ## Eval coverage policy
 
-Evals cover classes of skill behavior (docker-compose, Helm/K8s, submodule, two negative trigger cases, and self-test integrity), not inventory of applications. All `should_trigger` scenarios are instances of one parameterized prompt template (`example-prompts/01-validate-onboarding.md`), so the eval set does not grow with the number of validated applications.
+Evals cover classes of skill behavior, not an inventory of applications. Application scenarios use `example-prompts/01-validate-onboarding.md`. Defined scenarios are not executed tests.
 
 ## Skill Integrity Checks
 
@@ -46,10 +46,11 @@ any change to the skill.
 
 | Check | Method | Result |
 |-------|--------|--------|
-| Golden fixture reconciles cleanly (76 rules) | `scripts/self-test.sh` [1/5] | PASS |
-| Contract mutations are detected (missing rule, summary drift, wrong UX score, U+00A0, column insert, missing run identity) | `scripts/self-test.sh` [2/5] | PASS |
-| Generated skeleton covers exactly one row per rule, and an unfilled skeleton is rejected | `scripts/self-test.sh` [3/5] | PASS |
-| Format contract in the checker matches `references/report-format.md` | `scripts/self-test.sh` [4/5] | PASS |
-| All reference files reachable from SKILL.md, all relative links resolve | `scripts/self-test.sh` [5/5] | PASS |
+| Golden fixture reconciles cleanly (76 rules) | `scripts/self-test.sh` [1/6] | PASS |
+| Contract mutations are detected (missing rule, summary drift, wrong UX score, U+00A0, column insert, missing run identity) | `scripts/self-test.sh` [2/6] | PASS |
+| Rule 7.6 gates positive results; BLOCKED suppresses UX score; Critical FAIL retains precedence | `scripts/self-test.sh` [3/6] | PASS |
+| Generated skeleton covers exactly one row per rule, and an unfilled skeleton is rejected | `scripts/self-test.sh` [4/6] | PASS |
+| Format contract in the checker matches `references/report-format.md` | `scripts/self-test.sh` [5/6] | PASS |
+| All reference files reachable from SKILL.md, all relative links resolve | `scripts/self-test.sh` [6/6] | PASS |
 | Structure & spec compliance | `skill-validator check` | PASS |
 | Instruction quality (clarity / actionability / novelty) | `skill-validator score evaluate` | *(result)* |

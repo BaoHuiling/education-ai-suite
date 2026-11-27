@@ -5,8 +5,8 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 1.4.0 |
-| Date | 2026-07-21 |
+| Version | 1.6.0 |
+| Date | 2026-11-25 |
 | Status | Active |
 
 These rules define the expected behavior of an application from the customer perspective.
@@ -24,10 +24,10 @@ Written in ASD-STE100 Simplified Technical English.
 | ID | Short | Rule |
 |----|-------|------|
 | 1.1 | Partial clone used | The clone command MUST use partial cloning (`--filter=blob:none --sparse`) to prevent unnecessary network load. |
-| 1.2 | Clone size ≤ 100 MB | The total data downloaded during clone MUST NOT exceed 100 MB for a single application. |
-| 1.3 | Branch/tag specified | The clone instruction MUST specify the exact branch or tag. The user MUST NOT need to find the correct version. |
+| 1.2 | Clone size ≤ 100 MB | Source checkout downloads MUST NOT exceed 100 MB for a single application. Grade measured transfer bytes for the documented checkout; use N/A if unavailable. Checkout disk size is not transfer evidence. |
+| 1.3 | Source ref specified | The guide MUST explicitly select the branch, tag, or commit the user should check out. Grade moving refs under 10.2, not here. |
 | 1.4 | Sparse-checkout scoped | The sparse-checkout path MUST include only the necessary suite folder. The user MUST NOT download unrelated suites. |
-| 1.5 | Clone time < 2 min | The clone step MUST complete in less than 2 minutes on a 50 Mbps connection. |
+| 1.5 | Source checkout time | Record the observed time to a ready source checkout. The 2-minute target is advisory, regardless of bandwidth. Mark this row N/A (not scored) and cite the timing or explain why it is unavailable. |
 
 ## 2. Prerequisites and Dependencies
 
@@ -57,7 +57,7 @@ Written in ASD-STE100 Simplified Technical English.
 
 | ID | Short | Rule |
 |----|-------|------|
-| 4.1 | Full deploy < 5 min | The full deployment (image pull + container start + model load) MUST complete in less than 5 minutes on a system that meets the minimum requirements. |
+| 4.1 | Full deploy < 5 min | Deployment (image pull, container start, and model load) MUST complete in less than 5 minutes on a system that meets the minimum requirements. Exclude one-time model or sample preparation. If bundled timing cannot establish the deployment threshold, report the combined time and use N/A. |
 | 4.2 | Single start command | All services MUST start with a single `docker compose up`, `helm install`, or `docker run` command. For single-container applications using the `docker` deployment method, a documented thin wrapper (e.g., a `just` recipe that delegates to `docker run` with fixed arguments) is acceptable. Generic wrapper scripts (e.g., `make run`, `./start.sh`) that hide the underlying command are a FAIL (Major) even if they function correctly. Multiple commands (e.g., `make build && make up`) are also Major. |
 | 4.3 | Auto-healthy containers | All containers MUST reach a healthy state without manual intervention. |
 | 4.4 | Auto model provisioning | If model download is necessary, it MUST be triggered by a single documented command. It MAY run separately from the main deployment and MUST be documented as a one-time setup step. The deployment time threshold (rule 4.1) applies to the application start command — not to model preparation. |
@@ -86,12 +86,12 @@ Written in ASD-STE100 Simplified Technical English.
 
 | ID | Short | Rule |
 |----|-------|------|
-| 7.1 | Clear verification step | The documentation MUST include a clear verification step (e.g., "Open the dashboard at `http://localhost:4173`"). |
+| 7.1 | Clear verification step | The documentation MUST include a clear verification step (e.g., "Open the dashboard at `http://localhost:4173`"). If that step uses self-signed HTTPS, the guide MUST describe the expected certificate warning and how to proceed safely for the sample. An observed self-signed trust error at the documented endpoint with no valid documented handling is a Major FAIL. |
 | 7.2 | UI ready in 60s | The application MUST show a functional UI within 60 seconds after all containers report healthy status. |
 | 7.3 | Health-check per service | The application MUST provide a health-check endpoint or a container health status for each service. |
 | 7.4 | Actionable error messages | Error messages MUST be clear and actionable. The user MUST NOT need to read source code to troubleshoot. |
 | 7.5 | All services healthy | Container status MUST show all services as running or healthy when deployment is correct. For docker-compose: `docker compose ps`; for docker (single-container): `docker ps --filter name=<container>`. |
-| 7.6 | Functional output verified | The agent MUST confirm the application produces its expected functional output (e.g., captions appear on video, objects are detected, data is processed). Healthy containers and a loading UI alone do NOT constitute a passing result. |
+| 7.6 | Functional output verified | Before execution, identify the primary result and its trigger from the selected get-started guide. Verify the essential parts of that result from this run, not optional features. Startup or request acceptance alone is not functional evidence. Use FAIL when evidence shows the primary result is missing or incorrect, and N/A when it cannot be evaluated. |
 
 ## 8. Cleanup and Teardown
 
@@ -184,11 +184,11 @@ These values are engineering decisions based on practical constraints of the tar
 | Threshold | Value | Rationale |
 |-----------|-------|-----------|
 | Clone size (rule 1.2) | ≤ 100 MB | Most app folders are 1–20 MB. Some outliers (e.g., apps bundling large assets) reach 100+ MB — those need to move large files to container images or download scripts. |
-| Clone time (rule 1.5) | < 2 min | 100 MB on 50 Mbps takes ~17s. 2 min gives margin for slow connections and git overhead. |
+| Source checkout time (rule 1.5) | < 2 min (advisory) | Report the user-visible wait. A slow checkout alone does not establish an application defect. |
 | External tools (rule 2.2) | Max 3 | The natural set for containerized deployment: git + Docker + Compose (or Helm + kubectl). Anything beyond this adds onboarding friction disproportionate to the benefit. |
 | Full deploy (rule 4.1) | < 5 min | Practical upper bound for the application start command (excludes one-time model/image download per rule 4.4): a user waiting longer will context-switch or abandon. Validated against measurements from validation runs. |
 | Steps (rule 5.1) | 3–4 steps | Base workflow: clone → run → verify. One optional automated step (model/data preparation) is allowed before deployment. This acknowledges that large model downloads (5–20 GB) are impractical to embed in `docker compose up` but must still be a single command — not a multi-step manual process. |
 | UI ready (rule 7.2) | 60s | After healthy status, the app should serve immediately. 60s allows for deferred initialization (e.g., model loads on first request). Beyond that, users assume failure and refresh. |
 | Images (rule 9.1) | ≤ 30 GB | 30 GB per app allows running multiple applications on the same host without filling the disk. |
-| Sample data (rule 12.3) | ≤ 500 MB | Must be downloadable in ~2 min on the reference 50 Mbps connection. Enough for a meaningful demo (e.g., 30s video, small dataset). |
+| Sample data (rule 12.3) | ≤ 500 MB | Keep the required sample small enough for a meaningful first run; larger datasets are optional. |
 | UI discoverable (rule 16.3) | 30s | If a user opens the dashboard and cannot figure out how to start within 30s, the UI needs better labeling. Based on informal usability testing of similar tools. |
